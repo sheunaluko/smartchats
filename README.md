@@ -56,6 +56,5 @@ Stack: Next.js 14 (App Router) · TypeScript · Tailwind 3 · GSAP · lucide-rea
 
 **Sheun Aluko, MD, MS** — Founder & CEO
 
-- ✉ [shay@sattvicsystems.com](mailto:shay@sattvicsystems.com)
 - 💼 [LinkedIn](https://www.linkedin.com/in/sheun-aluko/)
 - 🎤 Demo on request
