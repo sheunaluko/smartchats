@@ -21,32 +21,37 @@ gsap.registerPlugin(ScrollTrigger);
    ═══════════════════════════════════════════════════════════════ */
 function SmartChatsMark({ size = 28 }: { size?: number }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 100 100" aria-label="SmartChats">
-      <defs>
-        <linearGradient id="sc-logo-grad" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" stopColor="#9ec5ff" />
-          <stop offset="100%" stopColor="#3b82f6" />
-        </linearGradient>
-      </defs>
-      <circle cx="50" cy="50" r="48" fill="#0a0a0a" />
-      <g className="sc-c-spin">
+    <span
+      className="sc-mark-wrap"
+      style={{ width: size, height: size, display: 'inline-block' }}
+    >
+      <svg width={size} height={size} viewBox="0 0 100 100" aria-label="SmartChats" style={{ display: 'block' }}>
+        <defs>
+          <linearGradient id="sc-logo-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stopColor="#9ec5ff" />
+            <stop offset="100%" stopColor="#3b82f6" />
+          </linearGradient>
+        </defs>
+        <circle cx="50" cy="50" r="48" fill="#0a0a0a" />
+        <g className="sc-c-spin">
+          <path
+            d="M 72 28 A 31 31 0 1 0 72 72"
+            fill="none"
+            stroke="url(#sc-logo-grad)"
+            strokeWidth="6"
+            strokeLinecap="round"
+          />
+        </g>
         <path
-          d="M 72 28 A 31 31 0 1 0 72 72"
+          d="M 60 36 C 52 30, 38 32, 38 40 C 38 48, 62 46, 62 56 C 62 66, 46 68, 38 62"
           fill="none"
-          stroke="url(#sc-logo-grad)"
-          strokeWidth="6"
+          stroke="#ffffff"
+          strokeWidth="5"
           strokeLinecap="round"
+          className="sc-s-spin"
         />
-      </g>
-      <path
-        d="M 60 36 C 52 30, 38 32, 38 40 C 38 48, 62 46, 62 56 C 62 66, 46 68, 38 62"
-        fill="none"
-        stroke="#ffffff"
-        strokeWidth="5"
-        strokeLinecap="round"
-        className="sc-s-spin"
-      />
-    </svg>
+      </svg>
+    </span>
   );
 }
 
@@ -63,35 +68,39 @@ function VoiceWave({ className, intensity = 1 }: { className?: string; intensity
     if (!canvas) return;
     const ctx = canvas.getContext('2d')!;
     let t = 0;
+    let visible = true;
+    let running = false;
 
     const resize = () => {
       const dpr = window.devicePixelRatio || 1;
       canvas.width = canvas.offsetWidth * dpr;
       canvas.height = canvas.offsetHeight * dpr;
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.scale(dpr, dpr);
     };
     resize();
     window.addEventListener('resize', resize);
 
     const waves = [
-      { amp: 70, freq: 0.0055, speed: 0.6, alpha: 0.55, width: 1.5 },
-      { amp: 45, freq: 0.009,  speed: 1.0, alpha: 0.30, width: 1.0 },
-      { amp: 25, freq: 0.014,  speed: 1.6, alpha: 0.18, width: 0.8 },
+      { amp: 70, freq: 0.0055, speed: 0.6, alpha: 0.55, width: 1.8 },
+      { amp: 45, freq: 0.009,  speed: 1.0, alpha: 0.30, width: 1.2 },
+      { amp: 25, freq: 0.014,  speed: 1.6, alpha: 0.18, width: 0.9 },
     ];
 
     const draw = () => {
+      if (!visible) { running = false; return; }
       const w = canvas.offsetWidth;
       const h = canvas.offsetHeight;
       ctx.clearRect(0, 0, w, h);
       t += 0.006;
 
+      // No shadowBlur — it forces an offscreen pass + blur + composite for
+      // every stroke. Slightly thicker strokes preserve the visual presence
+      // at a fraction of the per-frame cost.
       waves.forEach(wave => {
-        ctx.save();
         ctx.beginPath();
         ctx.strokeStyle = `rgba(99, 162, 255, ${wave.alpha * intensity})`;
         ctx.lineWidth = wave.width;
-        ctx.shadowColor = `rgba(99, 162, 255, ${wave.alpha * 0.4 * intensity})`;
-        ctx.shadowBlur = 8;
         for (let x = 0; x <= w; x += 2) {
           const y = h / 2 +
             Math.sin(x * wave.freq + t * wave.speed) * wave.amp * intensity +
@@ -99,16 +108,35 @@ function VoiceWave({ className, intensity = 1 }: { className?: string; intensity
           x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
         }
         ctx.stroke();
-        ctx.restore();
       });
 
       animRef.current = requestAnimationFrame(draw);
     };
-    draw();
+
+    const start = () => {
+      if (running) return;
+      running = true;
+      animRef.current = requestAnimationFrame(draw);
+    };
+
+    // Pause the loop entirely once the hero scrolls out of view.
+    const io = new IntersectionObserver(
+      (entries) => {
+        const e = entries[0];
+        visible = e.isIntersecting;
+        if (visible) start();
+      },
+      { threshold: 0 }
+    );
+    io.observe(canvas);
+    start();
 
     return () => {
       window.removeEventListener('resize', resize);
       cancelAnimationFrame(animRef.current);
+      io.disconnect();
+      visible = false;
+      running = false;
     };
   }, [intensity]);
 
@@ -370,10 +398,13 @@ function ProductDemo() {
           </div>
         </div>
 
-        {/* Timeline */}
-        <div className="grid lg:grid-cols-[1.1fr_1fr] min-h-[460px]">
+        {/* Timeline. Both columns get an explicit min-h so the demo's overall
+           height is stable across the script loop — without this, the left
+           column collapses from ~5 entries back to 1 every ~14s and pumps
+           the page layout below. */}
+        <div className="grid lg:grid-cols-[1.1fr_1fr]">
           {/* Left: conversation timeline */}
-          <div key={`script-${scriptIdx}`} className="p-5 space-y-3 border-b lg:border-b-0 lg:border-r border-white/5">
+          <div key={`script-${scriptIdx}`} className="p-5 space-y-3 border-b lg:border-b-0 lg:border-r border-white/5 min-h-[460px]">
             {visible.map((s, i) => <DemoEntry key={`${scriptIdx}-${i}`} step={s} />)}
             {visible.length === 0 && (
               <div className="flex items-center gap-2 text-white/40 text-sm py-12 justify-center">
@@ -819,13 +850,25 @@ export default function LandingPage() {
     return () => ctx.revert();
   }, []);
 
-  /* Nav scroll state */
+  /* Nav scroll state — rAF-throttled, only writes when state actually flips
+     (avoids style-invalidation churn that piles up during smooth-scroll). */
   useEffect(() => {
+    let ticking = false;
+    let scrolled = false;
     const onScroll = () => {
-      if (!navRef.current) return;
-      navRef.current.classList.toggle('nav-scrolled', window.scrollY > 24);
+      if (ticking) return;
+      ticking = true;
+      requestAnimationFrame(() => {
+        ticking = false;
+        if (!navRef.current) return;
+        const next = window.scrollY > 24;
+        if (next !== scrolled) {
+          scrolled = next;
+          navRef.current.classList.toggle('nav-scrolled', next);
+        }
+      });
     };
-    window.addEventListener('scroll', onScroll);
+    window.addEventListener('scroll', onScroll, { passive: true });
     return () => window.removeEventListener('scroll', onScroll);
   }, []);
 
@@ -836,6 +879,9 @@ export default function LandingPage() {
         :root { color-scheme: dark; }
         html { scroll-behavior: smooth; }
         body { font-feature-settings: 'cv11', 'ss01', 'ss03'; }
+        .nav-transition {
+          transition: background-color 300ms ease, backdrop-filter 300ms ease, border-bottom-color 300ms ease;
+        }
         .nav-scrolled {
           background: rgba(0, 0, 0, 0.7) !important;
           backdrop-filter: blur(16px) saturate(160%);
@@ -870,19 +916,29 @@ export default function LandingPage() {
            24s alternating animation has long idle periods; for marketing it
            reads as "stopped." Simple continuous spin always reads as alive. */
         @keyframes sc-mark-s-rotate {
-          to { transform: rotate(360deg); }
+          from { transform: rotate(0deg); }
+          to   { transform: rotate(360deg); }
         }
         @keyframes sc-mark-c-rotate {
-          to { transform: rotate(-360deg); }
+          from { transform: rotate(0deg); }
+          to   { transform: rotate(-360deg); }
         }
-        .sc-s-spin {
-          transform-origin: 50px 50px;
-          animation: sc-mark-s-rotate 11s linear infinite;
+        /* Isolate the mark so the rotating SVG never invalidates the fixed
+           nav's backdrop-filter region (the main source of scroll jitter). */
+        .sc-mark-wrap {
+          contain: layout paint style;
+          isolation: isolate;
+          transform: translateZ(0);
         }
+        .sc-s-spin,
         .sc-c-spin {
-          transform-origin: 50px 50px;
-          animation: sc-mark-c-rotate 15s linear infinite;
+          transform-box: view-box;
+          transform-origin: 50% 50%;
+          will-change: transform;
+          backface-visibility: hidden;
         }
+        .sc-s-spin { animation: sc-mark-s-rotate 11s linear infinite; }
+        .sc-c-spin { animation: sc-mark-c-rotate 15s linear infinite; }
       `}</style>
 
       {/* ─────────────────────────────────────────────────────────
@@ -890,7 +946,7 @@ export default function LandingPage() {
          ───────────────────────────────────────────────────────── */}
       <nav
         ref={navRef}
-        className="fixed top-0 inset-x-0 z-50 border-b border-transparent transition-all duration-300"
+        className="fixed top-0 inset-x-0 z-50 border-b border-transparent nav-transition"
       >
         <div className="max-w-6xl mx-auto px-6 lg:px-8">
           <div className="flex items-center justify-between h-14">
