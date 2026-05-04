@@ -31,32 +31,75 @@ This is what makes SmartChats different from a chat app:
 > Log thoughts, observations, exercise, ideas — anything — in
 > natural speech.
 >
-> Then, when you're at your desk, point Claude (or any other MCP-aware
-> LLM) at your SmartChats data. Ask it to summarize the week. Pull
-> recurring themes. Cross-reference what you logged on Tuesday with
-> what you wrote on Friday. Have it draft a journal entry from your
-> raw logs. Anything an LLM can do with your data, it can now do.
+> Then come back later and **speak with SmartChats's own built-in
+> agent** to recall it. Ask it to summarize the week. Pull recurring
+> themes. Cross-reference what you logged on Tuesday with what you
+> wrote on Friday. Have it draft a journal entry from your raw logs.
+> Voice in. Voice (or text) out. The agent already has access to
+> everything you've ever said to it.
+>
+> *Prefer a different tool for the recall side?* Point Claude (or
+> any other MCP-aware LLM) or the `smartchats` CLI at your account.
+> Same data, your choice of interface. SmartChats is the agent —
+> AND the substrate. Use either, use both.
 
 Because SmartChats speaks **the Model Context Protocol**, *any*
-MCP-aware client can read and search your account. You're not locked
-into SmartChats' UI for review — you ingest with whatever's convenient
-(usually your phone), and reason with whatever LLM you prefer.
+MCP-aware client can also read and search your account. You're not
+locked into SmartChats' UI for review — but the built-in agent is
+the natural default, and external tools are there when you want them.
 
 ```
-   📱 your phone (voice in, all day)         🤖 Claude (or any MCP client)
-              │                                          │
-              ▼                                          ▼
-        SmartChats stores                       MCP server reads
-        what you said                            what you stored
-              │                                          │
-              └────────────── your data ─────────────────┘
-                              (cloud or local; both work)
+   📱 your phone (voice in, all day)
+              │
+              ▼
+       SmartChats stores
+       what you said
+              │
+              └─────────── your data (cloud or local) ──────────┐
+                                       │                         │
+                                       ▼                         ▼
+                              🎙️  speak directly to        🤖 (optional) Claude
+                                  SmartChats's agent           or any MCP client
+                                  for recall                   if you want them
 ```
 
 And conversely — what you can ingest expands too. Anything that speaks
 MCP can write into your SmartChats account on your behalf. Your data
 becomes a *substrate* for any tool that wants to interact with it,
 not a silo.
+
+### The reverse direction: agentic ingestion → voice-native recall
+
+This pattern is the part most people sleep on. Here's the canonical
+example:
+
+> You have a folder of Obsidian markdown notes — five years of
+> half-organized thoughts. Point an agent at the folder, tell it to
+> read the notes and write structured data into your SmartChats account
+> via MCP (logs, metrics, knowledge-graph triples — whatever the
+> structure of the content suggests).
+>
+> Now you can **speak with that decade of notes**. Ask SmartChats
+> (or any MCP-aware LLM) to recall what you were working on in
+> Q3 2023. Get a voice answer. Have it draw connections you'd never
+> noticed. Migrate any document substrate into a voice-reasonable one.
+
+```
+   📂 your existing data                       🤖 agent reads + structures it
+   (markdown, PDFs, exports                            │
+    from other apps, etc.)                             ▼
+              │                              MCP server writes into
+              ▼                              your SmartChats account
+        any agent that                              │
+        can read +                                  ▼
+        speak MCP                            🎙️  speak with it
+                                             (SmartChats' own agent,
+                                              or any MCP-aware LLM)
+```
+
+This is the part that's actually new. Voice-in for personal data has
+existed before — barely. Voice-out reasoning over *any* data substrate
+you can structure into SmartChats? That's the unlock.
 
 ---
 
@@ -73,12 +116,18 @@ The signal gets buried — meeting notes scattered across apps, ideas
 forgotten between sessions, week-old context lost.
 
 **SmartChats is your second brain that talks back.** Speak to it from
-anywhere; come back later with Claude (or any MCP-aware LLM) and ask
-it to tell you what you've been thinking about. Pull patterns across
-weeks. Get reminded of unfinished threads. Have an LLM summarize your
-own ideas back to you.
+anywhere; come back later and **speak directly to SmartChats's own
+built-in agent** to recall what you've been thinking about. Pull
+patterns across weeks. Get reminded of unfinished threads. Surface
+connections across last month's logs.
 
-The data is yours. The interface is voice. The retrieval is agentic.
+Prefer to use a different tool for the recall side? Point Claude (or
+any MCP-aware LLM) or the `smartchats` CLI at your account — same
+data, your choice of interface. SmartChats doesn't trap you in its
+own UI; the agent is *one* surface, not the only one.
+
+The data is yours. The interface is voice. The retrieval is agentic
+— from inside SmartChats or from any tool you prefer.
 
 </Tabs.Tab>
 
@@ -113,6 +162,10 @@ ingestion to a few categories. SmartChats does neither.
 
 - **Ingest by voice from your phone** — tell it "20 pull-ups, 30 push-ups,
   swam 30 minutes" and it logs each as a structured metric.
+- **Visualize on demand** — ask the agent for a chart of your weekly
+  running distance, a streak counter for your meditation, a stacked
+  bar of macros over the month. Graphs render inline in the chat;
+  you don't switch apps to see your trends.
 - **Tag and recall freely** — categories are user-defined, search is
   full-text + vector + structured.
 - **Export anytime** — `smartchats data export` produces a JSON bundle
@@ -121,8 +174,8 @@ ingestion to a few categories. SmartChats does neither.
 - **Hand it to Claude (or your favorite LLM)** to draft weekly summaries,
   spot trends, suggest follow-ups.
 
-Your quantified self stays yours. The retrieval and synthesis is
-agentic.
+Your quantified self stays yours. The retrieval, synthesis, and
+visualization are all agentic.
 
 </Tabs.Tab>
 
