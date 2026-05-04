@@ -1,0 +1,278 @@
+import { Callout, Steps, Tabs } from 'nextra/components'
+
+# MCP Server
+
+`smartchats-mcp` exposes the SmartChats data layer over the
+[Model Context Protocol](https://modelcontextprotocol.io). Wire it into
+Claude Desktop (or any MCP-aware LLM client) and the LLM can read your
+logs, search your knowledge graph, browse metrics, run scoped queries,
+and import/export your data — all under your authentication.
+
+It's the **same data path** as the web app and the CLI: `tools.ts` is a
+thin wrapper that calls into `operations.X(handle.data, args)` or
+`queries.X(args)` and returns the result. There's no separate MCP-only
+data plane; behavior matches the web app and CLI exactly.
+
+## Install + run
+
+```bash
+cd packages/smartchats-mcp
+npm run build
+node dist/index.js --target=cloud   # or --target=local
+```
+
+You typically don't run this manually — your MCP client launches it
+over stdio.
+
+## Targets
+
+The MCP server picks its data target at startup via `--target`:
+
+```
+--target=cloud    Firebase OAuth → Cloud Function `surrealQuery` →
+                  user-scoped SurrealDB. Reads as the authenticated user.
+--target=local    SDK-direct WebSocket to the local AIO's exposed
+                  SurrealDB on ws://localhost:8000/rpc. Single-user, root creds.
+```
+
+For cloud, the server pre-authenticates before stdio takes over (the
+browser-login flow needs interactive output). It uses the same
+credentials file as the CLI: `~/.smartchats-mcp/credentials.json`.
+
+```bash
+# Cloud (default)
+smartchats login                # one time
+node dist/index.js --target=cloud
+
+# Local
+node dist/index.js --target=local
+```
+
+Local-mode flag overrides:
+
+```
+--local-url <ws-url>     Default: ws://localhost:8000/rpc
+--local-ns <namespace>   Default: smartchats
+--local-db <database>    Default: main
+--local-user <name>      Default: root
+--local-password <pw>    Default: root
+```
+
+Env-var equivalents (lower precedence than flags):
+`SMARTCHATS_MCP_LOCAL_URL`, `SMARTCHATS_MCP_LOCAL_NS`,
+`SMARTCHATS_MCP_LOCAL_DB`, `SMARTCHATS_MCP_LOCAL_USER`,
+`SMARTCHATS_MCP_LOCAL_PASSWORD`.
+
+## Wire into Claude Desktop
+
+<Steps>
+
+### Build the MCP server
+
+```bash
+cd packages/smartchats-mcp
+npm run build
+```
+
+### Add it to Claude Desktop's config
+
+Edit `~/Library/Application Support/Claude/claude_desktop_config.json`
+(macOS) or `%APPDATA%\Claude\claude_desktop_config.json` (Windows):
+
+```json
+{
+  "mcpServers": {
+    "smartchats": {
+      "command": "node",
+      "args": [
+        "/absolute/path/to/tidyscripts/packages/smartchats-mcp/dist/index.js",
+        "--target=cloud"
+      ]
+    }
+  }
+}
+```
+
+(Use `--target=local` if you want it to read your AIO instead.)
+
+### Sign in once (cloud only)
+
+Restart Claude Desktop. On the first SmartChats tool call, the MCP
+server will prompt for a one-time browser login. The URL is printed in
+Claude Desktop's MCP server logs — open it in a browser, sign in, and
+the credentials cache for ~hour-long ID tokens with infinite refresh.
+
+### Use it
+
+Talk to Claude. Try:
+
+> "Can you check my SmartChats logs from the last week and summarize
+> the topics I've been thinking about?"
+
+Claude will call `get_recent_logs` (or `search_logs`), receive your
+actual data, and summarize.
+
+</Steps>
+
+## Tools exposed
+
+10 tools, organized by domain.
+
+### Read tools
+
+| Tool | What it does | Args |
+|---|---|---|
+| `search_logs` | Substring search across logs | `query`, `category?`, `limit?` |
+| `get_recent_logs` | Most recent N logs | `category?`, `limit?` |
+| `get_log_categories` | All categories with counts | — |
+| `get_metrics` | Tracked metrics with date range | `metric_name?`, `category?`, `from_date?`, `to_date?`, `limit?` |
+| `get_metrics_summary` | Aggregated overview + 10 most-recent entries | — |
+| `query_knowledge_graph` | Search KG entities + relations by name | `query`, `limit?` |
+| `get_todos` | Active todos (or filter by status) | `status?`, `limit?` |
+| `run_query` | Read-only raw SurrealQL passthrough | `query`, `variables?` |
+
+The `run_query` tool is restricted to SELECT statements via a parser
+guard — non-read queries return an error explaining the restriction.
+
+### Data movement tools
+
+| Tool | What it does | Args |
+|---|---|---|
+| `export_user_data` | Dump active-target data to a JSON bundle | `output_path`, `tables?`, `include_sensitive?` |
+| `import_user_data` | Push a JSON bundle into a SurrealDB instance | `input_path`, `target_url?`, `target_namespace?`, `target_database?`, `target_user?`, `target_password?`, `tables?`, `dry_run?` |
+
+These delegate to the same `operations.exportBundle` / `operations.importBundle`
+the CLI uses. `import_user_data` accepts per-call URL/creds overrides for
+cross-environment imports — useful if you started the MCP in `--target=cloud`
+mode but want to import a bundle into your local AIO.
+
+## Example interactions
+
+<Tabs items={['Search logs', 'KG query', 'Run a raw SurrealQL']}>
+
+<Tabs.Tab>
+
+User to Claude: "Find logs about my morning routine."
+
+Claude calls:
+```json
+{
+  "tool": "search_logs",
+  "args": { "query": "morning routine", "limit": 10 }
+}
+```
+
+MCP server returns:
+```json
+[
+  { "id": "logs:abc", "category": "wellness", "content": "Morning routine: ...", "lts": "2026-04-30T08:00:00Z" },
+  ...
+]
+```
+
+Claude summarizes for you.
+
+</Tabs.Tab>
+
+<Tabs.Tab>
+
+User to Claude: "What entities do I have related to 'tidyscripts'?"
+
+Claude calls:
+```json
+{
+  "tool": "query_knowledge_graph",
+  "args": { "query": "tidyscripts", "limit": 20 }
+}
+```
+
+MCP returns matching entities + relations. Claude then asks follow-up
+questions or runs another tool.
+
+</Tabs.Tab>
+
+<Tabs.Tab>
+
+User to Claude: "How many logs do I have per category?"
+
+Claude calls:
+```json
+{
+  "tool": "run_query",
+  "args": {
+    "query": "SELECT category, count() AS n FROM logs GROUP BY category"
+  }
+}
+```
+
+MCP returns the aggregation. (The query parser would reject
+`UPDATE` / `DELETE` / `CREATE` etc.)
+
+</Tabs.Tab>
+
+</Tabs>
+
+## Authentication notes
+
+**Cloud target:** uses Firebase ID tokens. The `surrealQuery` Cloud
+Function authenticates the request, signs in to SurrealDB on your
+behalf with a per-user JWT, and runs your query in your scoped namespace.
+Every read is filtered by the schema's `WHERE owner = $auth.id` clause —
+you can't see other users' data even if you wanted to.
+
+**Local target:** root credentials, no auth check. Single-tenant by
+design — the local AIO is your machine, you trust yourself.
+
+## Architecture relationship
+
+The MCP server is a **consumer** of the same shared infrastructure as
+the web app and the CLI:
+
+```
+        ┌─────────────────────────────────────────┐
+        │         Operations + Query Builders     │   ← shared
+        │       smartchats-database/{operations,  │
+        │                            queries}/    │
+        └─────────────────────────────────────────┘
+            ▲                  ▲                ▲
+            │                  │                │
+       smartchats         smartchats         smartchats-mcp
+         web app             CLI                ↑
+                                          stdio JSON-RPC
+                                                ↑
+                                        Claude Desktop / etc.
+```
+
+When you add a new query builder in `smartchats-database/src/queries/`,
+the MCP can expose it as a tool with ~10 lines in `tools.ts`. There's no
+duplicated logic between the CLI's `data` subcommands and the MCP's
+`import_user_data` / `export_user_data` tools — both call into
+`operations.importBundle` / `operations.exportBundle`.
+
+See [Architecture](/docs/architecture) for the full picture.
+
+## Troubleshooting
+
+<Callout type="warning">
+  **"Authentication failed"** at startup → run `smartchats login` first.
+  The MCP shares its credentials file with the CLI; logging in on either
+  side authenticates both.
+</Callout>
+
+<Callout type="warning">
+  **Local-target connection times out** → AIO isn't running. Start it
+  with `bin/aio` (or `bin/aio --port 3001` if 3000 is taken).
+</Callout>
+
+<Callout type="info">
+  **Stdio transport quirk:** the MCP server writes to stdout for
+  protocol messages and stderr for human-readable logs. If you're
+  debugging via `node dist/index.js | tee mcp.log`, redirect stderr too:
+  `node dist/index.js 2>&1 | tee mcp.log`.
+</Callout>
+
+## See also
+
+- **[CLI Reference](/docs/cli)** — same operations, just for humans instead of LLMs.
+- **[Architecture](/docs/architecture)** — the layered model that makes MCP a thin wrapper.
+- **[Contributing](/docs/contributing)** — how to add a new MCP tool in 10 lines.

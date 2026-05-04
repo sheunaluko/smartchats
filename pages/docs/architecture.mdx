@@ -1,0 +1,273 @@
+import { Callout } from 'nextra/components'
+
+# Architecture
+
+The SmartChats stack is built around three principles, and once you see
+them you'll see them everywhere:
+
+1. **One contract for data access.** Every consumer (browser app, CLI,
+   MCP server) talks to data through the same `DataAPI` interface.
+2. **Two concrete implementations.** Cloud (Firebase Auth →
+   Cloud Functions → user-scoped SurrealDB) and local (SDK direct to
+   your own SurrealDB). Both implement the same contract.
+3. **One place to add new behavior.** Query builders, multi-step operations,
+   schema changes — they each have an exact home, and consumers pick them up
+   automatically.
+
+The result: adding a new feature usually means **one small change in one
+place**. If you find yourself touching five files for one feature, you're
+likely going in the wrong direction.
+
+## The layered model
+
+```
+                    smartchats web app                                 ← what users see
+                            │
+                            ▼
+                  getBackend().data.query(...)
+                            │
+       ┌────────────────────┴──────────────────┐
+       │                                       │
+   smartchats-cli                       smartchats-mcp                  ← other consumers
+       │                                       │
+       └────────┬──────────────────────────────┘
+                ▼
+    operations.importBundle / exportBundle                              ← multi-step ops
+                ▼
+     queries.X(args) → { query, variables }                             ← pure builders (no I/O)
+                ▼
+                DataAPI.query                                            ← contract (in smartchats-backend)
+              ╱            ╲
+   makeCloudDataAPI       makeLocalDataAPI                              ← factories (in smartchats-database)
+        │                       │
+   cloud-client              createClient
+   (Firebase Auth +          (SDK direct to
+    Cloud Function            SurrealDB —
+    surrealQuery →            single tenant
+    user-scoped DB)            with root creds)
+```
+
+Each layer has a **single responsibility** and a **single home**:
+
+| Layer | Responsibility | Lives in |
+|---|---|---|
+| Web app | Voice + chat UX, agent loop, KG visualization | `apps/smartchats` |
+| CLI | Operator surface — login, data move, launch | `packages/smartchats-cli` |
+| MCP | Same operations, packaged for LLM consumption | `packages/smartchats-mcp` |
+| Operations | Multi-step ops: bundle import/export, KG batch insert | `packages/smartchats-database/src/operations/` |
+| Query builders | Pure functions: args → `{ query, variables }`, no I/O | `packages/smartchats-database/src/queries/` |
+| `DataAPI` contract | Two methods: `query()` and `healthCheck()` | `packages/smartchats-backend/src/types.ts` |
+| Cloud factory | Wraps `cloud-client` + Firebase auth | `packages/smartchats-database/src/data_api.ts` |
+| Local factory | Wraps SDK-direct `createClient` | `packages/smartchats-database/src/data_api.ts` |
+
+## What this enables — concretely
+
+### Adding a new query the agent can run
+
+Three steps, three files, total ~20 lines.
+
+1. **Add a builder** in `packages/smartchats-database/src/queries/your_topic.ts`:
+
+   ```ts
+   export function findRecentByTag(args: { tag: string; limit?: number }): QuerySpec {
+     return {
+       query: 'SELECT * FROM logs WHERE tags CONTAINSALL [$tag] ORDER BY lts DESC LIMIT $limit',
+       variables: { tag: args.tag, limit: args.limit ?? 20 },
+     };
+   }
+   ```
+
+2. **Expose to MCP** in `packages/smartchats-mcp/src/tools.ts`:
+
+   ```ts
+   server.tool(
+     'find_recent_by_tag',
+     'Find recent logs tagged with a given label',
+     { tag: z.string(), limit: z.number().optional() },
+     async (args) => runAndFormat(queries.findRecentByTag(args), handle),
+   );
+   ```
+
+3. **Expose to CLI** as a subcommand in `packages/smartchats-cli/src/commands/`:
+
+   ```ts
+   const result = await handle.data.query(queries.findRecentByTag(args));
+   console.log(JSON.stringify(result.rows, null, 2));
+   ```
+
+The same builder works against cloud (when the user's `smartchats login`'d)
+and against local (when AIO is running). No branching. No transport-aware
+code in the builder.
+
+### Adding a multi-step operation (bundles, batch transformations)
+
+If your operation is more than a single query — say, "loop over a bundle
+and write each row, with progress reporting and error aggregation" — put
+it in `operations/` instead of inline:
+
+```ts
+// packages/smartchats-database/src/operations/your_op.ts
+import type { DataAPI } from 'smartchats-backend';
+
+export async function yourOp(data: DataAPI, args: YourOpArgs): Promise<YourOpResult> {
+  // ... loops, error aggregation, progress callbacks ...
+  await data.query(...);
+}
+```
+
+Then both the CLI and MCP can call `operations.yourOp(handle.data, args)`
+with no duplication. See `import_bundle.ts` and `export_bundle.ts` for
+real examples.
+
+## The facade pattern in practice
+
+Two places use the facade pattern explicitly:
+
+### 1. `SmartChatsBackend` (in the web app)
+
+The web app uses the full `SmartChatsBackend` interface — it has APIs
+beyond just data: `llm`, `tts`, `embeddings`, `usage`, `keys`, `billing`,
+`tools`, `insights`, `health()`, plus capabilities introspection.
+
+```ts
+// apps/smartchats/src/lib/backend_facade.ts
+const { backend } = await getBackendInstance();
+
+await backend.llm.stream(...);                // chat completions
+await backend.tts.stream(...);                // text-to-speech
+await backend.data.query(...);                // SurrealDB read/write
+await backend.insights.emit(events);          // telemetry
+const health = await backend.health();        // aggregate health probe
+```
+
+The `BackendFacadeProvider` mounts the active backend (Firebase or
+Local) into a React context. Capability gating is automatic:
+`capabilities.billing === false` for self-hosted means the credit chip
+hides, the billing page redirects, and BYO key UI surfaces instead.
+
+### 2. `DataAPIHandle` (in CLI + MCP)
+
+The CLI + MCP don't need the full backend — they only do data
+operations and don't render UI. They use the smaller `DataAPIHandle`
+shape:
+
+```ts
+const handle = await makeDataAPI(target);   // 'cloud' or 'local'
+
+await handle.data.query({ query, variables });
+const uid = await handle.getUid();
+await handle.close();
+```
+
+Same `DataAPI` contract; lighter wrapper. The factories
+(`makeCloudDataAPI`, `makeLocalDataAPI`) handle all the asymmetry between
+"per-call stateless cloud calls" and "stateful WebSocket connections."
+
+## Open vs closed
+
+Most of the stack is open source (MIT / Apache 2.0). Only one package is
+closed:
+
+| Package | License | Why |
+|---|---|---|
+| `smartchats-cloud` | UNLICENSED | Cloud Function implementations + canonical schema DDL + the SIGNUP/SIGNIN secret. Closed because (a) deploys are tied to my Firebase project, (b) the schema details are operationally sensitive, (c) the billing webhook + Stripe wiring is closed-source by design. |
+| Everything else | MIT / Apache 2.0 | The contracts, the open-core cloud client (which talks to the closed cloud's public API surface), the local backend, the CLI, the MCP server. |
+
+Critically, **`smartchats-cloud-client` is open**. It knows the Cloud
+Functions API surface (function names, return shapes) but not the
+implementations. This means anyone can:
+
+- Run their own Firebase project + deploy a fork of the closed cloud's
+  schema (the contracts are documented).
+- Use the open `cloud-client` to talk to that fork.
+- Or skip the cloud entirely and just self-host.
+
+The Firebase config (`projectId`, `apiKey`) baked into `cloud-client`
+defaults to my SaaS at smartchats.ai but is overridable via env var
+(`SMARTCHATS_FIREBASE_PROJECT_ID`, `SMARTCHATS_CLOUD_FUNCTIONS_BASE`,
+etc.).
+
+<Callout type="info">
+  Firebase Web SDK API keys are **public identifiers, not secrets** —
+  see [Firebase's own docs](https://firebase.google.com/docs/projects/api-keys).
+  Security is enforced server-side (Firebase Auth rules + the SIGNUP/SIGNIN
+  secret + per-user JWT scoping in SurrealDB). The hardcoded `apiKey` in
+  `cloud-client` is intentional: it makes the install-and-go experience
+  friction-free.
+</Callout>
+
+## Single direct importer of `surrealdb`
+
+A load-bearing invariant: **only `packages/smartchats-database/src/client.ts`
+imports the `surrealdb` npm package.** Every other consumer goes through
+the `Client` interface (`createClient`, `createLazyClient`,
+`createUserClient`, `signupAsUser`, `signinAsUser`).
+
+This was the architecture choice that made the v2 → v3 SDK migration take
+**one file** instead of dozens. SDK quirks (named exports, `connect()` API
+change, `queryRaw` removal, `Table` wrapper for `insert()`, DateTime
+normalization) are all absorbed inside `client.ts`. The rest of the
+codebase is decoupled from SDK version.
+
+## Auth and credentials
+
+A single credential store: `~/.smartchats-mcp/credentials.json` (mode
+`0600`). Holds the Firebase OAuth refresh token. The CLI and the MCP
+server both read it. **`smartchats login` once, both surfaces are
+authenticated.**
+
+The Firebase ID token is short-lived (1 hour); cloud-client refreshes it
+on demand using the stored refresh token via Firebase's REST API. No
+Firebase Web SDK in the auth path — pure fetch + a localhost callback
+during the browser sign-in flow.
+
+## Data model: the dual-field timestamp invariant
+
+Every user-data table has two timestamp concepts that must not be
+conflated:
+
+| Field | What it means | Set by | Migrated? |
+|---|---|---|---|
+| `created_at` / `updated_at` | Physical row lifecycle in *this* DB | DB (`VALUE time::now()` / `READONLY`) | **Never.** Stripped on import. |
+| `lts` | When the *thing this row represents* actually happened | App (fake-UTC local wall-clock) | **Always.** Carries through export/import unchanged. |
+
+The UI sorts and filters by `lts`. The DB's `created_at` is only for
+audit / GC. **Bundles import without `created_at` / `updated_at` so the
+destination DB stamps fresh values; `lts` carries the original user-time.**
+
+Why this matters: without the dual field, importing a year-old bundle would
+make all entries look "created today" and sort incorrectly. With it, the
+import is faithful to the original user timeline.
+
+## Verification
+
+The single command is `bin/test_all`. It runs six layers, each of which can
+be skipped or stopped at:
+
+| Layer | What it covers | Time |
+|---|---|---|
+| L1 type-check | All packages, `tsc --noEmit` | ~30s |
+| L2 build | Per-package builds (catches what type-check misses) | ~30-60s |
+| L3 cloud-crud | Local docker SurrealDB v3.0.5 + 29 cloud-shape CRUD tests | ~30s |
+| L4 aio-crud | AIO container + 116 local CRUD tests + fixture import + sanity | ~3 min |
+| L5 simi | 26 end-to-end Simi workflows against LocalBackend | ~10 min |
+| L6 live-cloud | Read-only smoke against LIVE production cloud (opt-in) | ~5s |
+
+```bash
+bin/test_all --quick                # L1-L2 only (~30s)
+bin/test_all                        # L1-L5 (~13 min)
+bin/test_all --include-live         # everything (~14 min)
+bin/test_all --level=4              # stop after L4 (no Simi)
+```
+
+See [the Verification Workflow in CONTRIBUTING.md](https://github.com/sheunaluko/tidyscripts/blob/master/CONTRIBUTING.md#verification-workflow) for which level matches which kind of change.
+
+## Where to learn more
+
+- **[CLI Reference](/docs/cli)** — every subcommand with examples + flags.
+- **[MCP Server](/docs/mcp)** — wiring SmartChats into Claude Desktop or any
+  MCP-aware LLM.
+- **[Self-Hosting](/docs/self-host)** — VPS deploys, persistent data,
+  network exposure.
+- **[Contributing](/docs/contributing)** — conventions, the AI agent
+  onboarding section, and the dead-simple PR workflow.

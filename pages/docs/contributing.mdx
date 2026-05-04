@@ -1,0 +1,108 @@
+import { Callout } from 'nextra/components'
+
+# Contributing
+
+The full contribution guide lives at the repo root:
+
+**👉 [CONTRIBUTING.md on GitHub](https://github.com/sheunaluko/tidyscripts/blob/master/CONTRIBUTING.md)**
+
+It covers the quick start, the architecture, the verification workflow,
+the conventions, the PR workflow, and a section dedicated to **AI coding
+agents** contributing to the codebase.
+
+The TL;DR for new contributors:
+
+1. **Clone, install, run `bin/test_all --quick`** — 30 seconds, type-checks
+   everything. If green, your environment is sound.
+2. **Use `bin/checkpoint`** for commits, not `git commit`. Never amend.
+   No `Co-Authored-By` trailers.
+3. **Adding a new query the agent can run?** It's three files, ~20 lines
+   total. See [the architecture doc](/docs/architecture#adding-a-new-query-the-agent-can-run).
+4. **Run `bin/test_all` at the right level** for the change. The
+   table in [CONTRIBUTING.md → Verification Workflow](https://github.com/sheunaluko/tidyscripts/blob/master/CONTRIBUTING.md#verification-workflow)
+   shows which level matches which kind of change.
+
+## Repo layout (high level)
+
+```
+tidyscripts/
+├── apps/
+│   └── smartchats/                # Next.js app
+├── packages/
+│   ├── smartchats-backend/        # DataAPI contract (types only)
+│   ├── smartchats-backend-firebase/
+│   ├── smartchats-backend-local/
+│   ├── smartchats-cloud/          # CLOSED — Cloud Functions + canonical schema
+│   ├── smartchats-cloud-client/   # Open client for the closed cloud
+│   ├── smartchats-cli/            # `smartchats` command
+│   ├── smartchats-database/       # SurrealDB queries + operations + DataAPI factories
+│   ├── smartchats-local-server/   # Express server backing LocalBackend
+│   ├── smartchats-mcp/            # MCP server
+│   └── ...
+├── bin/
+│   ├── aio                        # Run the all-in-one container
+│   ├── checkpoint                 # Git checkpoint commits
+│   ├── cloud_test_db              # Local v3.0.5 SurrealDB with cloud schema
+│   ├── devserve                   # Next.js dev + Firebase emulator
+│   ├── test_all                   # The single-command test runner
+│   └── ...
+└── CONTRIBUTING.md                # The canonical guide
+```
+
+## Architecture invariants
+
+These are load-bearing. Don't break them without discussion:
+
+- **Single direct importer of `surrealdb`**: only
+  `packages/smartchats-database/src/client.ts` imports the npm package.
+  Every other consumer goes through the `Client` interface.
+- **Open packages don't import closed ones.** `smartchats-cloud` is the
+  only closed package; nothing else imports from it. (`smartchats-cloud-client`
+  is open and talks to the closed cloud's public API surface.)
+- **One credential store.** `~/.smartchats-mcp/credentials.json` shared
+  by CLI + MCP. Don't invent a parallel auth file.
+- **The `DataAPI` contract is the read/write boundary.** Don't add
+  alternative dispatcher abstractions.
+- **Per-statement errors must surface.** No silent `[]` on `status: ERR`.
+
+See [Architecture → Open vs closed](/docs/architecture#open-vs-closed)
+for the package-level reasoning.
+
+## For AI coding agents
+
+The CONTRIBUTING.md file has [a dedicated section for AI coding agents](https://github.com/sheunaluko/tidyscripts/blob/master/CONTRIBUTING.md#for-ai-agents)
+contributing to the codebase. Key points:
+
+- The migration to v3 SurrealDB / unified CLI / MCP refactor is **done**.
+  Don't re-derive it from the docs.
+- **Grep before assuming.** Most architectural pieces already exist —
+  if you're tempted to introduce a new "Dispatcher" or "BackendFactory,"
+  it's probably already there under a different name.
+- **Use `TaskCreate`** to track multi-step work; mark `in_progress`
+  when starting and `completed` immediately when done.
+- **Use `bin/checkpoint`** for commits, never `git commit` directly,
+  never amend.
+- **No `Co-Authored-By` trailers.**
+- **Run `bin/test_all` at the right level** for the change.
+- **For destructive actions** (`docker stop`, `git reset --hard`,
+  modifying live cloud), confirm with the user first.
+- **Track architecture-improvement ideas in `data/ARCHITECTURE_NOTES.md`**
+  instead of making the change. The maintainer wants to discuss before
+  refactor.
+
+<Callout type="info">
+  **Why this section exists:** the SmartChats codebase is built
+  collaboratively by humans and AI agents. The agent gets the same
+  guide as a new human contributor — same conventions, same quality bar.
+  This file gets re-read at the start of each agent session as context-loading.
+</Callout>
+
+## Help / Discussion
+
+- **GitHub issues** — [github.com/sheunaluko/tidyscripts/issues](https://github.com/sheunaluko/tidyscripts/issues)
+- **LinkedIn (maintainer)** — [linkedin.com/in/sheun-aluko](https://www.linkedin.com/in/sheun-aluko/)
+
+For larger architectural changes, open an issue with the `architecture`
+label and tag the maintainer.
+
+Thanks for contributing.

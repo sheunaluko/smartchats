@@ -1,0 +1,163 @@
+import { Callout, Steps, Tabs } from 'nextra/components'
+
+# Quickstart
+
+Two paths. Pick whichever matches your situation.
+
+<Tabs items={['Use the cloud (no setup)', 'Self-host (laptop / VPS)']}>
+
+<Tabs.Tab>
+
+If you don't want to run any infrastructure yourself:
+
+<Steps>
+
+### Sign up at smartchats.ai
+
+Go to **[smartchats.ai](https://smartchats.ai)** and sign in with Google
+or email/password. You'll get a billing account, BYO-key configuration,
+and a hosted SurrealDB scoped to your user.
+
+### Bring your own API keys
+
+In **Settings → BYO Keys**, paste your OpenAI / Anthropic / Google /
+Serper keys. SmartChats will use those for chat, embeddings, TTS, and
+web search. We pass providers' charges through at cost; you keep
+control of your own quotas.
+
+### Talk to your agent
+
+Click the microphone, say something. Or type it. The agent will:
+
+- Stream voice back at you within ~300ms.
+- Save your messages, generated code, and knowledge-graph triples to your account.
+- Synthesize answers using whichever model you've selected from your BYO providers.
+
+That's the whole onboarding.
+
+</Steps>
+
+</Tabs.Tab>
+
+<Tabs.Tab>
+
+You'll need: **Node 22+, Docker, ~2 GB free disk** for the all-in-one container.
+
+<Steps>
+
+### Clone and install
+
+```bash
+git clone https://github.com/sheunaluko/tidyscripts.git
+cd tidyscripts
+npm install
+```
+
+### Quick sanity check
+
+```bash
+bin/test_all --quick
+```
+
+About 30 seconds. Type-checks every package. If green, your dev environment
+is sound.
+
+### Run the all-in-one container
+
+```bash
+bin/aio
+```
+
+This builds (first time only — about 3 minutes) and runs the container at
+**[http://localhost:3000](http://localhost:3000)**. The container holds
+SurrealDB + the local Express server + the smartchats Next.js app. Single
+process, single port.
+
+The first time you load the app, it'll prompt you for API keys (OpenAI is
+required for chat; Anthropic / Google / Serper are optional). Or set them
+in `.env` ahead of time — `npx smartchats` walks you through it
+interactively:
+
+```bash
+npx smartchats          # interactive env wizard + container
+```
+
+### Talk to your agent
+
+Same as cloud mode. Click the mic, speak. Your data lives on your machine
+in `~/.smartchats/data/`.
+
+### Optional: install the CLI globally
+
+```bash
+npm install -g smartchats   # not yet published; for now run dist directly
+smartchats data export ~/backup.json --target=local
+```
+
+The `--target=local` flag means SDK-direct connection to your local
+SurrealDB. You can also pass `--target=cloud` (after `smartchats login`)
+to back up cloud data.
+
+</Steps>
+
+</Tabs.Tab>
+
+</Tabs>
+
+## What can it do?
+
+A non-exhaustive list of things SmartChats supports out of the box:
+
+- **Voice conversations** with sub-second turn-taking. VAD via Silero,
+  streaming ASR, streaming TTS.
+- **Sandboxed code execution.** The agent writes JavaScript and runs it
+  in an iframe sandbox with a restricted API surface; no node access, no
+  filesystem.
+- **A knowledge graph.** Ask the agent to remember something
+  ("`<entity>` `<relation>` `<entity>`") and it persists as a triple
+  with embeddings; later turns can search by semantic distance.
+- **Logs + metrics.** Every conversation, every code execution, every
+  tool call gets logged. Searchable by category, full-text, time range,
+  vector distance.
+- **Embedded apps.** Drop in HTML widgets for charts, dashboards,
+  calculators. The agent renders them inline.
+- **Background agents.** Long-running processes (e.g., "watch this URL
+  for changes and ping me") run in child processes with their own
+  message queues.
+- **MCP server.** Expose all of the above to any MCP-aware client
+  (Claude Desktop, Cursor, etc.).
+
+## Verify everything works
+
+Once you're set up, the single-command sanity check is:
+
+```bash
+bin/test_all --quick    # ~30s — type-checks
+bin/test_all            # ~13 min — full suite including Simi end-to-end flows
+bin/test_all --include-live   # also smoke-tests the cloud (read-only)
+```
+
+See [Verification Workflow in CONTRIBUTING.md](https://github.com/sheunaluko/tidyscripts/blob/master/CONTRIBUTING.md#verification-workflow)
+for what each level covers.
+
+## Next steps
+
+import { Cards } from 'nextra/components'
+
+<Cards>
+  <Cards.Card title="Architecture →" href="/docs/architecture" arrow>
+    Why the same code reaches the chat app, the CLI, and the MCP server.
+  </Cards.Card>
+  <Cards.Card title="CLI Reference →" href="/docs/cli" arrow>
+    Every subcommand. login / logout / whoami / data / launch.
+  </Cards.Card>
+  <Cards.Card title="Self-Hosting →" href="/docs/self-host" arrow>
+    Running on a VPS, persistent data, exposing to your network.
+  </Cards.Card>
+</Cards>
+
+<Callout type="info">
+  **Stuck?** The most common issue is forgetting to install Docker or having
+  port 3000 already in use. `bin/aio --port 3001` works if you need a
+  different port. For everything else, [open an issue](https://github.com/sheunaluko/tidyscripts/issues).
+</Callout>

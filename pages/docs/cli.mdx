@@ -1,0 +1,423 @@
+import { Callout, Tabs } from 'nextra/components'
+
+# CLI Reference
+
+`smartchats` is the command-line interface for the SmartChats stack. It
+handles auth, moves data between cloud and local, and launches the
+self-hosted all-in-one container.
+
+It shares one credential store (`~/.smartchats-mcp/credentials.json`)
+with the MCP server — login once, both surfaces are authenticated.
+
+## Install
+
+The CLI lives in the `smartchats-cli` workspace package. Until it's
+published to npm, run it via the local dist:
+
+```bash
+# from a tidyscripts checkout
+cd packages/smartchats-cli && npm run build
+node dist/cli.js --help
+```
+
+Or set up a shell alias for convenience:
+
+```bash
+alias smartchats="node $TIDYSCRIPTS/packages/smartchats-cli/dist/cli.js"
+```
+
+## Top-level
+
+```
+smartchats <command> [options]
+
+Commands:
+  launch         Interactive launcher for the local docker stack (default if no command).
+  login          Sign in to the SmartChats cloud (browser OAuth).
+  logout         Clear cached cloud credentials.
+  whoami         Show the currently-authenticated cloud user.
+  data import    Load a JSON bundle into a SmartChats deployment.
+  data export    Save a SmartChats deployment's user data to JSON.
+  help <cmd>     Show detailed help for <cmd>.
+```
+
+`smartchats` with no command falls through to `launch` for backward compat.
+
+---
+
+## `smartchats login`
+
+Sign in to the SmartChats cloud (smartchats.ai). Opens a browser for
+Firebase OAuth (Google or email/password), captures the credential, and
+persists a refresh token so subsequent commands authenticate silently.
+
+```bash
+smartchats login
+```
+
+The browser-based flow works even on headless / SSH / WSL: the URL is
+printed to stderr so you can copy-paste into a local browser if
+auto-open isn't available.
+
+**Output:**
+```
+[info] Signing in to tidyscripts (https://us-central1-tidyscripts.cloudfunctions.net)
+[info] Browser will open for sign-in. URL also printed in case auto-open fails.
+────────────────────────────────────────────────
+SmartChats sign-in required.
+Open this URL in a browser to authenticate:
+  http://localhost:54327
+────────────────────────────────────────────────
+[ok] Signed in as uid=E9drnNZa3SdsVsHNrLFsU6pcml32
+[info] Credentials cached at /home/you/.smartchats-mcp/credentials.json
+```
+
+**Override Firebase config** (rare — for staging / dev):
+
+```bash
+SMARTCHATS_FIREBASE_PROJECT_ID=my-project \
+SMARTCHATS_CLOUD_FUNCTIONS_BASE=https://us-central1-my-project.cloudfunctions.net \
+  smartchats login
+```
+
+---
+
+## `smartchats logout`
+
+Clears cached cloud credentials. The next cloud-targeted command will
+trigger a fresh interactive login.
+
+```bash
+smartchats logout
+```
+
+---
+
+## `smartchats whoami`
+
+Shows the currently-authenticated cloud user. Triggers an interactive
+login if no cached credentials exist.
+
+```bash
+smartchats whoami
+```
+
+**Output:**
+```
+[info] uid:         E9drnNZa3SdsVsHNrLFsU6pcml32
+[info] email:       you@example.com
+[info] displayName: Your Name
+[info] project:     tidyscripts
+[info] creds file:  /home/you/.smartchats-mcp/credentials.json
+```
+
+---
+
+## `smartchats data export`
+
+Save a SmartChats deployment's user data to a JSON bundle.
+
+```bash
+smartchats data export <file> [options]
+```
+
+**Options:**
+
+| Flag | Default | Notes |
+|---|---|---|
+| `--target=cloud\|local` | `local` | `cloud` = your cloud account via per-user JWT; `local` = SDK-direct to your local SurrealDB (defaults to `ws://localhost:8000/rpc`). |
+| `--tables=t1,t2,...` | (defaults — see below) | Override which tables to export. Comma-separated. |
+| `--include-sensitive` | off | Also export `byo_api_keys` + `usage_records`. Default false. |
+| `--page-size=<n>` | 100 | Pagination page size. Lower for response-size-capped backends. |
+
+**Default exported tables** (the user-owned application state worth
+backing up):
+
+```
+logs, metrics, user_entities, user_relations, user_data, app_data,
+sessions, cortex, cortex_dynamic_functions, smartchats_apps,
+smartchats_app_installs
+```
+
+**Never exported** (telemetry, not portable across deployments):
+`insights_events`.
+
+**Sensitive (opt-in via `--include-sensitive`):**
+`byo_api_keys`, `usage_records`.
+
+### Examples
+
+<Tabs items={['Cloud → JSON', 'Local AIO → JSON', 'Subset']}>
+
+<Tabs.Tab>
+
+Save your full cloud account state to a portable bundle:
+
+```bash
+smartchats data export ~/cloud-backup.json --target=cloud
+```
+
+Output:
+```
+[info] Target: cloud (https://us-central1-tidyscripts.cloudfunctions.net)
+[info] Exporting as uid=E9drnNZa3SdsVsHNrLFsU6pcml32
+[info] Tables: defaults
+[start] Fetching tables...
+[info] logs: 242 row(s)
+[info] metrics: 285 row(s)
+[info] user_entities: 72 row(s)
+...
+ ╭──────────────────────────────────────────────────────────────╮
+ │  Wrote 776 row(s) across 7 table(s) → ~/cloud-backup.json   │
+ │  Bundle size: 21048.6 KB                                     │
+ ╰──────────────────────────────────────────────────────────────╯
+```
+
+</Tabs.Tab>
+
+<Tabs.Tab>
+
+Save your local AIO data:
+
+```bash
+smartchats data export ~/local-backup.json --target=local
+```
+
+The `local` target connects SDK-direct to `ws://localhost:8000/rpc` with
+root creds.
+
+</Tabs.Tab>
+
+<Tabs.Tab>
+
+Just back up logs and metrics:
+
+```bash
+smartchats data export ~/just-logs.json --target=cloud --tables=logs,metrics
+```
+
+Or include sensitive tables:
+
+```bash
+smartchats data export ~/full-backup.json --target=cloud --include-sensitive
+```
+
+</Tabs.Tab>
+
+</Tabs>
+
+---
+
+## `smartchats data import`
+
+Load a JSON bundle into a SmartChats deployment.
+
+```bash
+smartchats data import <file> [options]
+```
+
+**Options:**
+
+| Flag | Default | Notes |
+|---|---|---|
+| `--target=cloud\|local` | `local` | Same semantics as export. Cloud uses per-user JWT (rows land owned by you); local uses SDK-direct. |
+| `--tables=t1,t2,...` | (all tables in bundle) | Subset filter. |
+| `--dry-run` | off | Parse + count rows but don't write. Skips connection entirely. |
+
+### How owner is set
+
+When importing to **cloud**: the bundle's original `owner` field is
+**stripped**; the cloud schema's `DEFINE FIELD owner DEFAULT $auth.id`
+fills it from your authenticated Firebase UID. Bundle rows land owned
+by you, regardless of who originally wrote them.
+
+When importing to **local**: single-user mode; owner is left as-is or
+defaulted by the local schema.
+
+**Concurrency is sequential by default** (`concurrency: 1`). Parallel
+UPSERTs of rows containing 1536-dim embedding vectors crashed the
+SurrealDB worker thread (`bytes::advance` panic — server-internal bug
+under concurrent vector writes). Sequential is ~13 min vs parallel ~1
+min for ~800 rows; safety wins. Override only if you're sure the bundle
+has no embeddings.
+
+### Examples
+
+<Tabs items={['Restore to cloud', 'Restore to local', 'Dry-run preview']}>
+
+<Tabs.Tab>
+
+```bash
+smartchats data import ~/backup.json --target=cloud
+```
+
+Output:
+```
+[info] Reading bundle: /home/you/backup.json
+[info] Bundle: 776 row(s) across 7 table(s)
+[info] Source: cloud, exported: 2026-05-02T00:18:33.155Z, original userId: E9drnNZa3SdsVsHNrLFsU6pcml32
+[info] Target: cloud (https://us-central1-tidyscripts.cloudfunctions.net), will write as uid=E9drnNZa3SdsVsHNrLFsU6pcml32
+[start] Writing rows...
+  logs: ................................................................................
+        ................................................................................
+        ................................................................................
+        ..
+  metrics: ................................................................................
+        ...
+  ...
+ ╭────────────────────────╮
+ │  Wrote 776/776 row(s)  │
+ ╰────────────────────────╯
+✔ logs: 242/242 written
+✔ metrics: 285/285 written
+...
+```
+
+</Tabs.Tab>
+
+<Tabs.Tab>
+
+```bash
+smartchats data import ~/backup.json --target=local
+```
+
+Note: AIO must be running (`bin/aio`) for the local target. The CLI
+uses a 10-second connection timeout to surface a clear error if the
+local SurrealDB isn't reachable.
+
+</Tabs.Tab>
+
+<Tabs.Tab>
+
+Preview what would happen without writing:
+
+```bash
+smartchats data import ~/backup.json --target=local --dry-run
+```
+
+`--dry-run` skips the database connection entirely (so it works against
+local even when AIO is stopped).
+
+</Tabs.Tab>
+
+</Tabs>
+
+### Cross-environment moves
+
+Common pattern: cloud → local backup, or local → cloud restore.
+
+```bash
+# Back up cloud to a JSON file
+smartchats data export ~/snapshot.json --target=cloud
+
+# Restore that snapshot into your self-hosted local AIO
+smartchats data import ~/snapshot.json --target=local
+```
+
+The bundle format is the same regardless of source. The `userId` field
+is preserved as informational metadata; the importer's current auth
+controls actual ownership of imported rows.
+
+<Callout type="warning">
+  **Cortex tables are user-customizable agent behavior.** If you import a
+  bundle that includes `cortex` or `cortex_dynamic_functions`, you'll
+  inherit the source user's procedural instructions and dynamic
+  functions. Use `--tables` to filter if you want a clean cortex state:
+
+  ```bash
+  smartchats data import ~/backup.json --target=cloud \
+    --tables=logs,metrics,user_entities,user_relations,user_data,app_data,sessions,smartchats_apps,smartchats_app_installs
+  ```
+</Callout>
+
+---
+
+## `smartchats launch`
+
+Interactive launcher for the local docker stack. Detects API keys in
+your env, prompts for the rest, persists chosen values to `.env`, builds
+the AIO image if missing, and runs the container.
+
+```bash
+smartchats launch [options]
+smartchats              # alias — defaults to 'launch' for backward compat
+```
+
+**Options:**
+
+| Flag | Default | Notes |
+|---|---|---|
+| `--no-prompt` | off | Use existing env / `.env` values; don't prompt. |
+| `--rebuild` | off | Force a docker image rebuild before starting. |
+| `-d, --detached` | off | Run the container in the background. |
+| `--port <n>` | 3000 | Host port to expose. |
+| `--data-dir <path>` | `~/.smartchats/aio` | Where to persist SurrealDB data. |
+| `--tag <tag>` | `smartchats-aio:latest` | Docker image tag. |
+
+### Provider keys it asks for
+
+The CLI matches the local-server's lookup precedence:
+`SMARTCHATS_<PROV>_API_KEY` then `<PROV>_API_KEY`.
+
+| Provider | Required? | What you lose without it |
+|---|---|---|
+| OpenAI | yes | Chat + embeddings + TTS unavailable |
+| Anthropic | optional | Claude models won't be selectable |
+| Google (Gemini) | optional | Gemini models won't be selectable |
+| Serper (web search) | optional | Web-search tool will be a no-op |
+
+If you've already got an `.env` with these keys (from previous setup or
+a manual export), `--no-prompt` lets the CLI pick them up without re-asking.
+
+### Examples
+
+```bash
+# First time: interactive setup + first run
+smartchats launch
+
+# Subsequent: skip prompts
+smartchats launch --no-prompt
+
+# Persistent background run on a custom port
+smartchats launch --no-prompt -d --port 8080
+```
+
+---
+
+## Common workflows
+
+### Daily backup of your cloud account
+
+```bash
+smartchats data export ~/smartchats-$(date +%Y-%m-%d).json --target=cloud
+```
+
+Drop into a cron job or daily reminder.
+
+### Migrate from one machine to another
+
+```bash
+# old machine
+smartchats data export /tmp/full.json --target=local --include-sensitive
+
+# new machine (after smartchats launch)
+smartchats data import /tmp/full.json --target=local
+```
+
+### Mirror cloud → local for offline work
+
+```bash
+smartchats data export /tmp/cloud.json --target=cloud
+smartchats data import /tmp/cloud.json --target=local
+```
+
+Now your local AIO has a snapshot of your cloud state.
+
+---
+
+## See also
+
+- **[MCP Server](/docs/mcp)** — same operations, packaged for LLM clients.
+- **[Self-Hosting](/docs/self-host)** — running the AIO container in production.
+- **[Architecture](/docs/architecture)** — why the CLI's data subcommands
+  reach the same code paths as the web app and the MCP server.
