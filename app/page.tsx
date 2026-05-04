@@ -961,15 +961,14 @@ export default function LandingPage() {
               <a href="#roadmap" className="hover:text-white transition-colors">Roadmap</a>
               <a href="#why" className="hover:text-white transition-colors">Why now</a>
               <a href="#founder" className="hover:text-white transition-colors">Founder</a>
-              <a href="/docs" className="hover:text-white transition-colors">Docs</a>
             </div>
 
             <div className="flex items-center gap-3">
               <a
-                href="mailto:shay@sattvicsystems.com?subject=SmartChats%20demo%20request"
+                href="/docs"
                 className="cta-light inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-md bg-white text-[13px] font-medium hover:bg-blue-100 transition-colors"
               >
-                Demo on request
+                Docs
                 <ArrowRight className="w-3.5 h-3.5" />
               </a>
             </div>
@@ -1412,6 +1411,7 @@ export default function LandingPage() {
             <a href="#demo" className="hover:text-white/80 transition-colors">demo</a>
             <a href="#architecture" className="hover:text-white/80 transition-colors">architecture</a>
             <a href="#founder" className="hover:text-white/80 transition-colors">founder</a>
+            <a href="/docs" className="hover:text-white/80 transition-colors">docs</a>
             <a
               href="https://github.com/sheunaluko/smartchats"
               target="_blank"
