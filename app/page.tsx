@@ -764,7 +764,7 @@ function ArchitectureDiagram() {
   return (
     <div className="rounded-2xl border border-white/10 bg-white/[0.015] p-8 md:p-10 backdrop-blur-sm">
       <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_1fr_auto_1fr] gap-4 md:gap-3 items-stretch">
-        <ArchBlock label="Voice Layer" sub="Tivi" items={['ONNX VAD (Silero v5)', 'Streaming STT', 'Per-utterance TTS', 'Sub-300ms first-audio']} />
+        <ArchBlock label="Voice Layer" sub="Tivi" items={['ONNX VAD (Silero v5)', 'Streaming STT', 'Per-utterance TTS', 'Optimized latency / cost that scales to millions of simultaneous users']} />
         <ArchArrow />
         <ArchBlock label="Cortex Engine" sub="Open core" items={['Multi-provider LLM router', 'JSON-stream parser', 'Function-calling loop', 'Background processes']} highlight />
         <ArchArrow />
