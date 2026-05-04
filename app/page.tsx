@@ -961,6 +961,7 @@ export default function LandingPage() {
               <a href="#roadmap" className="hover:text-white transition-colors">Roadmap</a>
               <a href="#why" className="hover:text-white transition-colors">Why now</a>
               <a href="#founder" className="hover:text-white transition-colors">Founder</a>
+              <a href="/docs" className="hover:text-white transition-colors">Docs</a>
             </div>
 
             <div className="flex items-center gap-3">
