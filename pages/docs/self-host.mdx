@@ -19,7 +19,7 @@ one process tree. Single-tenant by design.
 
 ## Quickest path: `bin/aio`
 
-From a tidyscripts checkout:
+From a smartchats checkout:
 
 ```bash
 bin/aio
@@ -59,6 +59,24 @@ npx smartchats --no-prompt    # use existing .env, skip prompts
 
 The wizard writes `.env` in your repo root, then runs the same docker
 container as `bin/aio`. Subsequent runs reuse the `.env` values.
+
+## For development: `bin/devserve`
+
+If you're modifying the SmartChats app or extending the stack — not
+just running it — `bin/devserve` is the faster iteration path. Hot
+reload, TypeScript watch mode, no docker rebuild on each change:
+
+```bash
+bin/devserve smartchats firebase
+```
+
+This starts the Next.js dev server (with hot reload) and the Firebase
+Functions emulator side by side. Point it at a database the same way
+you'd point AIO at one — environment variables for the connection.
+
+`bin/aio` is for running the production-mode app on your machine;
+`bin/devserve` is for changing the source. Most contributor workflows
+spend most of their time in `devserve`.
 
 See [`smartchats launch` in the CLI Reference](/docs/cli#smartchats-launch)
 for all flags.

@@ -6,8 +6,8 @@ import type { DocsThemeConfig } from 'nextra-theme-docs';
 
 const config: DocsThemeConfig = {
   logo: <span style={{ fontWeight: 600, letterSpacing: '-0.01em' }}>SmartChats Docs</span>,
-  project: { link: 'https://github.com/sheunaluko/tidyscripts' },
-  docsRepositoryBase: 'https://github.com/sheunaluko/tidyscripts/tree/master/apps/smartchats-docs',
+  project: { link: 'https://github.com/sheunaluko/smartchats' },
+  docsRepositoryBase: 'https://github.com/sheunaluko/smartchats/tree/master/apps/smartchats-docs',
   footer: {
     content: (
       <span style={{ display: 'flex', width: '100%', justifyContent: 'space-between', opacity: 0.6 }}>

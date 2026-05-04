@@ -28,16 +28,14 @@ over stdio.
 
 The MCP server picks its data target at startup via `--target`:
 
-```
---target=cloud    Firebase OAuth → Cloud Function `surrealQuery` →
-                  user-scoped SurrealDB. Reads as the authenticated user.
---target=local    SDK-direct WebSocket to the local AIO's exposed
-                  SurrealDB on ws://localhost:8000/rpc. Single-user, root creds.
-```
+- `--target=cloud` — your authenticated SmartChats cloud account.
+- `--target=local` — your locally-running SmartChats instance.
 
-For cloud, the server pre-authenticates before stdio takes over (the
-browser-login flow needs interactive output). It uses the same
-credentials file as the CLI: `~/.smartchats-mcp/credentials.json`.
+For cloud, the server pre-authenticates before the protocol takes over
+(the browser-login flow needs interactive output). It uses the same
+credentials file as the CLI: `~/.smartchats-mcp/credentials.json` —
+sign in once with `smartchats login` and both surfaces are
+authenticated.
 
 ```bash
 # Cloud (default)
@@ -48,20 +46,9 @@ node dist/index.js --target=cloud
 node dist/index.js --target=local
 ```
 
-Local-mode flag overrides:
-
-```
---local-url <ws-url>     Default: ws://localhost:8000/rpc
---local-ns <namespace>   Default: smartchats
---local-db <database>    Default: main
---local-user <name>      Default: root
---local-password <pw>    Default: root
-```
-
-Env-var equivalents (lower precedence than flags):
-`SMARTCHATS_MCP_LOCAL_URL`, `SMARTCHATS_MCP_LOCAL_NS`,
-`SMARTCHATS_MCP_LOCAL_DB`, `SMARTCHATS_MCP_LOCAL_USER`,
-`SMARTCHATS_MCP_LOCAL_PASSWORD`.
+Local-mode connection details (URL, credentials, etc.) accept overrides
+via `--local-*` flags or matching `SMARTCHATS_MCP_LOCAL_*` env vars.
+Run `smartchats-mcp --help` to see them all.
 
 ## Wire into Claude Desktop
 
@@ -85,7 +72,7 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json`
     "smartchats": {
       "command": "node",
       "args": [
-        "/absolute/path/to/tidyscripts/packages/smartchats-mcp/dist/index.js",
+        "/absolute/path/to/smartchats/packages/smartchats-mcp/dist/index.js",
         "--target=cloud"
       ]
     }
@@ -93,7 +80,9 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json`
 }
 ```
 
-(Use `--target=local` if you want it to read your AIO instead.)
+Replace `/absolute/path/to/smartchats/...` with the actual path to your
+local checkout. Use `--target=local` if you want Claude to read your
+local SmartChats instance instead of your cloud account.
 
 ### Sign in once (cloud only)
 
@@ -129,10 +118,11 @@ actual data, and summarize.
 | `get_metrics_summary` | Aggregated overview + 10 most-recent entries | — |
 | `query_knowledge_graph` | Search KG entities + relations by name | `query`, `limit?` |
 | `get_todos` | Active todos (or filter by status) | `status?`, `limit?` |
-| `run_query` | Read-only raw SurrealQL passthrough | `query`, `variables?` |
+| `run_query` | Raw SurrealQL passthrough | `query`, `variables?` |
 
-The `run_query` tool is restricted to SELECT statements via a parser
-guard — non-read queries return an error explaining the restriction.
+`run_query` currently restricts to SELECT statements. Write capability —
+so MCP clients (and the CLI) can ingest data on your behalf as well as
+read it — is on the near roadmap.
 
 ### Data movement tools
 
@@ -176,13 +166,13 @@ Claude summarizes for you.
 
 <Tabs.Tab>
 
-User to Claude: "What entities do I have related to 'tidyscripts'?"
+User to Claude: "What entities do I have related to 'project alpha'?"
 
 Claude calls:
 ```json
 {
   "tool": "query_knowledge_graph",
-  "args": { "query": "tidyscripts", "limit": 20 }
+  "args": { "query": "project alpha", "limit": 20 }
 }
 ```
 
@@ -214,14 +204,15 @@ MCP returns the aggregation. (The query parser would reject
 
 ## Authentication notes
 
-**Cloud target:** uses Firebase ID tokens. The `surrealQuery` Cloud
-Function authenticates the request, signs in to SurrealDB on your
-behalf with a per-user JWT, and runs your query in your scoped namespace.
-Every read is filtered by the schema's `WHERE owner = $auth.id` clause —
-you can't see other users' data even if you wanted to.
+**Cloud target:** the MCP server authenticates as you. Every read and
+write is scoped to your account; the cloud surface enforces strict
+isolation between users.
 
-**Local target:** root credentials, no auth check. Single-tenant by
-design — the local AIO is your machine, you trust yourself.
+**Local target:** your local SmartChats instance is yours alone — the
+MCP runs against it without an auth gate.
+
+In both cases, your data stays your data. No cross-account leakage on
+the cloud side, no telemetry on the local side.
 
 ## Architecture relationship
 
@@ -260,8 +251,8 @@ See [Architecture](/docs/architecture) for the full picture.
 </Callout>
 
 <Callout type="warning">
-  **Local-target connection times out** → AIO isn't running. Start it
-  with `bin/aio` (or `bin/aio --port 3001` if 3000 is taken).
+  **Local-target connection times out** → your local SmartChats instance
+  isn't running. Start it with `bin/aio` (the all-in-one container).
 </Callout>
 
 <Callout type="info">

@@ -4,7 +4,7 @@ import { Callout } from 'nextra/components'
 
 The full contribution guide lives at the repo root:
 
-**👉 [CONTRIBUTING.md on GitHub](https://github.com/sheunaluko/tidyscripts/blob/master/CONTRIBUTING.md)**
+**👉 [CONTRIBUTING.md on GitHub](https://github.com/sheunaluko/smartchats/blob/master/CONTRIBUTING.md)**
 
 It covers the quick start, the architecture, the verification workflow,
 the conventions, the PR workflow, and a section dedicated to **AI coding
@@ -12,37 +12,33 @@ agents** contributing to the codebase.
 
 The TL;DR for new contributors:
 
-1. **Clone, install, run `bin/test_all --quick`** — 30 seconds, type-checks
+1. **Clone, install, run `bin/test_all --quick`** — about 30 seconds; type-checks
    everything. If green, your environment is sound.
-2. **Use `bin/checkpoint`** for commits, not `git commit`. Never amend.
-   No `Co-Authored-By` trailers.
-3. **Adding a new query the agent can run?** It's three files, ~20 lines
+2. **Adding a new query the agent can run?** It's three files, ~20 lines
    total. See [the architecture doc](/docs/architecture#adding-a-new-query-the-agent-can-run).
-4. **Run `bin/test_all` at the right level** for the change. The
-   table in [CONTRIBUTING.md → Verification Workflow](https://github.com/sheunaluko/tidyscripts/blob/master/CONTRIBUTING.md#verification-workflow)
+3. **Run `bin/test_all` at the right level** for the change. The
+   table in [CONTRIBUTING.md → Verification Workflow](https://github.com/sheunaluko/smartchats/blob/master/CONTRIBUTING.md#verification-workflow)
    shows which level matches which kind of change.
 
 ## Repo layout (high level)
 
 ```
-tidyscripts/
+smartchats/
 ├── apps/
-│   └── smartchats/                # Next.js app
+│   └── smartchats/                # Next.js app (chat UI, voice, KG)
 ├── packages/
 │   ├── smartchats-backend/        # DataAPI contract (types only)
-│   ├── smartchats-backend-firebase/
-│   ├── smartchats-backend-local/
-│   ├── smartchats-cloud/          # CLOSED — Cloud Functions + canonical schema
-│   ├── smartchats-cloud-client/   # Open client for the closed cloud
+│   ├── smartchats-backend-firebase/  # Cloud-target backend adapter
+│   ├── smartchats-backend-local/     # Local-target backend adapter
+│   ├── smartchats-cloud-client/   # Open client for the hosted cloud
 │   ├── smartchats-cli/            # `smartchats` command
 │   ├── smartchats-database/       # SurrealDB queries + operations + DataAPI factories
-│   ├── smartchats-local-server/   # Express server backing LocalBackend
+│   ├── smartchats-local-server/   # Express server backing the local stack
 │   ├── smartchats-mcp/            # MCP server
 │   └── ...
 ├── bin/
 │   ├── aio                        # Run the all-in-one container
-│   ├── checkpoint                 # Git checkpoint commits
-│   ├── cloud_test_db              # Local v3.0.5 SurrealDB with cloud schema
+│   ├── cloud_test_db              # Local SurrealDB for cloud-shape testing
 │   ├── devserve                   # Next.js dev + Firebase emulator
 │   ├── test_all                   # The single-command test runner
 │   └── ...
@@ -56,9 +52,6 @@ These are load-bearing. Don't break them without discussion:
 - **Single direct importer of `surrealdb`**: only
   `packages/smartchats-database/src/client.ts` imports the npm package.
   Every other consumer goes through the `Client` interface.
-- **Open packages don't import closed ones.** `smartchats-cloud` is the
-  only closed package; nothing else imports from it. (`smartchats-cloud-client`
-  is open and talks to the closed cloud's public API surface.)
 - **One credential store.** `~/.smartchats-mcp/credentials.json` shared
   by CLI + MCP. Don't invent a parallel auth file.
 - **The `DataAPI` contract is the read/write boundary.** Don't add
@@ -70,36 +63,43 @@ for the package-level reasoning.
 
 ## For AI coding agents
 
-The CONTRIBUTING.md file has [a dedicated section for AI coding agents](https://github.com/sheunaluko/tidyscripts/blob/master/CONTRIBUTING.md#for-ai-agents)
-contributing to the codebase. Key points:
+SmartChats is built collaboratively by humans and AI coding agents. The
+same conventions apply to both — same quality bar, same review process,
+same guide. This section captures what tends to make agent contributions
+land well:
 
-- The migration to v3 SurrealDB / unified CLI / MCP refactor is **done**.
-  Don't re-derive it from the docs.
-- **Grep before assuming.** Most architectural pieces already exist —
-  if you're tempted to introduce a new "Dispatcher" or "BackendFactory,"
-  it's probably already there under a different name.
-- **Use `TaskCreate`** to track multi-step work; mark `in_progress`
-  when starting and `completed` immediately when done.
-- **Use `bin/checkpoint`** for commits, never `git commit` directly,
-  never amend.
-- **No `Co-Authored-By` trailers.**
-- **Run `bin/test_all` at the right level** for the change.
-- **For destructive actions** (`docker stop`, `git reset --hard`,
-  modifying live cloud), confirm with the user first.
+- **Read existing code before writing new code.** Most patterns you'll
+  reach for already exist somewhere — search first, then write. The
+  layered architecture means nearly every "I need to add X" maps to
+  exactly one place.
+- **Make small, surgical changes.** A feature should usually touch one
+  builder, one tool wrapper, and one CLI command — not five files.
+  When the diff sprawls, you're working against the architecture.
+- **Run `bin/test_all` at the right level** before declaring done. The
+  table in CONTRIBUTING.md picks the level. Don't rely on CI alone for
+  your own change.
+- **For destructive actions** (deleting data, force-pushing, modifying
+  live cloud, killing shared processes), confirm with the user first.
+  Reversibility is a one-way valve.
+- **When tests fail, find the cause.** Don't blame "flaky environment"
+  or "pre-existing issues." Read the log, reproduce the case, fix the
+  root cause.
 - **Track architecture-improvement ideas in `data/ARCHITECTURE_NOTES.md`**
-  instead of making the change. The maintainer wants to discuss before
-  refactor.
+  rather than refactoring as you go. The maintainer reviews these
+  before they ship.
+- **Match the existing tone.** Doc edits should sound like the
+  surrounding text. Code edits should match the surrounding style.
+  Comment density matches the file's norm.
 
 <Callout type="info">
-  **Why this section exists:** the SmartChats codebase is built
-  collaboratively by humans and AI agents. The agent gets the same
-  guide as a new human contributor — same conventions, same quality bar.
-  This file gets re-read at the start of each agent session as context-loading.
+  Re-read this section at the start of each session. It's the fastest
+  way to load project conventions and avoid the most common
+  agent-contribution failure modes.
 </Callout>
 
 ## Help / Discussion
 
-- **GitHub issues** — [github.com/sheunaluko/tidyscripts/issues](https://github.com/sheunaluko/tidyscripts/issues)
+- **GitHub issues** — [github.com/sheunaluko/smartchats/issues](https://github.com/sheunaluko/smartchats/issues)
 - **LinkedIn (maintainer)** — [linkedin.com/in/sheun-aluko](https://www.linkedin.com/in/sheun-aluko/)
 
 For larger architectural changes, open an issue with the `architecture`

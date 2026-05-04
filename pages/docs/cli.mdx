@@ -15,7 +15,7 @@ The CLI lives in the `smartchats-cli` workspace package. Until it's
 published to npm, run it via the local dist:
 
 ```bash
-# from a tidyscripts checkout
+# from a smartchats checkout
 cd packages/smartchats-cli && npm run build
 node dist/cli.js --help
 ```
@@ -23,7 +23,7 @@ node dist/cli.js --help
 Or set up a shell alias for convenience:
 
 ```bash
-alias smartchats="node $TIDYSCRIPTS/packages/smartchats-cli/dist/cli.js"
+alias smartchats="node $SMARTCHATS_REPO/packages/smartchats-cli/dist/cli.js"
 ```
 
 ## Top-level
@@ -61,18 +61,18 @@ auto-open isn't available.
 
 **Output:**
 ```
-[info] Signing in to tidyscripts (https://us-central1-tidyscripts.cloudfunctions.net)
+[info] Signing in to smartchats cloud
 [info] Browser will open for sign-in. URL also printed in case auto-open fails.
 ────────────────────────────────────────────────
 SmartChats sign-in required.
 Open this URL in a browser to authenticate:
   http://localhost:54327
 ────────────────────────────────────────────────
-[ok] Signed in as uid=E9drnNZa3SdsVsHNrLFsU6pcml32
-[info] Credentials cached at /home/you/.smartchats-mcp/credentials.json
+[ok] Signed in.
+[info] Credentials cached at ~/.smartchats-mcp/credentials.json
 ```
 
-**Override Firebase config** (rare — for staging / dev):
+**Override Firebase config** (rare — for self-hosted setups pointing at your own Firebase project):
 
 ```bash
 SMARTCHATS_FIREBASE_PROJECT_ID=my-project \
@@ -104,11 +104,9 @@ smartchats whoami
 
 **Output:**
 ```
-[info] uid:         E9drnNZa3SdsVsHNrLFsU6pcml32
 [info] email:       you@example.com
 [info] displayName: Your Name
-[info] project:     tidyscripts
-[info] creds file:  /home/you/.smartchats-mcp/credentials.json
+[info] creds file:  ~/.smartchats-mcp/credentials.json
 ```
 
 ---
@@ -125,7 +123,7 @@ smartchats data export <file> [options]
 
 | Flag | Default | Notes |
 |---|---|---|
-| `--target=cloud\|local` | `local` | `cloud` = your cloud account via per-user JWT; `local` = SDK-direct to your local SurrealDB (defaults to `ws://localhost:8000/rpc`). |
+| `--target=cloud\|local` | `local` | `cloud` = your authenticated cloud account; `local` = your locally-running SmartChats instance. |
 | `--tables=t1,t2,...` | (defaults — see below) | Override which tables to export. Comma-separated. |
 | `--include-sensitive` | off | Also export `byo_api_keys` + `usage_records`. Default false. |
 | `--page-size=<n>` | 100 | Pagination page size. Lower for response-size-capped backends. |
@@ -159,8 +157,7 @@ smartchats data export ~/cloud-backup.json --target=cloud
 
 Output:
 ```
-[info] Target: cloud (https://us-central1-tidyscripts.cloudfunctions.net)
-[info] Exporting as uid=E9drnNZa3SdsVsHNrLFsU6pcml32
+[info] Target: cloud
 [info] Tables: defaults
 [start] Fetching tables...
 [info] logs: 242 row(s)
@@ -220,26 +217,14 @@ smartchats data import <file> [options]
 
 | Flag | Default | Notes |
 |---|---|---|
-| `--target=cloud\|local` | `local` | Same semantics as export. Cloud uses per-user JWT (rows land owned by you); local uses SDK-direct. |
+| `--target=cloud\|local` | `local` | Same semantics as export. |
 | `--tables=t1,t2,...` | (all tables in bundle) | Subset filter. |
 | `--dry-run` | off | Parse + count rows but don't write. Skips connection entirely. |
 
-### How owner is set
-
-When importing to **cloud**: the bundle's original `owner` field is
-**stripped**; the cloud schema's `DEFINE FIELD owner DEFAULT $auth.id`
-fills it from your authenticated Firebase UID. Bundle rows land owned
-by you, regardless of who originally wrote them.
-
-When importing to **local**: single-user mode; owner is left as-is or
-defaulted by the local schema.
-
-**Concurrency is sequential by default** (`concurrency: 1`). Parallel
-UPSERTs of rows containing 1536-dim embedding vectors crashed the
-SurrealDB worker thread (`bytes::advance` panic — server-internal bug
-under concurrent vector writes). Sequential is ~13 min vs parallel ~1
-min for ~800 rows; safety wins. Override only if you're sure the bundle
-has no embeddings.
+When importing, rows always land owned by **you** — your authenticated
+account in cloud mode, your single-user instance in local mode. The
+bundle's original ownership metadata is informational; the importer's
+current auth determines who the imported rows belong to.
 
 ### Examples
 
@@ -253,10 +238,10 @@ smartchats data import ~/backup.json --target=cloud
 
 Output:
 ```
-[info] Reading bundle: /home/you/backup.json
+[info] Reading bundle: ~/backup.json
 [info] Bundle: 776 row(s) across 7 table(s)
-[info] Source: cloud, exported: 2026-05-02T00:18:33.155Z, original userId: E9drnNZa3SdsVsHNrLFsU6pcml32
-[info] Target: cloud (https://us-central1-tidyscripts.cloudfunctions.net), will write as uid=E9drnNZa3SdsVsHNrLFsU6pcml32
+[info] Source: cloud, exported: 2026-05-02T00:18:33.155Z
+[info] Target: cloud
 [start] Writing rows...
   logs: ................................................................................
         ................................................................................

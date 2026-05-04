@@ -7,9 +7,9 @@ them you'll see them everywhere:
 
 1. **One contract for data access.** Every consumer (browser app, CLI,
    MCP server) talks to data through the same `DataAPI` interface.
-2. **Two concrete implementations.** Cloud (Firebase Auth →
-   Cloud Functions → user-scoped SurrealDB) and local (SDK direct to
-   your own SurrealDB). Both implement the same contract.
+2. **Two concrete implementations.** Cloud (your authenticated
+   smartchats.ai account) and local (your locally-running instance).
+   Both implement the same contract.
 3. **One place to add new behavior.** Query builders, multi-step operations,
    schema changes — they each have an exact home, and consumers pick them up
    automatically.
@@ -41,10 +41,9 @@ likely going in the wrong direction.
    makeCloudDataAPI       makeLocalDataAPI                              ← factories (in smartchats-database)
         │                       │
    cloud-client              createClient
-   (Firebase Auth +          (SDK direct to
-    Cloud Function            SurrealDB —
-    surrealQuery →            single tenant
-    user-scoped DB)            with root creds)
+   (talks to                 (talks to your
+    smartchats.ai             local instance)
+    cloud)
 ```
 
 Each layer has a **single responsibility** and a **single home**:
@@ -165,36 +164,24 @@ Same `DataAPI` contract; lighter wrapper. The factories
 
 ## Open vs closed
 
-Most of the stack is open source (MIT / Apache 2.0). Only one package is
-closed:
+Most of the stack is open source (MIT / Apache 2.0). The cloud
+operational layer is closed and is what powers the hosted SaaS at
+smartchats.ai. Everything you need to use, extend, self-host, or
+contribute lives in the open packages:
 
-| Package | License | Why |
-|---|---|---|
-| `smartchats-cloud` | UNLICENSED | Cloud Function implementations + canonical schema DDL + the SIGNUP/SIGNIN secret. Closed because (a) deploys are tied to my Firebase project, (b) the schema details are operationally sensitive, (c) the billing webhook + Stripe wiring is closed-source by design. |
-| Everything else | MIT / Apache 2.0 | The contracts, the open-core cloud client (which talks to the closed cloud's public API surface), the local backend, the CLI, the MCP server. |
+- **Contracts** (`smartchats-backend`) — the typed interface every
+  consumer codes against.
+- **Local-first stack** (`smartchats-backend-local`, `smartchats-local-server`,
+  `smartchats-database`, `smartchats-cli`, `smartchats-mcp`) — the
+  install-and-go path. No cloud account required; your data stays on
+  your machine.
+- **Cloud client** (`smartchats-cloud-client`, `smartchats-backend-firebase`)
+  — open client adapters for the hosted cloud. Defaults to smartchats.ai
+  for friction-free signup; Firebase config is overridable for your own
+  setup if you want to fork.
 
-Critically, **`smartchats-cloud-client` is open**. It knows the Cloud
-Functions API surface (function names, return shapes) but not the
-implementations. This means anyone can:
-
-- Run their own Firebase project + deploy a fork of the closed cloud's
-  schema (the contracts are documented).
-- Use the open `cloud-client` to talk to that fork.
-- Or skip the cloud entirely and just self-host.
-
-The Firebase config (`projectId`, `apiKey`) baked into `cloud-client`
-defaults to my SaaS at smartchats.ai but is overridable via env var
-(`SMARTCHATS_FIREBASE_PROJECT_ID`, `SMARTCHATS_CLOUD_FUNCTIONS_BASE`,
-etc.).
-
-<Callout type="info">
-  Firebase Web SDK API keys are **public identifiers, not secrets** —
-  see [Firebase's own docs](https://firebase.google.com/docs/projects/api-keys).
-  Security is enforced server-side (Firebase Auth rules + the SIGNUP/SIGNIN
-  secret + per-user JWT scoping in SurrealDB). The hardcoded `apiKey` in
-  `cloud-client` is intentional: it makes the install-and-go experience
-  friction-free.
-</Callout>
+The deliberate separation: open everything users touch, closed only
+the operational details of the hosted service.
 
 ## Single direct importer of `surrealdb`
 
@@ -260,7 +247,7 @@ bin/test_all --include-live         # everything (~14 min)
 bin/test_all --level=4              # stop after L4 (no Simi)
 ```
 
-See [the Verification Workflow in CONTRIBUTING.md](https://github.com/sheunaluko/tidyscripts/blob/master/CONTRIBUTING.md#verification-workflow) for which level matches which kind of change.
+See [the Verification Workflow in CONTRIBUTING.md](https://github.com/sheunaluko/smartchats/blob/master/CONTRIBUTING.md#verification-workflow) for which level matches which kind of change.
 
 ## Where to learn more
 

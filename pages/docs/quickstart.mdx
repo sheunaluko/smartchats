@@ -29,7 +29,7 @@ control of your own quotas.
 
 Click the microphone, say something. Or type it. The agent will:
 
-- Stream voice back at you within ~300ms.
+- Stream a voice response back, agentically — code, charts, knowledge graph, and web search all available in one conversation.
 - Save your messages, generated code, and knowledge-graph triples to your account.
 - Synthesize answers using whichever model you've selected from your BYO providers.
 
@@ -48,8 +48,8 @@ You'll need: **Node 22+, Docker, ~2 GB free disk** for the all-in-one container.
 ### Clone and install
 
 ```bash
-git clone https://github.com/sheunaluko/tidyscripts.git
-cd tidyscripts
+git clone https://github.com/sheunaluko/smartchats.git
+cd smartchats
 npm install
 ```
 
@@ -62,16 +62,16 @@ bin/test_all --quick
 About 30 seconds. Type-checks every package. If green, your dev environment
 is sound.
 
-### Run the all-in-one container
+### Run the AIO ("All-In-One") container
 
 ```bash
 bin/aio
 ```
 
 This builds (first time only — about 3 minutes) and runs the container at
-**[http://localhost:3000](http://localhost:3000)**. The container holds
-SurrealDB + the local Express server + the smartchats Next.js app. Single
-process, single port.
+**[http://localhost:3000](http://localhost:3000)**. AIO bundles
+everything you need (database + server + app) into a single image — one
+process, one port, zero infra to manage.
 
 The first time you load the app, it'll prompt you for API keys (OpenAI is
 required for chat; Anthropic / Google / Serper are optional). Or set them
@@ -108,8 +108,8 @@ to back up cloud data.
 
 A non-exhaustive list of things SmartChats supports out of the box:
 
-- **Voice conversations** with sub-second turn-taking. VAD via Silero,
-  streaming ASR, streaming TTS.
+- **Voice conversations.** VAD via Silero, streaming ASR,
+  streaming TTS — designed for natural turn-taking.
 - **Sandboxed code execution.** The agent writes JavaScript and runs it
   in an iframe sandbox with a restricted API surface; no node access, no
   filesystem.
@@ -137,7 +137,7 @@ bin/test_all            # ~13 min — full suite including Simi end-to-end flows
 bin/test_all --include-live   # also smoke-tests the cloud (read-only)
 ```
 
-See [Verification Workflow in CONTRIBUTING.md](https://github.com/sheunaluko/tidyscripts/blob/master/CONTRIBUTING.md#verification-workflow)
+See [Verification Workflow in CONTRIBUTING.md](https://github.com/sheunaluko/smartchats/blob/master/CONTRIBUTING.md#verification-workflow)
 for what each level covers.
 
 ## Next steps
@@ -159,5 +159,5 @@ import { Cards } from 'nextra/components'
 <Callout type="info">
   **Stuck?** The most common issue is forgetting to install Docker or having
   port 3000 already in use. `bin/aio --port 3001` works if you need a
-  different port. For everything else, [open an issue](https://github.com/sheunaluko/tidyscripts/issues).
+  different port. For everything else, [open an issue](https://github.com/sheunaluko/smartchats/issues).
 </Callout>

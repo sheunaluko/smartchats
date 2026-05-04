@@ -1,93 +1,215 @@
+import { Callout, Cards, Tabs } from 'nextra/components'
+
 # SmartChats
 
 **Voice-native, agentic, MCP-bidirectional. Open source.**
 
-SmartChats is a platform for building voice-first AI agents that talk, remember,
-search the web, write and run code, and integrate with everything else
-through the Model Context Protocol.
+SmartChats is a platform for building voice-first AI agents that talk,
+remember, search the web, write and run code, and integrate with
+everything else through the [Model Context Protocol](https://modelcontextprotocol.io).
 
 The same agent works two ways:
 
-- **Cloud** — sign up at [smartchats.ai](https://smartchats.ai), bring your
-  own API keys, get billing, BYO usage caps, no infra to run.
-- **Self-hosted** — run the all-in-one container on your laptop or a VPS.
-  Same UI, same agent, same capabilities. Your data stays on your machine.
+- **Cloud** — sign up at [smartchats.ai](https://smartchats.ai), bring
+  your own API keys, no infra to run.
+- **Self-hosted** — run the all-in-one container on your laptop or a
+  VPS. Same UI, same agent, same capabilities. Your data stays on your
+  machine.
 
-## Why this exists
+Either way, **your data is yours.** We respect your right to own and
+move your data — full human-and-agent import/export between cloud and
+local is built into the CLI and the MCP server. There's no lock-in
+either direction.
 
-The agent layer of an AI app — chat history, knowledge graph, executed code,
-session state — is currently siloed in proprietary apps that you can't extend,
-inspect, or swap out. SmartChats is the layer that sits underneath any voice
-or chat agent: a programmable runtime with stable interfaces, an open data
-model, and the same code path whether you're talking to it from a browser, a
-CLI, or another LLM via MCP.
+---
 
-The pitch in one diagram:
+## The unlock: voice-native logging + agentic recall
+
+This is what makes SmartChats different from a chat app:
+
+> Talk to SmartChats throughout the day from your phone (or any device).
+> Log thoughts, observations, exercise, ideas — anything — in
+> natural speech.
+>
+> Then, when you're at your desk, point Claude (or any other MCP-aware
+> LLM) at your SmartChats data. Ask it to summarize the week. Pull
+> recurring themes. Cross-reference what you logged on Tuesday with
+> what you wrote on Friday. Have it draft a journal entry from your
+> raw logs. Anything an LLM can do with your data, it can now do.
+
+Because SmartChats speaks **the Model Context Protocol**, *any*
+MCP-aware client can read and search your account. You're not locked
+into SmartChats' UI for review — you ingest with whatever's convenient
+(usually your phone), and reason with whatever LLM you prefer.
 
 ```
-    you, the user            another LLM (Claude Desktop, etc.)
-         │                              │
-         ▼                              ▼
-   smartchats app                 smartchats-mcp
-         │                              │
-         └──────────────┬───────────────┘
-                        ▼
-        ┌──────────────────────────────────┐
-        │   Operations + Query Builders    │   shared core — same code
-        │   (importBundle, searchLogs,     │   every consumer uses
-        │    queryKnowledgeGraph, ...)     │
-        └──────────────────────────────────┘
-                        ▼
-              DataAPI contract
-                ╱            ╲
-         Cloud target      Local target
-       (Firebase Auth +    (SDK-direct
-        Cloud Functions     to local DB,
-        + per-user JWT)     root creds)
+   📱 your phone (voice in, all day)         🤖 Claude (or any MCP client)
+              │                                          │
+              ▼                                          ▼
+        SmartChats stores                       MCP server reads
+        what you said                            what you stored
+              │                                          │
+              └────────────── your data ─────────────────┘
+                              (cloud or local; both work)
 ```
 
-If you're contributing a feature: add a query builder once, both surfaces
-get it. If you're consuming SmartChats: pick whichever surface fits — the
-voice app, the CLI, the MCP server — they all see the same data.
+And conversely — what you can ingest expands too. Anything that speaks
+MCP can write into your SmartChats account on your behalf. Your data
+becomes a *substrate* for any tool that wants to interact with it,
+not a silo.
+
+---
+
+## From your perspective
+
+Different reasons people care about SmartChats. Click the one that fits:
+
+<Tabs items={['Knowledge worker', 'Developer', 'Quantified-self person', 'Agent / LLM client', 'Researcher']}>
+
+<Tabs.Tab>
+
+You spend your day in conversations, decisions, half-formed thoughts.
+The signal gets buried — meeting notes scattered across apps, ideas
+forgotten between sessions, week-old context lost.
+
+**SmartChats is your second brain that talks back.** Speak to it from
+anywhere; come back later with Claude (or any MCP-aware LLM) and ask
+it to tell you what you've been thinking about. Pull patterns across
+weeks. Get reminded of unfinished threads. Have an LLM summarize your
+own ideas back to you.
+
+The data is yours. The interface is voice. The retrieval is agentic.
+
+</Tabs.Tab>
+
+<Tabs.Tab>
+
+You're building agentic systems and you want a substrate that:
+
+- **Speaks MCP both ways** — read your data from any LLM client, write
+  data into your account from any MCP-aware tool. Bidirectional, not
+  read-only.
+- **Has a stable, typed interface** — the `DataAPI` contract is the same
+  whether you're in the chat app, the CLI, or the MCP server. Add a
+  query builder once, every consumer picks it up.
+- **Is open source end-to-end** — no proprietary middleware, no
+  closed protocols, no extraction risk. MIT-licensed core; cloud
+  client adapters are open too. The CLI works against any deployment
+  (cloud, local, your own fork).
+- **Actually executes code** — sandboxed JS runtime in the chat app,
+  callable from the agent loop, with embedded knowledge graph and
+  workspace state across turns.
+
+See the [Architecture](/docs/architecture) page for the layered model
+that makes "extend SmartChats" usually a one-line change.
+
+</Tabs.Tab>
+
+<Tabs.Tab>
+
+You log workouts, sleep, mood, water intake, weight, supplements —
+whatever. Most apps either lock your data into their UI or limit
+ingestion to a few categories. SmartChats does neither.
+
+- **Ingest by voice from your phone** — tell it "20 pull-ups, 30 push-ups,
+  swam 30 minutes" and it logs each as a structured metric.
+- **Tag and recall freely** — categories are user-defined, search is
+  full-text + vector + structured.
+- **Export anytime** — `smartchats data export` produces a JSON bundle
+  of every log, metric, and entity. Take it with you. Move it between
+  cloud and local.
+- **Hand it to Claude (or your favorite LLM)** to draft weekly summaries,
+  spot trends, suggest follow-ups.
+
+Your quantified self stays yours. The retrieval and synthesis is
+agentic.
+
+</Tabs.Tab>
+
+<Tabs.Tab>
+
+You're building an MCP-aware client (or you ARE one — Claude Desktop,
+a custom agent, etc.) and SmartChats is a data source.
+
+- **10 tools out of the box** — search logs, recent logs, log categories,
+  metrics, metrics summary, KG search, todos, raw query, plus
+  import/export tools.
+- **Authenticated end-to-end** — cloud target uses your account; local
+  target is your single-user instance. No cross-account leakage.
+- **Same data layer as the chat app and the CLI** — when SmartChats adds
+  a feature, the MCP gets it for free. No duplicated logic.
+- **Bidirectional** — `import_user_data` lets you write data into a user's
+  account from your client. Write capability for `run_query` is on the
+  near roadmap (reads only today).
+
+See [MCP Server](/docs/mcp) for setup with Claude Desktop and the full
+tool reference.
+
+</Tabs.Tab>
+
+<Tabs.Tab>
+
+You want a substrate for studying voice-first interaction, agentic
+memory, knowledge graph reasoning over time, or any number of things
+SmartChats happens to expose.
+
+- **Open source, MIT-licensed core.** Inspect, fork, modify any of it.
+- **Self-hostable.** Run the whole stack locally; nothing leaves your
+  machine. Your data, your prompts, your model usage — all yours.
+- **Reproducible.** The schema is versioned, the test suite (`bin/test_all`)
+  covers every layer, and every operation is bidirectional (export →
+  inspect → re-import).
+- **MCP-bidirectional.** Plug in any MCP-aware client to study how
+  agents interact with persistent voice-collected data over time.
+
+Self-host with `bin/aio`, point any LLM at it, and start collecting.
+
+</Tabs.Tab>
+
+</Tabs>
+
+---
 
 ## Get started
 
-import { Cards } from 'nextra/components'
-
 <Cards>
   <Cards.Card title="Quickstart →" href="/docs/quickstart" arrow>
-    Five minutes from clone to first conversation.
+    Five minutes from cloud signup or local install to first conversation.
+  </Cards.Card>
+  <Cards.Card title="Self-Hosting →" href="/docs/self-host" arrow>
+    `bin/aio`, env wizard, VPS deploys. Your data stays on your machine.
   </Cards.Card>
   <Cards.Card title="Architecture →" href="/docs/architecture" arrow>
     The layered model + facade pattern + shared core that makes
-    extending SmartChats one-line.
-  </Cards.Card>
-  <Cards.Card title="CLI Reference →" href="/docs/cli" arrow>
-    `smartchats login`, `data import|export`, `launch` — every flag and example.
+    extending SmartChats one line.
   </Cards.Card>
   <Cards.Card title="MCP Server →" href="/docs/mcp" arrow>
     Wire SmartChats into Claude Desktop or any MCP-aware LLM.
   </Cards.Card>
 </Cards>
 
+---
+
 ## What's in the stack
 
-- **The chat / voice app** — Next.js, written in TypeScript, runs in your browser.
-  Voice in via VAD + streaming ASR; voice out via streaming TTS; agent loop in
-  between with structured-output streaming, sandboxed code execution, embedded
-  knowledge graph.
-- **The CLI** (`smartchats`) — manages auth, exports/imports your data between
-  cloud and local, launches the all-in-one stack.
-- **The MCP server** (`smartchats-mcp`) — speaks Model Context Protocol over
-  stdio so any MCP-aware LLM (Claude Desktop, etc.) can read and search your
-  SmartChats data.
-- **The local-server** + **AIO container** — single docker image with
-  SurrealDB + Express + the Next.js app. `bin/aio` and you're running.
+- **The chat / voice app** — Next.js, written in TypeScript, runs in your
+  browser. Voice in via VAD + streaming ASR; voice out via streaming
+  TTS; agent loop in between with structured-output streaming, sandboxed
+  code execution, embedded knowledge graph.
+- **The CLI** (`smartchats`) — manages auth, exports/imports your data
+  between cloud and local, launches the all-in-one stack.
+- **The MCP server** (`smartchats-mcp`) — speaks Model Context Protocol
+  over stdio so any MCP-aware LLM (Claude Desktop, etc.) can read and
+  search your SmartChats data.
+- **The local-server + AIO container** — single docker image with
+  database + server + the Next.js app. `bin/aio` and you're running.
 
 All of it is open source.
 
+---
+
 ## Help
 
-- [GitHub issues](https://github.com/sheunaluko/tidyscripts/issues) for bugs and feature requests.
+- [GitHub issues](https://github.com/sheunaluko/smartchats/issues) for bugs and feature requests.
 - [LinkedIn (maintainer)](https://www.linkedin.com/in/sheun-aluko/) for design discussions.
 - [Contributing guide →](/docs/contributing) for the conventions, the agent-onboarding section, and the dead-simple workflow.
