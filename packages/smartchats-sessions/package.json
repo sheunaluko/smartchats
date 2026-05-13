@@ -1,0 +1,39 @@
+{
+  "name": "smartchats-sessions",
+  "version": "0.1.0",
+  "description": "Session export + analysis tooling for SmartChats. Downloads insights_events bundles from any SurrealDB-backed deployment (local AIO, self-hosted, cloud), produces JSON in a stable format, and provides a scaffolding surface for higher-level analysis modules.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist",
+    "type-check": "tsc --noEmit",
+    "save-session": "tsx scripts/save_session.ts",
+    "find-sessions": "tsx scripts/session_find.ts",
+    "analyze:transcript": "tsx scripts/session_transcript.ts",
+    "analyze:errors": "tsx scripts/session_errors.ts",
+    "analyze:performance": "tsx scripts/session_performance.ts",
+    "analyze:traces": "tsx scripts/session_traces.ts",
+    "analyze:tools": "tsx scripts/session_tools.ts",
+    "analyze:inspect": "tsx scripts/session_inspect.ts",
+    "analyze:summary": "tsx scripts/session_summary.ts",
+    "triage:errors": "tsx scripts/session_triage_errors.ts",
+    "triage:mark": "tsx scripts/triage_mark.ts"
+  },
+  "dependencies": {
+    "smartchats-database": "file:../../../tidyscripts/packages/smartchats-database"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.4.5"
+  },
+  "license": "MIT"
+}
