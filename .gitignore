@@ -1,8 +1,24 @@
+# Dependencies
 node_modules
+**/node_modules
+
+# Build artifacts
 .next
+**/.next
 out
+**/out
 dist
-.env*.local
-.DS_Store
+**/dist
 *.tsbuildinfo
+**/*.tsbuildinfo
 next-env.d.ts
+
+# Turborepo
+.turbo
+**/.turbo
+
+# Env files (local overrides only — committed .env.example etc. are fine)
+.env*.local
+
+# OS
+.DS_Store
