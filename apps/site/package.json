@@ -2,12 +2,11 @@
   "name": "smartchats-site",
   "version": "0.1.0",
   "private": true,
-  "description": "smartchats.ai — landing page (App Router) + Nextra docs (Pages Router)",
+  "description": "smartchats.ai \u2014 landing page (App Router) + Nextra docs (Pages Router)",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
     "type-check": "tsc --noEmit"
   },
   "dependencies": {

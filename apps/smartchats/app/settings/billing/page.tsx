@@ -29,10 +29,10 @@ export default function BillingPage() {
   useEffect(() => {
     if (!caps.billing) router.replace('/');
   }, [caps.billing, router]);
-  if (!caps.billing) return null;
 
   // Handle return from Stripe
   useEffect(() => {
+    if (!caps.billing) return;
     if (typeof window === 'undefined') return;
     const params = new URLSearchParams(window.location.search);
     if (params.get('purchase') === 'success') {
@@ -44,15 +44,18 @@ export default function BillingPage() {
       setStripeReturn(true);
       window.history.replaceState({}, '', window.location.pathname);
     }
-  }, []);
+  }, [caps.billing]);
 
   // Fetch data when user is authenticated — only hit billing endpoints
   // if the backend actually has billing capability.
   useEffect(() => {
+    if (!caps.billing) return;
     if (!user) return;
-    if (caps.billing) fetchBalance();
+    fetchBalance();
     fetchUsage({ periodOnly: true, limit: 500 });
   }, [user, stripeReturn, caps.billing, fetchBalance, fetchUsage]);
+
+  if (!caps.billing) return null;
 
   if (loading) {
     return (

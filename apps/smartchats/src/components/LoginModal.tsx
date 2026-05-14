@@ -10,11 +10,6 @@ declare var window: any;
 export default function LoginModal() {
   const { user, capabilities, signIn } = useAuth();
 
-  // When the deployment doesn't require auth (e.g. self-hosted trusted mode),
-  // render nothing. `window.openLoginModal` stays undefined so callers get a
-  // harmless no-op.
-  if (!capabilities.required) return null;
-
   const [isOpen, setIsOpen] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -26,6 +21,9 @@ export default function LoginModal() {
   }, []);
 
   useEffect(() => {
+    // Skip when the deployment doesn't require auth (self-hosted trusted mode).
+    // window.openLoginModal stays undefined so callers get a harmless no-op.
+    if (!capabilities.required) return;
     if (typeof window !== 'undefined') {
       window.openLoginModal = () => setIsOpen(true);
     }
@@ -34,7 +32,7 @@ export default function LoginModal() {
         delete window.openLoginModal;
       }
     };
-  }, []);
+  }, [capabilities.required]);
 
   useEffect(() => {
     if (user && isOpen) {
@@ -51,6 +49,9 @@ export default function LoginModal() {
       }
     }
   }, [user, isOpen, onClose]);
+
+  // Render nothing when auth isn't required by the deployment.
+  if (!capabilities.required) return null;
 
   function loginError(error: string) {
     toast_toast({
