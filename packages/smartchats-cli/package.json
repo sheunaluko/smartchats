@@ -1,11 +1,35 @@
 {
-  "name": "smartchats-cli",
+  "name": "smartchats",
   "version": "0.1.0",
-  "description": "SmartChats CLI \u2014 sign in / login, import + export user data between cloud and local, and launch the local docker stack. Cloud subcommands authenticate via Firebase OAuth (cached refresh-token flow); local subcommands talk directly to a self-hosted AIO. Shares its credentials store with the smartchats MCP server.",
+  "description": "SmartChats — one-stop CLI for the open-source voice AI agent. Launch the local docker stack (`smartchats launch`), verify it (`smartchats doctor`), sign in / login to the cloud SaaS, and import + export user data. Single entry point for end users and contributors.",
   "type": "module",
   "main": "dist/cli.js",
   "bin": {
     "smartchats": "dist/cli.js"
+  },
+  "files": [
+    "dist/",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "smartchats",
+    "ai-agent",
+    "voice-ai",
+    "llm",
+    "cli",
+    "self-hosted",
+    "docker"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sheunaluko/smartchats.git",
+    "directory": "packages/smartchats-cli"
+  },
+  "homepage": "https://github.com/sheunaluko/smartchats#readme",
+  "bugs": "https://github.com/sheunaluko/smartchats/issues",
+  "engines": {
+    "node": ">=20"
   },
   "scripts": {
     "build": "tsc",
