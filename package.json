@@ -2,7 +2,7 @@
   "name": "smartchats-monorepo",
   "version": "0.1.0",
   "private": true,
-  "description": "SmartChats — open-source voice AI agent. Monorepo housing the public app, docs site, and open-core packages copied/extracted from ~/dev/tidyscripts.",
+  "description": "SmartChats — open-source voice AI agent. Monorepo housing the public app, docs site, and open-core packages.",
   "workspaces": [
     "apps/*",
     "packages/*"
@@ -11,11 +11,13 @@
     "dev": "turbo run dev",
     "build": "turbo run build",
     "lint": "turbo run lint",
-    "type-check": "turbo run type-check",
     "clean": "turbo run clean && rm -rf node_modules"
   },
   "devDependencies": {
     "turbo": "^2.3.4"
+  },
+  "overrides": {
+    "typescript": "5.4.5"
   },
   "packageManager": "npm@10.8.3",
   "engines": {

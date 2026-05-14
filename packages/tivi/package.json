@@ -1,0 +1,34 @@
+{
+  "name": "tivi",
+  "version": "0.1.0",
+  "description": "Tivi \u2014 voice interface (VAD, speech recognition, TTS queue, calibration) \u2014 pluggable React hooks + components",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "smartchats-common": "*"
+  },
+  "peerDependencies": {
+    "react": "^18 || ^19",
+    "react-dom": "^18 || ^19",
+    "@mui/material": "^5 || ^6 || ^7",
+    "@mui/icons-material": "^5 || ^6 || ^7",
+    "onnxruntime-web": "^1.23.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "@mui/material": "^5.15.0",
+    "@mui/icons-material": "^5.15.0",
+    "onnxruntime-web": "^1.23.2",
+    "react": "^18",
+    "react-dom": "^18",
+    "typescript": "^5.4.5"
+  },
+  "license": "Apache-2.0"
+}

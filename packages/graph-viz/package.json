@@ -1,0 +1,55 @@
+{
+  "name": "graph-viz",
+  "version": "0.1.0",
+  "description": "graph-viz — interactive knowledge graph visualization for React (sigma.js + graphology + react-sigma) with filter panel, search, node detail, physics controls.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./lib": {
+      "types": "./dist/lib/index.d.ts",
+      "default": "./dist/lib/index.js"
+    },
+    "./lib/types": {
+      "types": "./dist/lib/types.d.ts",
+      "default": "./dist/lib/types.js"
+    },
+    "./lib/adapter": {
+      "types": "./dist/lib/adapter.d.ts",
+      "default": "./dist/lib/adapter.js"
+    },
+    "./lib/graph-utils": {
+      "types": "./dist/lib/graph-utils.d.ts",
+      "default": "./dist/lib/graph-utils.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist",
+    "type-check": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "react": ">=18"
+  },
+  "dependencies": {
+    "@mui/icons-material": "^6.4.7",
+    "@mui/material": "^6.4.7",
+    "@react-sigma/core": "^5.0.4",
+    "@react-sigma/layout-forceatlas2": "^5.0.4",
+    "@sigma/edge-curve": "^3.1.0",
+    "graphology": "^0.26.0",
+    "graphology-layout-forceatlas2": "^0.10.1",
+    "graphology-types": "^0.24.8",
+    "sigma": "^3.0.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/react": "^18.0.0",
+    "typescript": "^5.4.5"
+  },
+  "license": "Apache-2.0"
+}

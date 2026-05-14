@@ -1,0 +1,23 @@
+{
+  "name": "cortex",
+  "version": "0.1.0",
+  "description": "Cortex \u2014 platform-agnostic AI agent framework (LLM loop, function execution, prompt composition, streaming runners)",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "openai": "^4.72.0",
+    "zod": "^3.25.76",
+    "smartchats-common": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.4.5"
+  },
+  "license": "Apache-2.0"
+}

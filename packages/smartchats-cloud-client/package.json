@@ -1,0 +1,27 @@
+{
+  "name": "smartchats-cloud-client",
+  "version": "0.1.0",
+  "description": "Cloud-side dispatcher for SmartChats query specs. Authenticates via Firebase OAuth (cached refresh-token flow), runs queries through the smartchats.ai surrealQuery Cloud Function, and surfaces per-statement errors instead of silently returning empty arrays. Defaults point at smartchats.ai SaaS; env vars allow dev/staging override.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "open": "^10.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.4.5"
+  },
+  "license": "Apache-2.0"
+}

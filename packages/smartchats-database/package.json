@@ -1,0 +1,37 @@
+{
+  "name": "smartchats-database",
+  "version": "0.1.0",
+  "description": "Single home for everything SurrealDB in the SmartChats stack \u2014 query builders (DML), schema definitions (DDL), and the SDK client. Consumers never import surrealdb directly; this package is the only boundary.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./data-api": {
+      "types": "./dist/data_api.d.ts",
+      "default": "./dist/data_api.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist",
+    "type-check": "tsc --noEmit",
+    "test:cloud": "vitest run integration.test.ts",
+    "test:local": "SMARTCHATS_TEST_TARGET=local vitest run local_crud.test.ts",
+    "test:cloud-crud": "vitest run cloud_crud.test.ts"
+  },
+  "dependencies": {
+    "smartchats-backend": "*",
+    "smartchats-cloud-client": "*",
+    "surrealdb": "^2.0.3"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.4.5",
+    "vitest": "^2.1.0"
+  },
+  "license": "MIT"
+}

@@ -1,0 +1,25 @@
+{
+  "name": "llm-service",
+  "version": "0.1.0",
+  "description": "Provider-agnostic LLM request + streaming handlers for OpenAI, Anthropic, and Gemini. Normalizes responses into a common shape and supports structured output, streaming, and BYO API keys.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.88.0",
+    "@google/genai": "^1.42.0",
+    "openai": "^4.73.0",
+    "tiktoken": "^1.0.21",
+    "cortex": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.4.5"
+  },
+  "license": "Apache-2.0"
+}

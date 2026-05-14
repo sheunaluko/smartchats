@@ -28,7 +28,7 @@
     "triage:mark": "tsx scripts/triage_mark.ts"
   },
   "dependencies": {
-    "smartchats-database": "file:../../../tidyscripts/packages/smartchats-database"
+    "smartchats-database": "*"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

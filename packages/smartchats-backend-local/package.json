@@ -1,0 +1,20 @@
+{
+  "name": "smartchats-backend-local",
+  "version": "0.1.0",
+  "description": "Client adapter for smartchats-local-server \u2014 implements SmartChatsBackend against a self-hosted Express server",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "smartchats-backend": "*"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.5"
+  },
+  "license": "Apache-2.0"
+}

@@ -1,0 +1,17 @@
+{
+  "name": "smartchats-backend",
+  "version": "0.1.0",
+  "description": "Typed backend interface for SmartChats — contract shared by FirebaseBackend, LocalBackend, and custom implementations",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist",
+    "type-check": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.5"
+  },
+  "license": "Apache-2.0"
+}

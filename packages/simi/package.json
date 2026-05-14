@@ -1,0 +1,18 @@
+{
+  "name": "simi",
+  "version": "0.1.0",
+  "description": "Simi — declarative workflow runner for app simulation + e2e testing. Define multi-step workflows that drive a Zustand store, wait on state predicates, and emit telemetry events.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist",
+    "type-check": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.4.5"
+  },
+  "license": "Apache-2.0"
+}

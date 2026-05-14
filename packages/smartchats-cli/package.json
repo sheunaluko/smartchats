@@ -1,0 +1,30 @@
+{
+  "name": "smartchats-cli",
+  "version": "0.1.0",
+  "description": "SmartChats CLI \u2014 sign in / login, import + export user data between cloud and local, and launch the local docker stack. Cloud subcommands authenticate via Firebase OAuth (cached refresh-token flow); local subcommands talk directly to a self-hosted AIO. Shares its credentials store with the smartchats MCP server.",
+  "type": "module",
+  "main": "dist/cli.js",
+  "bin": {
+    "smartchats": "dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist",
+    "type-check": "tsc --noEmit",
+    "dev": "tsx src/cli.ts",
+    "start": "node dist/cli.js"
+  },
+  "dependencies": {
+    "@inquirer/prompts": "^7.0.0",
+    "consola": "^3.2.3",
+    "smartchats-backend": "*",
+    "smartchats-cloud-client": "*",
+    "smartchats-database": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsx": "^4.7.0",
+    "typescript": "^5.4.5"
+  },
+  "license": "Apache-2.0"
+}

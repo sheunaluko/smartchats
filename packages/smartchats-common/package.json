@@ -1,0 +1,24 @@
+{
+  "name": "smartchats-common",
+  "version": "0.1.0",
+  "description": "Shared utility primitives for the SmartChats workspace \u2014 logger, functional helpers, debug ops, sounds, insights client + types. No business logic; anyone in the graph may depend on this.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "simi": "*",
+    "zustand": "^5.0.9",
+    "ramda": "^0.29.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.4.5",
+    "@types/ramda": "^0.29.12"
+  },
+  "license": "Apache-2.0"
+}
