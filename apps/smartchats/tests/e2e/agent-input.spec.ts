@@ -3,8 +3,6 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { test } from '@playwright/test';
 
-const USER_DATA_DIR = path.join(__dirname, '../../.auth/chrome-profile');
-
 async function captureSession(page: any, testName: string) {
   try {
     const sessionData = await page.evaluate(() => {
@@ -26,15 +24,10 @@ test.describe('Agent request_input', () => {
   test('child agent requests input from parent and receives response', async () => {
     test.setTimeout(180_000);
 
-    if (!fs.existsSync(path.join(USER_DATA_DIR, 'Default'))) {
-      throw new Error('No auth profile. Run: npx ts-node tests/e2e/auth.setup.ts --headed');
-    }
-
-    const context = await chromium.launchPersistentContext(USER_DATA_DIR, {
-      headless: false,
-      viewport: { width: 1280, height: 720 },
-    });
-
+    // Open-mode (LocalAuthProvider): no sign-in required, no persistent
+    // auth profile. Launch an ephemeral browser.
+    const browser = await chromium.launch({ headless: false });
+    const context = await browser.newContext({ viewport: { width: 1280, height: 720 } });
     const page = await context.newPage();
 
     try {
@@ -104,6 +97,7 @@ test.describe('Agent request_input', () => {
       throw err;
     } finally {
       await context.close();
+      await browser.close();
     }
   });
 });

@@ -3,8 +3,6 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { test } from '@playwright/test';
 
-const USER_DATA_DIR = path.join(__dirname, '../../.auth/chrome-profile');
-
 async function captureSession(page: any, testName: string) {
   try {
     const sessionData = await page.evaluate(() => {
@@ -25,8 +23,7 @@ async function captureSession(page: any, testName: string) {
 /**
  * Agent Delegation E2E — exercises ProcessManager agent mode via Simi flow.
  *
- * Uses a persistent Chrome profile (.auth/chrome-profile) for Firebase auth.
- * First run: `npx ts-node tests/e2e/auth.setup.ts` to create the profile.
+ * Open-mode (LocalAuthProvider): no sign-in required, no auth profile needed.
  */
 
 interface RunResult {
@@ -47,17 +44,9 @@ test.describe('Agent Delegation', () => {
   test('fork_process agent mode completes successfully', async () => {
     test.setTimeout(180_000);
 
-    // Ensure auth profile exists
-    if (!fs.existsSync(path.join(USER_DATA_DIR, 'Default'))) {
-      throw new Error('No auth profile. Run: npx ts-node tests/e2e/auth.setup.ts --headed');
-    }
-
-    // Launch with persistent context to get Firebase IndexedDB auth
-    const context = await chromium.launchPersistentContext(USER_DATA_DIR, {
-      headless: false,
-      viewport: { width: 1280, height: 720 },
-    });
-
+    // Ephemeral browser — LocalAuthProvider requires no sign-in.
+    const browser = await chromium.launch({ headless: false });
+    const context = await browser.newContext({ viewport: { width: 1280, height: 720 } });
     const page = await context.newPage();
 
     try {
@@ -126,6 +115,7 @@ test.describe('Agent Delegation', () => {
       throw err;
     } finally {
       await context.close();
+      await browser.close();
     }
   });
 });
