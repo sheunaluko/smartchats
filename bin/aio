@@ -1,0 +1,122 @@
+#!/usr/bin/env bash
+# Build + run the smartchats AIO container — single-image production-mode
+# stack (SurrealDB + Express server + Next.js app). For fast iteration on
+# bugs that surface in production builds (`next start`) but not in dev
+# (`next dev`).
+#
+# Usage:
+#   bin/aio              # build (if missing) + run
+#   bin/aio --rebuild    # force docker build first
+#   bin/aio -d           # detach (run in background)
+#   bin/aio --port 3030  # use a different host port (default 3000)
+#   bin/aio --help
+
+set -uo pipefail
+source "$(dirname "$0")/_lib.sh"
+
+REBUILD=false
+DETACHED=false
+HOST_PORT=3000
+SURREAL_PORT=8000
+DATA_DIR="${HOME}/.smartchats/data"
+TAG="smartchats-aio:latest"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --rebuild)         REBUILD=true; shift ;;
+    -d|--detach|--detached) DETACHED=true; shift ;;
+    --port)            HOST_PORT="$2"; shift 2 ;;
+    --surreal-port)    SURREAL_PORT="$2"; shift 2 ;;
+    --data-dir)        DATA_DIR="$2"; shift 2 ;;
+    --tag)             TAG="$2"; shift 2 ;;
+    --help|-h)
+      cat <<EOF
+Usage: bin/aio [options]
+
+Options:
+  --rebuild              Rebuild the docker image before running
+  -d, --detach           Run in background (docker stop smartchats to stop)
+  --port <n>             App host port (default 3000) — same-origin proxy front door
+  --surreal-port <n>     SurrealDB host port (default 8000) — direct SurrealDB
+                         access for tools like \`bin/save_session\`
+  --data-dir <path>      Persistent SurrealDB data dir (default ~/.smartchats/data)
+  --tag <tag>            Image tag (default smartchats-aio:latest)
+  -h, --help             Show this help
+
+The container picks up provider keys from the host shell env if set:
+  OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY, SERPER_API_KEY
+(plus their SMARTCHATS_*_API_KEY equivalents — see .env.example).
+EOF
+      exit 0
+      ;;
+    *) err "Unknown option: $1"; exit 1 ;;
+  esac
+done
+
+cd "$REPO_ROOT"
+
+# Build if missing or forced.
+image_exists=false
+if docker image inspect "$TAG" >/dev/null 2>&1; then
+  image_exists=true
+fi
+
+if $REBUILD || ! $image_exists; then
+  if $REBUILD; then
+    info "Rebuilding $TAG..."
+  else
+    info "Building $TAG (first run)..."
+  fi
+  docker build -f Dockerfile.aio -t "$TAG" . || { err "docker build failed"; exit 1; }
+  ok "Built $TAG"
+fi
+
+# Persistent data dir
+mkdir -p "$DATA_DIR"
+
+# Stop any prior smartchats container (no-op if absent)
+docker rm -f smartchats >/dev/null 2>&1 || true
+
+# Forward provider keys present in the host env. Empty values aren't passed.
+docker_env_args=()
+for var in OPENAI_API_KEY ANTHROPIC_API_KEY GEMINI_API_KEY GOOGLE_API_KEY SERPER_API_KEY \
+           SMARTCHATS_OPENAI_API_KEY SMARTCHATS_ANTHROPIC_API_KEY \
+           SMARTCHATS_GOOGLE_API_KEY SMARTCHATS_SERPER_API_KEY \
+           SMARTCHATS_API_KEY; do
+  if [[ -n "${!var:-}" ]]; then
+    docker_env_args+=(-e "$var")
+  fi
+done
+
+run_args=(
+  --rm
+  -p "${HOST_PORT}:3000"
+  # Expose internal SurrealDB so host tooling (bin/save_session_v3,
+  # MCP exporters, ad-hoc CLI queries) can talk to it directly. Bound
+  # to host loopback only — the SurrealDB inside the container listens
+  # on 0.0.0.0 (so docker forward can reach it) but the forward only
+  # accepts host-loopback connections, so nothing outside the host can
+  # reach SurrealDB.
+  -p "127.0.0.1:${SURREAL_PORT}:8000"
+  -v "${DATA_DIR}:/data"
+  --name smartchats
+  "${docker_env_args[@]}"
+)
+if $DETACHED; then
+  run_args=(-d "${run_args[@]}")
+else
+  run_args=(-it "${run_args[@]}")
+fi
+
+info "Starting smartchats — http://localhost:${HOST_PORT}"
+info "  SurrealDB direct: ws://localhost:${SURREAL_PORT}/rpc (root:root)"
+info "  Data:  $DATA_DIR"
+if $DETACHED; then
+  info "  Stop:  docker stop smartchats"
+  info "  Logs:  docker logs -f smartchats"
+fi
+
+# Forward Ctrl-C to docker stop so the container shuts down cleanly.
+trap 'docker stop smartchats >/dev/null 2>&1 || true; exit 0' INT TERM
+
+docker run "${run_args[@]}" "$TAG"

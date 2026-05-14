@@ -1,0 +1,24 @@
+{
+  "name": "smartchats-test",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Layered test runner for the smartchats monorepo. Runs lint → build → unit → integration → e2e, fail-fast or continue-on-failure. Each level is invokable independently.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "smartchats-test": "./bin.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.4.5"
+  },
+  "license": "MIT"
+}

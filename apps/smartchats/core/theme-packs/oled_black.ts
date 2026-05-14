@@ -1,0 +1,147 @@
+import type { PairedDesignPack } from '../types';
+
+/**
+ * OLED Black design pack — true black backgrounds for maximum contrast
+ * and power efficiency on OLED displays. Developer-optimized with blue and violet accents.
+ */
+export const oledBlackPack: PairedDesignPack = {
+  id: 'oled_black',
+  name: 'OLED Black',
+  description: 'True OLED black theme with maximum contrast and power efficiency',
+  dark: {
+    id: 'oled_black-dark',
+    name: 'OLED Black Dark',
+    description: 'Pure black OLED-optimized theme',
+    mode: 'dark',
+    color: {
+      background: '#000000',
+      surface: '#0a0a0a',
+      surfaceAlt: '#141414',
+      text: '#f0f0f0',
+      textMuted: 'rgba(240, 240, 240, 0.5)',
+      primary: '#60a5fa',
+      accent: '#a78bfa',
+      border: 'rgba(255, 255, 255, 0.1)',
+      danger: '#f87171',
+      success: '#4ade80',
+      warning: '#fbbf24',
+    },
+    surface: {
+      elevated: 'linear-gradient(to bottom, #0f0f0f 0%, #0a0a0a 100%)',
+      insetHighlight: 'inset 0 1px 0 rgba(255, 255, 255, 0.04)',
+    },
+    shadow: {
+      sm: '0 1px 2px rgba(0, 0, 0, 0.8)',
+      md: '0 2px 8px rgba(0, 0, 0, 0.8)',
+      lg: '0 8px 24px rgba(0, 0, 0, 0.9)',
+      xl: '0 16px 48px rgba(0, 0, 0, 0.95)',
+    },
+    opacity: {
+      hover: 0.06,
+      pressed: 0.1,
+      disabled: 0.3,
+      overlay: 0.7,
+    },
+    typography: {
+      fontSans: '"Inter", -apple-system, sans-serif',
+      fontMono: '"JetBrains Mono", monospace',
+      scale: 'base',
+      weight: 400,
+      sizes: { xs: '0.75rem', sm: '0.875rem', base: '1rem', lg: '1.125rem', xl: '1.25rem', '2xl': '1.5rem' },
+      weights: { normal: 400, medium: 500, semibold: 600, bold: 700 },
+      lineHeights: { tight: 1.25, normal: 1.5, relaxed: 1.75 },
+    },
+    space: {
+      unit: 8,
+      density: 'comfortable',
+    },
+    radius: {
+      sm: 6,
+      md: 10,
+      lg: 14,
+    },
+    motion: {
+      durationFast: '100ms',
+      durationBase: '180ms',
+      easing: 'cubic-bezier(0.16, 1, 0.3, 1)',
+    },
+    componentRules: {
+      panelStyle: 'flat',
+      buttonStyle: 'ghost',
+      messageStyle: 'flat',
+      inputStyle: 'outlined',
+      badgeStyle: 'soft',
+      tooltipStyle: 'solid',
+      dividerStyle: 'subtle',
+      focusRingStyle: 'ring',
+    },
+  },
+  light: {
+    id: 'oled_black-light',
+    name: 'OLED Black Light',
+    description: 'Clean white counterpart with high contrast',
+    mode: 'light',
+    color: {
+      background: '#ffffff',
+      surface: '#fafafa',
+      surfaceAlt: '#f5f5f5',
+      text: '#0a0a0a',
+      textMuted: 'rgba(10, 10, 10, 0.55)',
+      primary: '#2563eb',
+      accent: '#7c3aed',
+      border: 'rgba(0, 0, 0, 0.12)',
+      danger: '#dc2626',
+      success: '#16a34a',
+      warning: '#d97706',
+    },
+    surface: {
+      elevated: 'linear-gradient(to bottom, #ffffff 0%, #fafafa 100%)',
+      insetHighlight: 'inset 0 1px 0 rgba(255, 255, 255, 0.5)',
+    },
+    shadow: {
+      sm: '0 1px 2px rgba(0, 0, 0, 0.05)',
+      md: '0 2px 8px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04)',
+      lg: '0 8px 24px rgba(0, 0, 0, 0.1), 0 2px 8px rgba(0, 0, 0, 0.05)',
+      xl: '0 16px 48px rgba(0, 0, 0, 0.14), 0 4px 16px rgba(0, 0, 0, 0.07)',
+    },
+    opacity: {
+      hover: 0.04,
+      pressed: 0.08,
+      disabled: 0.38,
+      overlay: 0.4,
+    },
+    typography: {
+      fontSans: '"Inter", -apple-system, sans-serif',
+      fontMono: '"JetBrains Mono", monospace',
+      scale: 'base',
+      weight: 400,
+      sizes: { xs: '0.75rem', sm: '0.875rem', base: '1rem', lg: '1.125rem', xl: '1.25rem', '2xl': '1.5rem' },
+      weights: { normal: 400, medium: 500, semibold: 600, bold: 700 },
+      lineHeights: { tight: 1.25, normal: 1.5, relaxed: 1.75 },
+    },
+    space: {
+      unit: 8,
+      density: 'comfortable',
+    },
+    radius: {
+      sm: 6,
+      md: 10,
+      lg: 14,
+    },
+    motion: {
+      durationFast: '100ms',
+      durationBase: '180ms',
+      easing: 'cubic-bezier(0.16, 1, 0.3, 1)',
+    },
+    componentRules: {
+      panelStyle: 'elevated',
+      buttonStyle: 'solid',
+      messageStyle: 'flat',
+      inputStyle: 'outlined',
+      badgeStyle: 'soft',
+      tooltipStyle: 'solid',
+      dividerStyle: 'subtle',
+      focusRingStyle: 'ring',
+    },
+  },
+};

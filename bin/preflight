@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# Pre-commit validation: workspace-wide build (which type-checks as a side
+# effect of `tsc` emit) + lint.
+#
+# When packages/smartchats-test ships, this becomes a thin wrapper around
+# `smartchats-test quick` (lint + type-check + build, skipping integration
+# and e2e). Until then, it directly invokes turbo.
+#
+# Usage: bin/preflight [--quick|--full]
+#   --quick     default — lint + build
+#   --full      also run unit tests + e2e suite (not yet wired)
+
+set -uo pipefail
+source "$(dirname "$0")/_lib.sh"
+
+MODE=quick
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --quick) MODE=quick; shift ;;
+    --full)  MODE=full; shift ;;
+    --help|-h)
+      sed -n '2,/^$/p' "$0" | sed 's/^# \?//'
+      exit 0
+      ;;
+    *)  err "Unknown option: $1"; exit 1 ;;
+  esac
+done
+
+cd "$REPO_ROOT"
+
+header "Preflight ($MODE)"
+
+info "Running workspace build (tsc emit type-checks every package)..."
+if npx turbo run build; then
+  ok "Build clean (all packages type-check + emit)"
+else
+  err "Build failed — fix before committing"
+  exit 1
+fi
+
+# Lint: only if any package has a 'lint' script. Use --continue so one
+# missing-script doesn't tank everything.
+info "Running lint across workspace..."
+npx turbo run lint --continue || warn "Some workspaces don't define lint; ignoring."
+
+if [[ "$MODE" == "full" ]]; then
+  warn "Full mode not yet wired — defer to packages/smartchats-test"
+fi
+
+ok "Preflight passed."

@@ -1,0 +1,147 @@
+import type { PairedDesignPack } from '../types';
+
+/**
+ * Creative design pack — bold creative agency vibe with pink primary
+ * and cyan accent. Playful energy with bouncy animations and rounded shapes.
+ */
+export const creativePack: PairedDesignPack = {
+  id: 'creative',
+  name: 'Creative',
+  description: 'Bold creative agency vibe with pink and cyan accents',
+  dark: {
+    id: 'creative-dark',
+    name: 'Creative Dark',
+    description: 'Dark creative theme with pink and cyan energy',
+    mode: 'dark',
+    color: {
+      background: '#0f0a14',
+      surface: '#1a1522',
+      surfaceAlt: '#251e30',
+      text: '#f0e8f4',
+      textMuted: 'rgba(240, 232, 244, 0.5)',
+      primary: '#ec4899',
+      accent: '#06b6d4',
+      border: 'rgba(236, 72, 153, 0.15)',
+      danger: '#f87171',
+      success: '#4ade80',
+      warning: '#fbbf24',
+    },
+    surface: {
+      elevated: 'linear-gradient(to bottom, #201a2a 0%, #1a1522 100%)',
+      insetHighlight: 'inset 0 1px 0 rgba(236, 72, 153, 0.06)',
+    },
+    shadow: {
+      sm: '0 1px 3px rgba(236, 72, 153, 0.1)',
+      md: '0 4px 12px rgba(236, 72, 153, 0.12)',
+      lg: '0 12px 32px rgba(0, 0, 0, 0.5)',
+      xl: '0 24px 48px rgba(0, 0, 0, 0.6)',
+    },
+    opacity: {
+      hover: 0.08,
+      pressed: 0.12,
+      disabled: 0.35,
+      overlay: 0.5,
+    },
+    typography: {
+      fontSans: '"Outfit", "Work Sans", sans-serif',
+      fontMono: '"JetBrains Mono", monospace',
+      scale: 'base',
+      weight: 400,
+      sizes: { xs: '0.75rem', sm: '0.875rem', base: '1rem', lg: '1.125rem', xl: '1.25rem', '2xl': '1.5rem' },
+      weights: { normal: 400, medium: 500, semibold: 600, bold: 700 },
+      lineHeights: { tight: 1.25, normal: 1.5, relaxed: 1.75 },
+    },
+    space: {
+      unit: 8,
+      density: 'comfortable',
+    },
+    radius: {
+      sm: 8,
+      md: 14,
+      lg: 20,
+    },
+    motion: {
+      durationFast: '130ms',
+      durationBase: '220ms',
+      easing: 'cubic-bezier(0.34, 1.56, 0.64, 1)',
+    },
+    componentRules: {
+      panelStyle: 'glass',
+      buttonStyle: 'solid',
+      messageStyle: 'bubble',
+      inputStyle: 'filled',
+      badgeStyle: 'soft',
+      tooltipStyle: 'outlined',
+      dividerStyle: 'subtle',
+      focusRingStyle: 'glow',
+    },
+  },
+  light: {
+    id: 'creative-light',
+    name: 'Creative Light',
+    description: 'Light creative theme with pink warmth',
+    mode: 'light',
+    color: {
+      background: '#fdf2f8',
+      surface: '#ffffff',
+      surfaceAlt: '#fce7f3',
+      text: '#831843',
+      textMuted: 'rgba(131, 24, 67, 0.55)',
+      primary: '#db2777',
+      accent: '#0891b2',
+      border: 'rgba(0, 0, 0, 0.08)',
+      danger: '#dc2626',
+      success: '#16a34a',
+      warning: '#d97706',
+    },
+    surface: {
+      elevated: 'linear-gradient(to bottom, #ffffff 0%, #fdf2f8 100%)',
+      insetHighlight: 'inset 0 1px 0 rgba(255, 255, 255, 0.6)',
+    },
+    shadow: {
+      sm: '0 1px 2px rgba(0, 0, 0, 0.05)',
+      md: '0 2px 8px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04)',
+      lg: '0 8px 24px rgba(0, 0, 0, 0.1), 0 2px 8px rgba(0, 0, 0, 0.05)',
+      xl: '0 16px 48px rgba(0, 0, 0, 0.14), 0 4px 16px rgba(0, 0, 0, 0.07)',
+    },
+    opacity: {
+      hover: 0.04,
+      pressed: 0.08,
+      disabled: 0.38,
+      overlay: 0.4,
+    },
+    typography: {
+      fontSans: '"Outfit", "Work Sans", sans-serif',
+      fontMono: '"JetBrains Mono", monospace',
+      scale: 'base',
+      weight: 400,
+      sizes: { xs: '0.75rem', sm: '0.875rem', base: '1rem', lg: '1.125rem', xl: '1.25rem', '2xl': '1.5rem' },
+      weights: { normal: 400, medium: 500, semibold: 600, bold: 700 },
+      lineHeights: { tight: 1.25, normal: 1.5, relaxed: 1.75 },
+    },
+    space: {
+      unit: 8,
+      density: 'comfortable',
+    },
+    radius: {
+      sm: 8,
+      md: 14,
+      lg: 20,
+    },
+    motion: {
+      durationFast: '130ms',
+      durationBase: '220ms',
+      easing: 'cubic-bezier(0.34, 1.56, 0.64, 1)',
+    },
+    componentRules: {
+      panelStyle: 'outlined',
+      buttonStyle: 'solid',
+      messageStyle: 'bubble',
+      inputStyle: 'filled',
+      badgeStyle: 'soft',
+      tooltipStyle: 'outlined',
+      dividerStyle: 'subtle',
+      focusRingStyle: 'glow',
+    },
+  },
+};

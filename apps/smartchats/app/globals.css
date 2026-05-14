@@ -1,0 +1,1058 @@
+@import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;14..32,400;14..32,500;14..32,600;14..32,700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+/* ── DesignPack CSS variable defaults (overridden at runtime by DesignPackBridge) ── */
+:root {
+  color-scheme: dark;
+
+  /* Colors */
+  --sc-background: #09090b;
+  --sc-surface: #18181b;
+  --sc-surface-alt: #27272a;
+  --sc-text: #fafafa;
+  --sc-text-muted: rgba(161, 161, 170, 0.9);
+  --sc-primary: #3b82f6;
+  --sc-accent: #f472b6;
+  --sc-border: rgba(255, 255, 255, 0.08);
+  --sc-danger: #ef4444;
+  --sc-success: #22c55e;
+  --sc-warning: #eab308;
+  --sc-surface-secondary: #202024;
+  --sc-surface-tertiary: #242428;
+  --sc-surface-secondary-foreground: var(--sc-text);
+  --sc-surface-tertiary-foreground: var(--sc-text-muted);
+  --sc-separator: rgba(255, 255, 255, 0.08);
+  --sc-overlay: rgba(9, 9, 11, 0.72);
+  --sc-default: #27272a;
+  --sc-default-foreground: var(--sc-text);
+  --sc-default-hover: #323238;
+  --sc-accent-soft: rgba(59, 130, 246, 0.16);
+  --sc-accent-soft-foreground: var(--sc-text);
+  --sc-field-background: #202024;
+  --sc-field-foreground: var(--sc-text);
+  --sc-field-placeholder: rgba(161, 161, 170, 0.72);
+  --sc-field-hover: #26262b;
+  --sc-field-focus: #1f2838;
+  --sc-field-border: rgba(255, 255, 255, 0.08);
+  --sc-field-border-hover: rgba(255, 255, 255, 0.14);
+  --sc-field-border-focus: rgba(59, 130, 246, 0.42);
+  --sc-status-focus-ring: 0 0 0 1px rgba(59, 130, 246, 0.5), 0 0 0 4px rgba(59, 130, 246, 0.16);
+  --sc-status-focus-field: 0 0 0 1px rgba(59, 130, 246, 0.5), 0 0 0 4px rgba(59, 130, 246, 0.18);
+  --sc-status-invalid-ring: 0 0 0 1px rgba(239, 68, 68, 0.5), 0 0 0 4px rgba(239, 68, 68, 0.16);
+  --sc-status-invalid-border: rgba(239, 68, 68, 0.6);
+  --sc-status-pending-opacity: 0.72;
+
+  /* Shadows — layered with ring highlight (Vercel-style) */
+  --sc-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.03);
+  --sc-shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4), 0 1px 3px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(255, 255, 255, 0.04);
+  --sc-shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.5), 0 4px 12px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(255, 255, 255, 0.04);
+  --sc-shadow-xl: 0 24px 64px rgba(0, 0, 0, 0.6), 0 8px 24px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.05);
+
+  /* Opacity */
+  --sc-opacity-hover: 0.06;
+  --sc-opacity-pressed: 0.1;
+  --sc-opacity-disabled: 0.38;
+  --sc-opacity-overlay: 0.6;
+
+  /* Typography */
+  --sc-font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --sc-font-mono: "JetBrains Mono", "Fira Code", "Cascadia Code", monospace;
+  --sc-text-xs: 0.75rem;
+  --sc-text-sm: 0.875rem;
+  --sc-text-base: 0.9375rem;
+  --sc-text-lg: 1.0625rem;
+  --sc-text-xl: 1.25rem;
+  --sc-text-2xl: 1.5rem;
+  --sc-font-weight-normal: 400;
+  --sc-font-weight-medium: 500;
+  --sc-font-weight-semibold: 600;
+  --sc-font-weight-bold: 700;
+  --sc-leading-tight: 1.25;
+  --sc-leading-normal: 1.5;
+  --sc-leading-relaxed: 1.75;
+
+  /* Radius */
+  --sc-radius-sm: 6px;
+  --sc-radius-md: 8px;
+  --sc-radius-lg: 12px;
+
+  /* Spacing (8px base + derived scale) */
+  --sc-space-unit: 8px;
+  --sc-space-0\.5: 4px;
+  --sc-space-1: 8px;
+  --sc-space-1\.5: 12px;
+  --sc-space-2: 16px;
+  --sc-space-3: 24px;
+  --sc-space-4: 32px;
+  --sc-space-6: 48px;
+  --sc-space-8: 64px;
+
+  /* Motion */
+  --sc-motion-fast: 150ms;
+  --sc-motion-base: 250ms;
+  --sc-motion-easing: cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* Component rules (read by JS, not directly by CSS) */
+  --sc-panel-style: elevated;
+  --sc-button-style: solid;
+  --sc-message-style: flat;
+  --sc-input-style: outlined;
+  --sc-badge-style: soft;
+  --sc-focus-ring-style: ring;
+}
+
+html[data-sc-mode="light"] {
+  color-scheme: light;
+}
+
+html[data-sc-mode="dark"] {
+  color-scheme: dark;
+}
+
+/* ── Base resets ── */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100dvh;
+  overflow-x: hidden;
+  background:
+    radial-gradient(circle at top, color-mix(in srgb, var(--sc-primary) 10%, transparent), transparent 36%),
+    linear-gradient(180deg, color-mix(in srgb, var(--sc-background) 94%, white 6%), var(--sc-background));
+  color: var(--sc-text);
+  font-family: var(--sc-font-sans);
+  font-size: var(--sc-text-base);
+  line-height: var(--sc-leading-normal);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  letter-spacing: -0.011em;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+}
+
+html[data-sc-mode="light"] body {
+  background:
+    radial-gradient(circle at top left, color-mix(in srgb, var(--sc-primary) 9%, transparent), transparent 34%),
+    radial-gradient(circle at top right, color-mix(in srgb, var(--sc-accent) 6%, transparent), transparent 26%),
+    linear-gradient(180deg, color-mix(in srgb, var(--sc-background) 84%, white 16%), var(--sc-background));
+}
+
+a {
+  color: inherit;
+}
+
+/* ── Global touch optimization ── */
+button, a, [role="button"], [role="switch"], [role="tab"], input[type="range"] {
+  touch-action: manipulation;
+  cursor: pointer;
+}
+
+button:disabled, [aria-disabled="true"] {
+  cursor: not-allowed;
+  opacity: var(--sc-opacity-disabled);
+}
+
+/* ── Reduced motion (CRITICAL a11y) ── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ── Panel elevation — refined with top-edge highlight ── */
+.panel {
+  background: var(--sc-surface);
+  border: 1px solid var(--sc-border);
+  border-radius: var(--sc-radius-md);
+  box-shadow: var(--sc-shadow-md);
+  background-image: linear-gradient(
+    to bottom,
+    rgba(255, 255, 255, 0.03) 0%,
+    transparent 40%
+  );
+}
+
+.panel-glass {
+  background: color-mix(in srgb, var(--sc-surface) 75%, transparent);
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  border: 1px solid color-mix(in srgb, var(--sc-border) 60%, transparent);
+  border-radius: var(--sc-radius-md);
+  box-shadow: var(--sc-shadow-sm);
+  background-image: linear-gradient(
+    to bottom,
+    rgba(255, 255, 255, 0.04) 0%,
+    transparent 50%
+  );
+}
+
+.panel-alt {
+  background: var(--sc-surface-alt);
+  border: 1px solid var(--sc-border);
+  border-radius: var(--sc-radius-sm);
+}
+
+/* ── Hover lift for interactive panels ── */
+.panel-interactive {
+  transition: box-shadow var(--sc-motion-base) var(--sc-motion-easing),
+              transform var(--sc-motion-base) var(--sc-motion-easing),
+              border-color var(--sc-motion-base) var(--sc-motion-easing);
+}
+.panel-interactive:hover {
+  box-shadow: var(--sc-shadow-lg);
+  border-color: rgba(255, 255, 255, 0.12);
+  transform: translateY(-1px);
+}
+
+/* ── Scrollbar hiding utility ── */
+.scrollbar-hide {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+/* ── Custom scrollbar — refined ── */
+.scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.08) transparent;
+}
+.scrollbar-thin::-webkit-scrollbar {
+  width: 6px;
+}
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+/* ── Preserve from old app.css ── */
+.line-break {
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: break-word;
+}
+
+/* ── Focus ring utility ── */
+.focus-ring:focus-visible {
+  outline: 2px solid var(--sc-primary);
+  outline-offset: 2px;
+}
+
+.focus-ring-glow:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--sc-primary) 70%, transparent),
+              0 0 0 4px color-mix(in srgb, var(--sc-primary) 20%, transparent);
+}
+
+.status-focused:focus-visible,
+.status-focused[data-focus-visible="true"] {
+  outline: none;
+  box-shadow: var(--sc-status-focus-ring);
+}
+
+.status-focused-field:focus,
+.status-focused-field[data-focused="true"],
+.status-focused-field:focus-visible,
+.status-focused-field[data-focus-visible="true"] {
+  outline: none;
+  box-shadow: var(--sc-status-focus-field);
+}
+
+.status-invalid-field[aria-invalid="true"],
+.status-invalid-field[data-invalid="true"] {
+  border-color: var(--sc-status-invalid-border) !important;
+}
+
+.status-invalid-field[aria-invalid="true"]:focus,
+.status-invalid-field[aria-invalid="true"]:focus-visible,
+.status-invalid-field[data-invalid="true"]:focus,
+.status-invalid-field[data-invalid="true"]:focus-visible {
+  box-shadow: var(--sc-status-invalid-ring);
+}
+
+.status-disabled:disabled,
+.status-disabled[aria-disabled="true"],
+.status-disabled[data-disabled="true"] {
+  opacity: var(--sc-opacity-disabled);
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.status-pending[data-pending="true"] {
+  opacity: var(--sc-status-pending-opacity);
+}
+
+.surface-panel {
+  color: var(--sc-text);
+  background: var(--sc-surface-elevated, var(--sc-surface));
+  border: 1px solid var(--sc-separator);
+  border-radius: 20px;
+  box-shadow: var(--sc-shadow-md), var(--sc-surface-inset-highlight, inset 0 1px 0 rgba(255, 255, 255, 0.1));
+}
+
+.surface-panel-secondary {
+  background: var(--sc-surface-secondary);
+  color: var(--sc-surface-secondary-foreground);
+}
+
+.surface-panel-tertiary {
+  background: var(--sc-surface-tertiary);
+  color: var(--sc-surface-tertiary-foreground);
+}
+
+.surface-divider {
+  border-color: var(--sc-separator);
+}
+
+.surface-header {
+  border-bottom: 1px solid var(--sc-separator);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--sc-surface-secondary) 88%, white 12%),
+    color-mix(in srgb, var(--sc-surface) 92%, transparent)
+  );
+}
+
+.field-base {
+  background: var(--sc-field-background);
+  color: var(--sc-field-foreground);
+  border: 1px solid var(--sc-field-border);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  transition:
+    background-color var(--sc-motion-fast) var(--sc-motion-easing),
+    border-color var(--sc-motion-fast) var(--sc-motion-easing),
+    box-shadow var(--sc-motion-fast) var(--sc-motion-easing),
+    color var(--sc-motion-fast) var(--sc-motion-easing);
+}
+
+.field-base::placeholder {
+  color: var(--sc-field-placeholder);
+}
+
+.slider-base::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--sc-primary) 26%, var(--sc-surface-secondary)),
+    color-mix(in srgb, var(--sc-surface-tertiary) 86%, var(--sc-surface))
+  );
+  border: 1px solid color-mix(in srgb, var(--sc-separator) 82%, transparent);
+}
+
+.slider-base::-moz-range-track {
+  height: 6px;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--sc-primary) 26%, var(--sc-surface-secondary)),
+    color-mix(in srgb, var(--sc-surface-tertiary) 86%, var(--sc-surface))
+  );
+  border: 1px solid color-mix(in srgb, var(--sc-separator) 82%, transparent);
+}
+
+.slider-base::-moz-range-progress {
+  height: 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--sc-primary) 52%, var(--sc-surface-secondary));
+}
+
+@media (hover: hover) {
+  .field-base:hover:not(:disabled):not([aria-disabled="true"]) {
+    background: var(--sc-field-hover);
+    border-color: var(--sc-field-border-hover);
+  }
+}
+
+/* ── Tabular numbers for data displays ── */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Slider thumb styling — refined ── */
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  height: 16px;
+  width: 16px;
+  margin-top: -5px;
+  border-radius: 50%;
+  background: var(--sc-primary);
+  cursor: pointer;
+  border: 2px solid var(--sc-background);
+  box-shadow: 0 0 0 1px var(--sc-primary), 0 2px 4px rgba(0, 0, 0, 0.3);
+  transition: transform 150ms ease, box-shadow 150ms ease;
+}
+input[type="range"]::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+  box-shadow: 0 0 0 2px var(--sc-primary), 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+
+input[type="range"]::-moz-range-thumb {
+  height: 16px;
+  width: 16px;
+  border-radius: 50%;
+  background: var(--sc-primary);
+  cursor: pointer;
+  border: 2px solid var(--sc-background);
+  box-shadow: 0 0 0 1px var(--sc-primary), 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+/* ── Select dropdown styling ── */
+select option {
+  background: var(--sc-surface);
+  color: var(--sc-text);
+}
+
+/* ── Off-screen widget optimization ── */
+.widget-auto-contain {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 300px;
+}
+
+/* ── Subtle divider ── */
+.divider-subtle {
+  height: 1px;
+  background: linear-gradient(
+    to right,
+    transparent,
+    var(--sc-border) 20%,
+    var(--sc-border) 80%,
+    transparent
+  );
+}
+
+.safe-area-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+@keyframes sc-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes sc-scale-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes sc-slide-in-right {
+  from {
+    opacity: 0;
+    transform: translateX(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes sc-slide-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes sc-slide-in-down {
+  from {
+    opacity: 0;
+    transform: translateY(-12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-sc-fade-in {
+  animation: sc-fade-in var(--sc-motion-fast) var(--sc-motion-easing);
+}
+
+.animate-sc-scale-in {
+  animation: sc-scale-in var(--sc-motion-base) var(--sc-motion-easing);
+}
+
+.animate-sc-slide-in-right {
+  animation: sc-slide-in-right var(--sc-motion-base) var(--sc-motion-easing);
+}
+
+.animate-sc-slide-in-up {
+  animation: sc-slide-in-up var(--sc-motion-base) var(--sc-motion-easing);
+}
+
+.animate-sc-slide-in-down {
+  animation: sc-slide-in-down var(--sc-motion-base) var(--sc-motion-easing);
+}
+
+@keyframes sc-viz-out {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(8px) scale(0.97);
+  }
+}
+
+.animate-sc-viz-out {
+  animation: sc-viz-out 400ms var(--sc-motion-easing);
+}
+
+@keyframes sc-voice-breathe {
+  0%, 100% {
+    transform: scale(0.985);
+    opacity: 0.7;
+  }
+  50% {
+    transform: scale(1.02);
+    opacity: 1;
+  }
+}
+
+@keyframes sc-voice-orbit {
+  from {
+    transform: rotate(0deg) scale(1);
+  }
+  to {
+    transform: rotate(360deg) scale(1.015);
+  }
+}
+
+@keyframes sc-voice-listen {
+  0%, 100% {
+    transform: scale(0.96);
+    opacity: 0.42;
+  }
+  50% {
+    transform: scale(1.03);
+    opacity: 0.86;
+  }
+}
+
+@keyframes sc-voice-speak {
+  0%, 100% {
+    transform: scale(0.98);
+    opacity: 0.5;
+  }
+  50% {
+    transform: scale(1.06);
+    opacity: 0.92;
+  }
+}
+
+@keyframes sc-voice-processing {
+  0%, 100% {
+    transform: translateY(0) scale(0.985);
+  }
+  50% {
+    transform: translateY(-2px) scale(1.01);
+  }
+}
+
+@keyframes sc-voice-speck-orbit-cw {
+  from {
+    transform: rotate(var(--voice-speck-start, 0deg));
+  }
+  to {
+    transform: rotate(calc(var(--voice-speck-start, 0deg) + 360deg));
+  }
+}
+
+@keyframes sc-voice-speck-orbit-ccw {
+  from {
+    transform: rotate(var(--voice-speck-start, 0deg));
+  }
+  to {
+    transform: rotate(calc(var(--voice-speck-start, 0deg) - 360deg));
+  }
+}
+
+@keyframes sc-voice-cta-shake-once {
+  0%, 100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  18% {
+    transform: translate3d(-1px, 0, 0) scale(1.015);
+  }
+  36% {
+    transform: translate3d(1px, 0, 0) scale(1.025);
+  }
+  54% {
+    transform: translate3d(-1.5px, 0, 0) scale(1.02);
+  }
+  72% {
+    transform: translate3d(1.5px, 0, 0) scale(1.01);
+  }
+}
+
+@keyframes sc-voice-cta-sheen {
+  0%, 10%, 100% {
+    transform: translateX(-150%);
+    opacity: 0;
+  }
+  18% {
+    opacity: 0.12;
+  }
+  54% {
+    transform: translateX(0%);
+    opacity: 0.52;
+  }
+  98% {
+    transform: translateX(150%);
+    opacity: 0;
+  }
+}
+
+@keyframes sc-voice-dot-pulse {
+  0%, 100% {
+    transform: translate(-50%, calc(-50% - var(--voice-orbit-radius, 108px))) scale(0.74);
+    opacity: 0.38;
+  }
+  50% {
+    transform: translate(-50%, calc(-50% - var(--voice-orbit-radius, 108px))) scale(calc(1 + (var(--voice-level, 0) * 0.38)));
+    opacity: 0.96;
+  }
+}
+
+@keyframes sc-voice-inner-dot-pulse {
+  0%, 100% {
+    transform: translate(-50%, -50%) scale(0.72);
+    opacity: 0.28;
+  }
+  50% {
+    transform: translate(-50%, -50%) scale(calc(1 + (var(--voice-level, 0) * 0.48)));
+    opacity: 0.94;
+  }
+}
+
+@keyframes sc-voice-meter-bounce {
+  0%, 100% {
+    transform: scaleY(0.44);
+    opacity: 0.34;
+  }
+  50% {
+    transform: scaleY(calc(0.9 + (var(--voice-level, 0) * 0.5)));
+    opacity: 0.96;
+  }
+}
+
+.voice-stage-shell {
+  filter: saturate(1.04);
+}
+
+.voice-stage-cta {
+  overflow: hidden;
+}
+
+.voice-stage-cta-sheen {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    transparent 32%,
+    color-mix(in srgb, white 10%, transparent) 38%,
+    color-mix(in srgb, white 18%, transparent) 42%,
+    color-mix(in srgb, white 34%, transparent) 46%,
+    color-mix(in srgb, white 62%, transparent) 48%,
+    color-mix(in srgb, white 92%, transparent) 50%,
+    color-mix(in srgb, white 62%, transparent) 52%,
+    color-mix(in srgb, white 34%, transparent) 54%,
+    color-mix(in srgb, white 18%, transparent) 58%,
+    color-mix(in srgb, white 10%, transparent) 62%,
+    transparent 68%,
+    transparent 100%
+  );
+  opacity: 0;
+  mix-blend-mode: screen;
+}
+
+.voice-stage-cta-attention {
+  animation: sc-voice-cta-shake-once 520ms ease-in-out 2s 1 both;
+}
+
+.voice-stage-cta-attention .voice-stage-cta-sheen {
+  animation: sc-voice-cta-sheen 6.5s linear 2s infinite;
+}
+
+.voice-stage-halo {
+  background:
+    radial-gradient(circle at center, color-mix(in srgb, var(--sc-primary) 10%, transparent), transparent 58%);
+  opacity: 0.92;
+  animation: sc-voice-breathe 4.8s ease-in-out infinite;
+}
+
+.voice-stage-core {
+  background:
+    radial-gradient(circle at 30% 30%, color-mix(in srgb, white 18%, transparent), transparent 34%),
+    radial-gradient(circle, color-mix(in srgb, var(--sc-primary) 28%, var(--sc-surface-secondary)), var(--sc-surface));
+  box-shadow:
+    0 0 0 calc(8px + (var(--voice-level, 0) * 10px)) color-mix(in srgb, var(--sc-primary) 8%, transparent),
+    var(--sc-shadow-lg);
+  transition:
+    transform var(--sc-motion-base) var(--sc-motion-easing),
+    box-shadow var(--sc-motion-base) var(--sc-motion-easing),
+    filter var(--sc-motion-base) var(--sc-motion-easing),
+    opacity var(--sc-motion-base) var(--sc-motion-easing);
+}
+
+.voice-stage-core-glow {
+  background:
+    radial-gradient(circle at center, color-mix(in srgb, white 14%, transparent), transparent 56%);
+  opacity: 0.9;
+}
+
+.voice-stage-core-center {
+  background:
+    radial-gradient(circle at 35% 35%, color-mix(in srgb, white 22%, transparent), transparent 45%),
+    radial-gradient(circle, color-mix(in srgb, var(--sc-surface) 78%, white 22%), color-mix(in srgb, var(--sc-primary) 22%, var(--sc-surface)));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.26),
+    0 8px 24px rgba(0, 0, 0, 0.18);
+  overflow: hidden;
+}
+
+.voice-stage-core-speck {
+  background: color-mix(in srgb, white 58%, var(--sc-primary));
+  box-shadow: 0 0 18px color-mix(in srgb, var(--sc-primary) 30%, transparent);
+  opacity: 0.78;
+}
+
+.voice-stage-core-speck-orbit {
+  pointer-events: none;
+}
+
+.voice-stage-core-speck-orbit-1 {
+  transform: rotate(var(--voice-speck-angle-1, 0deg));
+}
+
+.voice-stage-core-speck-orbit-2 {
+  transform: rotate(var(--voice-speck-angle-2, 180deg));
+}
+
+.voice-stage-core-speck-1 {
+  top: 11%;
+  left: 50%;
+  height: 10px;
+  width: 10px;
+  transform: translateX(-50%);
+}
+
+.voice-stage-core-speck-2 {
+  top: 13%;
+  left: 50%;
+  height: 7px;
+  width: 7px;
+  transform: translateX(-50%);
+  opacity: 0.6;
+}
+
+.voice-stage-ring,
+.voice-stage-ring-2,
+.voice-stage-ring-3 {
+  border: 1px solid color-mix(in srgb, var(--sc-primary) 24%, transparent);
+  opacity: 0.7;
+  transition:
+    transform var(--sc-motion-base) var(--sc-motion-easing),
+    opacity var(--sc-motion-base) var(--sc-motion-easing),
+    border-color var(--sc-motion-base) var(--sc-motion-easing);
+}
+
+.voice-stage-ring-3 {
+  border-color: color-mix(in srgb, var(--sc-accent) 14%, transparent);
+  opacity: 0.34;
+}
+
+.voice-stage-core-audio {
+  background:
+    radial-gradient(
+      circle at center,
+      color-mix(in srgb, var(--sc-primary) 72%, white 14%) 0%,
+      color-mix(in srgb, var(--sc-primary) 54%, transparent) 44%,
+      transparent 78%
+    );
+  opacity: calc(0.08 + (var(--voice-audio-power, 0) * 0.88));
+  transform: scale(calc(0.82 + (var(--voice-audio-power, 0) * 0.28)));
+  transition:
+    opacity 120ms linear,
+    transform 120ms linear,
+    filter 160ms var(--sc-motion-easing);
+  filter: saturate(calc(0.92 + (var(--voice-audio-power, 0) * 0.5)));
+}
+
+.voice-stage-core-wave {
+  opacity: 0;
+  transform: translateY(2px);
+  transition:
+    opacity 220ms var(--sc-motion-easing),
+    transform 220ms var(--sc-motion-easing);
+}
+
+.voice-stage-core-wave-fill {
+  color: color-mix(in srgb, var(--sc-accent) 26%, transparent);
+}
+
+.voice-stage-core-wave-texture {
+  opacity: 0.74;
+}
+
+.voice-stage-core-wave-dot {
+  fill: color-mix(in srgb, white 26%, var(--sc-accent));
+}
+
+.voice-stage-core-wave-dot-soft {
+  fill: color-mix(in srgb, white 14%, var(--sc-accent));
+}
+
+.voice-stage-core-wave-line {
+  fill: none;
+  stroke: color-mix(in srgb, white 26%, var(--sc-accent));
+  stroke-width: 2.25;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.voice-stage-core[data-state="idle"] {
+  transform: scale(0.96);
+  opacity: 0.92;
+}
+
+.voice-stage-shell[data-state="idle"] .voice-stage-ring,
+.voice-stage-shell[data-state="idle"] .voice-stage-ring-2 {
+  animation: sc-voice-breathe 5.6s ease-in-out infinite;
+}
+
+.voice-stage-core[data-state="ready"] {
+  transform: scale(1);
+}
+
+.voice-stage-shell[data-state="ready"] .voice-stage-ring-3 {
+  animation: sc-voice-orbit 16s linear infinite;
+}
+
+.voice-stage-core[data-state="listening"] {
+  transform: scale(1.04);
+  box-shadow:
+    0 0 0 calc(12px + (var(--voice-level, 0) * 18px)) color-mix(in srgb, var(--sc-primary) 12%, transparent),
+    var(--sc-shadow-xl);
+}
+
+.voice-stage-shell[data-state="listening"] .voice-stage-ring,
+.voice-stage-shell[data-state="listening"] .voice-stage-ring-2 {
+  animation: sc-voice-listen 2s ease-in-out infinite;
+}
+
+.voice-stage-shell[data-state="listening"] .voice-stage-ring-3 {
+  animation: sc-voice-orbit 10s linear infinite;
+}
+
+.voice-stage-core[data-state="processing"] {
+  transform: scale(0.985);
+  filter: saturate(1.08) brightness(1.02);
+}
+
+.voice-stage-shell[data-state="processing"] .voice-stage-core {
+  animation: sc-voice-processing 2.4s ease-in-out infinite;
+}
+
+.voice-stage-shell[data-state="processing"] .voice-stage-ring {
+  animation: sc-voice-breathe 3.4s ease-in-out infinite;
+}
+
+.voice-stage-shell[data-state="processing"] .voice-stage-ring-3 {
+  animation: sc-voice-orbit 8.8s linear infinite;
+}
+
+.voice-stage-core[data-state="speaking"] {
+  transform: scale(1.02);
+  box-shadow:
+    0 0 0 calc(10px + (var(--voice-level, 0) * 14px)) color-mix(in srgb, var(--sc-accent) 10%, transparent),
+    var(--sc-shadow-xl);
+}
+
+.voice-stage-shell[data-state="speaking"] .voice-stage-core-wave {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.voice-stage-shell[data-state="speaking"] .voice-stage-ring,
+.voice-stage-shell[data-state="speaking"] .voice-stage-ring-2 {
+  animation: sc-voice-speak 1.5s ease-in-out infinite;
+}
+
+.voice-stage-shell[data-state="speaking"] .voice-stage-ring-3 {
+  animation: sc-voice-orbit 7.2s linear infinite;
+}
+
+.voice-stage-core[data-state="awaiting_confirmation"] {
+  transform: scale(0.98);
+  filter: saturate(1.03);
+}
+
+.voice-stage-shell[data-state="awaiting_confirmation"] .voice-stage-ring-3 {
+  border-color: color-mix(in srgb, var(--sc-warning) 22%, transparent);
+  opacity: 0.5;
+}
+
+.voice-stage-core[data-state="interrupted"] {
+  transform: scale(0.95);
+  opacity: 0.86;
+}
+
+.voice-stage-core[data-state="error"] {
+  transform: scale(0.97);
+  box-shadow:
+    0 0 0 10px color-mix(in srgb, var(--sc-danger) 10%, transparent),
+    var(--sc-shadow-lg);
+}
+
+.voice-stage-shell[data-state="error"] .voice-stage-ring,
+.voice-stage-shell[data-state="error"] .voice-stage-ring-2,
+.voice-stage-shell[data-state="error"] .voice-stage-ring-3 {
+  border-color: color-mix(in srgb, var(--sc-danger) 22%, transparent);
+}
+
+.voice-stage-orbit-dot-field {
+  animation: sc-voice-orbit 20s linear infinite;
+}
+
+.voice-stage-orbit-dot-lane {
+  transform: rotate(var(--voice-angle));
+}
+
+.voice-stage-orbit-dot {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  height: 10px;
+  width: 10px;
+  transform: translate(-50%, calc(-50% - var(--voice-orbit-radius, 108px))) scale(0.8);
+  background: color-mix(in srgb, white 44%, var(--sc-primary));
+  box-shadow: 0 0 20px color-mix(in srgb, var(--sc-primary) 28%, transparent);
+  opacity: 0.42;
+}
+
+.voice-stage-shell[data-variant="orbit-dots"][data-state="idle"] .voice-stage-orbit-dot,
+.voice-stage-shell[data-variant="orbit-dots"][data-state="ready"] .voice-stage-orbit-dot {
+  animation: sc-voice-dot-pulse 3.8s ease-in-out infinite;
+  animation-delay: var(--voice-delay);
+}
+
+.voice-stage-shell[data-variant="orbit-dots"][data-state="listening"] .voice-stage-orbit-dot {
+  animation: sc-voice-dot-pulse 1.6s ease-in-out infinite;
+  animation-delay: var(--voice-delay);
+}
+
+.voice-stage-shell[data-variant="orbit-dots"][data-state="processing"] .voice-stage-orbit-dot-field {
+  animation-duration: 10.5s;
+}
+
+.voice-stage-shell[data-variant="orbit-dots"][data-state="processing"] .voice-stage-orbit-dot {
+  animation: sc-voice-dot-pulse 2.3s ease-in-out infinite;
+  animation-delay: var(--voice-delay);
+  opacity: 0.54;
+}
+
+.voice-stage-shell[data-variant="orbit-dots"][data-state="speaking"] .voice-stage-orbit-dot-field {
+  animation-duration: 8.4s;
+}
+
+.voice-stage-shell[data-variant="orbit-dots"][data-state="speaking"] .voice-stage-orbit-dot {
+  animation: sc-voice-dot-pulse 1.15s ease-in-out infinite;
+  animation-delay: var(--voice-delay);
+  background: color-mix(in srgb, white 36%, var(--sc-accent));
+}
+
+.voice-stage-inner-dot-field {
+  animation: sc-voice-orbit 18s linear infinite;
+}
+
+.voice-stage-inner-dot {
+  transform: translate(-50%, -50%) scale(0.78);
+  background: color-mix(in srgb, white 52%, var(--sc-primary));
+  box-shadow: 0 0 16px color-mix(in srgb, var(--sc-primary) 26%, transparent);
+  opacity: 0.42;
+}
+
+.voice-stage-shell[data-variant="inner-dots"][data-state="idle"] .voice-stage-inner-dot,
+.voice-stage-shell[data-variant="inner-dots"][data-state="ready"] .voice-stage-inner-dot {
+  animation: sc-voice-inner-dot-pulse 4.4s ease-in-out infinite;
+  animation-delay: var(--voice-delay);
+}
+
+.voice-stage-shell[data-variant="inner-dots"][data-state="listening"] .voice-stage-inner-dot {
+  animation: sc-voice-inner-dot-pulse 1.6s ease-in-out infinite;
+  animation-delay: var(--voice-delay);
+}
+
+.voice-stage-shell[data-variant="inner-dots"][data-state="processing"] .voice-stage-inner-dot-field {
+  animation-duration: 9.8s;
+}
+
+.voice-stage-shell[data-variant="inner-dots"][data-state="processing"] .voice-stage-inner-dot {
+  animation: sc-voice-inner-dot-pulse 2.2s ease-in-out infinite;
+  animation-delay: var(--voice-delay);
+}
+
+.voice-stage-shell[data-variant="inner-dots"][data-state="speaking"] .voice-stage-inner-dot {
+  animation: sc-voice-inner-dot-pulse 1.2s ease-in-out infinite;
+  animation-delay: var(--voice-delay);
+  background: color-mix(in srgb, white 46%, var(--sc-accent));
+}
+
+.voice-stage-meter {
+  pointer-events: none;
+}
+
+.voice-stage-meter-dot {
+  width: 7px;
+  min-height: 16px;
+  transform-origin: center bottom;
+  transform: scaleY(0.44);
+  background: color-mix(in srgb, white 34%, var(--sc-primary));
+  box-shadow: 0 0 14px color-mix(in srgb, var(--sc-primary) 22%, transparent);
+  opacity: 0.38;
+}
+
+.voice-stage-shell[data-variant="meter-dots"][data-state="idle"] .voice-stage-meter-dot,
+.voice-stage-shell[data-variant="meter-dots"][data-state="ready"] .voice-stage-meter-dot {
+  animation: sc-voice-meter-bounce 3.2s ease-in-out infinite;
+  animation-delay: var(--voice-delay);
+}
+
+.voice-stage-shell[data-variant="meter-dots"][data-state="listening"] .voice-stage-meter-dot {
+  animation: sc-voice-meter-bounce 0.9s ease-in-out infinite;
+  animation-delay: var(--voice-delay);
+}
+
+.voice-stage-shell[data-variant="meter-dots"][data-state="processing"] .voice-stage-meter-dot {
+  animation: sc-voice-meter-bounce 1.9s ease-in-out infinite;
+  animation-delay: var(--voice-delay);
+  opacity: 0.54;
+}
+
+.voice-stage-shell[data-variant="meter-dots"][data-state="speaking"] .voice-stage-meter-dot {
+  animation: sc-voice-meter-bounce 0.72s ease-in-out infinite;
+  animation-delay: var(--voice-delay);
+  background: color-mix(in srgb, white 28%, var(--sc-accent));
+}

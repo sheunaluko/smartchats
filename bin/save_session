@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# bin/save_session — local-AIO session export wrapper.
+#
+# Thin convenience wrapper around `npm run save-session` in the
+# smartchats-sessions package. Defaults the output dir to
+# apps/smartchats/.session_data/ for analyzers that expect it there.
+#
+# Usage examples:
+#   bin/save_session --app smartchats
+#   bin/save_session --app smartchats --tag simi
+#   bin/save_session --app smartchats --last 5
+#   bin/save_session --session-id ses_abc123
+#
+# All other flags pass through to scripts/save_session.ts (--url, --ns, --db,
+# --user, --password, --out).
+
+set -uo pipefail
+source "$(dirname "$0")/_lib.sh"
+
+cd "$REPO_ROOT/packages/smartchats-sessions"
+
+# If --out wasn't supplied, default to the canonical dev location.
+DEFAULT_OUT="$REPO_ROOT/apps/smartchats/.session_data"
+HAS_OUT=false
+for arg in "$@"; do
+    if [[ "$arg" == "--out" || "$arg" == "--output-dir" ]]; then
+        HAS_OUT=true
+        break
+    fi
+done
+
+if $HAS_OUT; then
+    npm run save-session -- "$@"
+else
+    npm run save-session -- --out "$DEFAULT_OUT" "$@"
+fi

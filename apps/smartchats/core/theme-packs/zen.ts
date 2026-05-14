@@ -1,0 +1,147 @@
+import type { PairedDesignPack } from '../types';
+
+/**
+ * Zen design pack — calm wellness/organic aesthetic.
+ * Rounded, soft, and calming palette for a meditative experience.
+ */
+export const zenPack: PairedDesignPack = {
+  id: 'zen',
+  name: 'Zen',
+  description: 'Calm wellness aesthetic with soft shapes and organic palette',
+  dark: {
+    id: 'zen-dark',
+    name: 'Zen Dark',
+    description: 'Calm dark theme with soft lavender and wellness green',
+    mode: 'dark',
+    color: {
+      background: '#121218',
+      surface: '#1c1c24',
+      surfaceAlt: '#252530',
+      text: '#e8e4e0',
+      textMuted: 'rgba(232, 228, 224, 0.5)',
+      primary: '#8b9cf6',
+      accent: '#4ade80',
+      border: 'rgba(255, 255, 255, 0.1)',
+      danger: '#f87171',
+      success: '#4ade80',
+      warning: '#fbbf24',
+    },
+    surface: {
+      elevated: 'linear-gradient(to bottom, #222230 0%, #1c1c24 100%)',
+      insetHighlight: 'inset 0 1px 0 rgba(255, 255, 255, 0.04)',
+    },
+    shadow: {
+      sm: '0 1px 4px rgba(0, 0, 0, 0.2)',
+      md: '0 4px 16px rgba(0, 0, 0, 0.25), 0 1px 4px rgba(0, 0, 0, 0.15)',
+      lg: '0 12px 36px rgba(0, 0, 0, 0.3), 0 4px 12px rgba(0, 0, 0, 0.2)',
+      xl: '0 24px 64px rgba(0, 0, 0, 0.35), 0 8px 24px rgba(0, 0, 0, 0.2)',
+    },
+    opacity: {
+      hover: 0.06,
+      pressed: 0.1,
+      disabled: 0.35,
+      overlay: 0.45,
+    },
+    typography: {
+      fontSans: '"Nunito Sans", "Varela Round", sans-serif',
+      fontMono: '"JetBrains Mono", monospace',
+      scale: 'base',
+      weight: 400,
+      sizes: { xs: '0.75rem', sm: '0.875rem', base: '1rem', lg: '1.125rem', xl: '1.25rem', '2xl': '1.5rem' },
+      weights: { normal: 400, medium: 500, semibold: 600, bold: 700 },
+      lineHeights: { tight: 1.25, normal: 1.5, relaxed: 1.75 },
+    },
+    space: {
+      unit: 8,
+      density: 'comfortable',
+    },
+    radius: {
+      sm: 12,
+      md: 16,
+      lg: 24,
+    },
+    motion: {
+      durationFast: '200ms',
+      durationBase: '350ms',
+      easing: 'cubic-bezier(0.4, 0, 0.2, 1)',
+    },
+    componentRules: {
+      panelStyle: 'elevated',
+      buttonStyle: 'soft',
+      messageStyle: 'bubble',
+      inputStyle: 'filled',
+      badgeStyle: 'soft',
+      tooltipStyle: 'solid',
+      dividerStyle: 'none',
+      focusRingStyle: 'glow',
+    },
+  },
+  light: {
+    id: 'zen-light',
+    name: 'Zen Light',
+    description: 'Warm organic light theme with lavender and green accents',
+    mode: 'light',
+    color: {
+      background: '#faf8f5',
+      surface: '#ffffff',
+      surfaceAlt: '#f5f0eb',
+      text: '#2d2a26',
+      textMuted: 'rgba(45, 42, 38, 0.55)',
+      primary: '#7c3aed',
+      accent: '#059669',
+      border: 'rgba(0, 0, 0, 0.08)',
+      danger: '#dc2626',
+      success: '#16a34a',
+      warning: '#d97706',
+    },
+    surface: {
+      elevated: 'linear-gradient(to bottom, #ffffff 0%, #faf8f5 100%)',
+      insetHighlight: 'inset 0 1px 0 rgba(255, 255, 255, 0.6)',
+    },
+    shadow: {
+      sm: '0 1px 3px rgba(0, 0, 0, 0.04)',
+      md: '0 2px 10px rgba(0, 0, 0, 0.05), 0 1px 3px rgba(0, 0, 0, 0.03)',
+      lg: '0 8px 28px rgba(0, 0, 0, 0.08), 0 2px 8px rgba(0, 0, 0, 0.04)',
+      xl: '0 16px 48px rgba(0, 0, 0, 0.1), 0 4px 16px rgba(0, 0, 0, 0.05)',
+    },
+    opacity: {
+      hover: 0.04,
+      pressed: 0.08,
+      disabled: 0.35,
+      overlay: 0.35,
+    },
+    typography: {
+      fontSans: '"Nunito Sans", "Varela Round", sans-serif',
+      fontMono: '"JetBrains Mono", monospace',
+      scale: 'base',
+      weight: 400,
+      sizes: { xs: '0.75rem', sm: '0.875rem', base: '1rem', lg: '1.125rem', xl: '1.25rem', '2xl': '1.5rem' },
+      weights: { normal: 400, medium: 500, semibold: 600, bold: 700 },
+      lineHeights: { tight: 1.25, normal: 1.5, relaxed: 1.75 },
+    },
+    space: {
+      unit: 8,
+      density: 'comfortable',
+    },
+    radius: {
+      sm: 12,
+      md: 16,
+      lg: 24,
+    },
+    motion: {
+      durationFast: '200ms',
+      durationBase: '350ms',
+      easing: 'cubic-bezier(0.4, 0, 0.2, 1)',
+    },
+    componentRules: {
+      panelStyle: 'elevated',
+      buttonStyle: 'soft',
+      messageStyle: 'bubble',
+      inputStyle: 'filled',
+      badgeStyle: 'soft',
+      tooltipStyle: 'solid',
+      dividerStyle: 'none',
+      focusRingStyle: 'glow',
+    },
+  },
+};

@@ -1,0 +1,147 @@
+import type { PairedDesignPack } from '../types';
+
+/**
+ * Midnight design pack — a deeper, more vibrant dark theme
+ * with glass-inspired surfaces and a blue-violet accent palette.
+ */
+export const midnightPack: PairedDesignPack = {
+  id: 'midnight',
+  name: 'Midnight',
+  description: 'Deep dark theme with glass surfaces and blue-violet accents',
+  dark: {
+    id: 'midnight-dark',
+    name: 'Midnight Dark',
+    description: 'Deep dark glass theme',
+    mode: 'dark',
+    color: {
+      background: '#0a0a0f',
+      surface: 'rgba(255, 255, 255, 0.04)',
+      surfaceAlt: 'rgba(255, 255, 255, 0.08)',
+      text: '#e4e4e7',
+      textMuted: 'rgba(228, 228, 231, 0.5)',
+      primary: '#818cf8',
+      accent: '#c084fc',
+      border: 'rgba(255, 255, 255, 0.08)',
+      danger: '#fb7185',
+      success: '#4ade80',
+      warning: '#fbbf24',
+    },
+    surface: {
+      elevated: 'linear-gradient(to bottom, rgba(255,255,255,0.07) 0%, rgba(255,255,255,0.03) 100%)',
+      insetHighlight: 'inset 0 1px 0 rgba(255, 255, 255, 0.06)',
+    },
+    shadow: {
+      sm: '0 1px 3px rgba(0, 0, 0, 0.5)',
+      md: '0 4px 12px rgba(0, 0, 0, 0.5), 0 1px 3px rgba(0, 0, 0, 0.4)',
+      lg: '0 12px 32px rgba(0, 0, 0, 0.6), 0 4px 12px rgba(0, 0, 0, 0.4)',
+      xl: '0 24px 64px rgba(0, 0, 0, 0.7), 0 8px 24px rgba(0, 0, 0, 0.5)',
+    },
+    opacity: {
+      hover: 0.06,
+      pressed: 0.1,
+      disabled: 0.3,
+      overlay: 0.6,
+    },
+    typography: {
+      fontSans: '"Inter", "SF Pro Display", -apple-system, sans-serif',
+      fontMono: '"JetBrains Mono", "Fira Code", monospace',
+      scale: 'base',
+      weight: 400,
+      sizes: { xs: '0.75rem', sm: '0.875rem', base: '1rem', lg: '1.125rem', xl: '1.25rem', '2xl': '1.5rem' },
+      weights: { normal: 400, medium: 500, semibold: 600, bold: 700 },
+      lineHeights: { tight: 1.25, normal: 1.5, relaxed: 1.75 },
+    },
+    space: {
+      unit: 8,
+      density: 'comfortable',
+    },
+    radius: {
+      sm: 6,
+      md: 12,
+      lg: 16,
+    },
+    motion: {
+      durationFast: '120ms',
+      durationBase: '200ms',
+      easing: 'cubic-bezier(0.16, 1, 0.3, 1)',
+    },
+    componentRules: {
+      panelStyle: 'glass',
+      buttonStyle: 'soft',
+      messageStyle: 'bubble',
+      inputStyle: 'filled',
+      badgeStyle: 'soft',
+      tooltipStyle: 'outlined',
+      dividerStyle: 'subtle',
+      focusRingStyle: 'glow',
+    },
+  },
+  light: {
+    id: 'midnight-light',
+    name: 'Midnight Light',
+    description: 'Light counterpart with violet accents',
+    mode: 'light',
+    color: {
+      background: '#fafafa',
+      surface: '#ffffff',
+      surfaceAlt: '#f4f4f5',
+      text: '#18181b',
+      textMuted: 'rgba(24, 24, 27, 0.5)',
+      primary: '#6366f1',
+      accent: '#a855f7',
+      border: 'rgba(0, 0, 0, 0.08)',
+      danger: '#ef4444',
+      success: '#22c55e',
+      warning: '#f59e0b',
+    },
+    surface: {
+      elevated: 'linear-gradient(to bottom, #ffffff 0%, #fafafa 100%)',
+      insetHighlight: 'inset 0 1px 0 rgba(255, 255, 255, 0.5)',
+    },
+    shadow: {
+      sm: '0 1px 2px rgba(0, 0, 0, 0.05)',
+      md: '0 2px 8px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04)',
+      lg: '0 8px 24px rgba(0, 0, 0, 0.1), 0 2px 8px rgba(0, 0, 0, 0.05)',
+      xl: '0 16px 48px rgba(0, 0, 0, 0.14), 0 4px 16px rgba(0, 0, 0, 0.07)',
+    },
+    opacity: {
+      hover: 0.04,
+      pressed: 0.08,
+      disabled: 0.38,
+      overlay: 0.4,
+    },
+    typography: {
+      fontSans: '"Inter", "SF Pro Display", -apple-system, sans-serif',
+      fontMono: '"JetBrains Mono", "Fira Code", monospace',
+      scale: 'base',
+      weight: 400,
+      sizes: { xs: '0.75rem', sm: '0.875rem', base: '1rem', lg: '1.125rem', xl: '1.25rem', '2xl': '1.5rem' },
+      weights: { normal: 400, medium: 500, semibold: 600, bold: 700 },
+      lineHeights: { tight: 1.25, normal: 1.5, relaxed: 1.75 },
+    },
+    space: {
+      unit: 8,
+      density: 'comfortable',
+    },
+    radius: {
+      sm: 6,
+      md: 12,
+      lg: 16,
+    },
+    motion: {
+      durationFast: '120ms',
+      durationBase: '200ms',
+      easing: 'cubic-bezier(0.16, 1, 0.3, 1)',
+    },
+    componentRules: {
+      panelStyle: 'outlined',
+      buttonStyle: 'soft',
+      messageStyle: 'bubble',
+      inputStyle: 'filled',
+      badgeStyle: 'soft',
+      tooltipStyle: 'outlined',
+      dividerStyle: 'subtle',
+      focusRingStyle: 'glow',
+    },
+  },
+};

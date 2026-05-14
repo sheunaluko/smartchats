@@ -1,0 +1,1031 @@
+/**
+ * Iframe-Based Secure JavaScript Sandbox with Observability
+ *
+ * Provides isolated JavaScript execution using hidden iframe with strict
+ * sandboxing attributes, postMessage communication, and comprehensive
+ * observability tracking.
+ *
+ * @module IframeSandbox
+ */
+
+import type { SandboxExecutor, SandboxResult, SandboxLog, SandboxEvent } from 'cortex'
+import { DEFAULT_SANDBOX_TIMEOUT } from 'cortex'
+
+// Re-export types for backward compatibility
+export type { SandboxLog, SandboxEvent, SandboxResult }
+export { DEFAULT_SANDBOX_TIMEOUT }
+
+/**
+ * Generate unique execution ID
+ */
+function generateExecutionId(): string {
+  return `exec_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`
+}
+
+/**
+ * Iframe-based JavaScript sandbox executor
+ *
+ * Uses hidden iframe with null origin for isolation, postMessage for
+ * cross-origin communication, proxy membrane for controlled access,
+ * and comprehensive observability tracking.
+ */
+export class IframeSandboxExecutor implements SandboxExecutor {
+  private iframe: HTMLIFrameElement | null = null
+  private persistentIframe: HTMLIFrameElement | null = null
+  private executionId: string | null = null
+  private messageHandler: ((event: MessageEvent) => void) | null = null
+  private eventStreamHandler: ((event: MessageEvent) => void) | null = null
+  private isInitialized: boolean = false
+
+  /**
+   * Initializes persistent iframe for reuse across executions
+   */
+  async initializePersistent(): Promise<void> {
+    if (this.isInitialized && this.persistentIframe) {
+      console.log('[Sandbox] Already initialized, skipping')
+      return
+    }
+
+    console.log('[Sandbox] Initializing persistent iframe...')
+
+    // Create persistent iframe
+    this.persistentIframe = document.createElement('iframe')
+    this.persistentIframe.setAttribute('sandbox', 'allow-scripts')
+    this.persistentIframe.style.display = 'none'
+
+    // Initialize with empty document
+    this.persistentIframe.srcdoc = `<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body></body></html>`
+
+    // Append to DOM
+    document.body.appendChild(this.persistentIframe)
+
+    // Wait for iframe to load
+    await new Promise<void>((resolve) => {
+      this.persistentIframe!.onload = () => resolve()
+    })
+
+    this.isInitialized = true
+    console.log('[Sandbox] Persistent iframe initialized')
+  }
+
+  /**
+   * Resets the sandbox environment, clearing all variables but keeping iframe alive
+   */
+  async reset(): Promise<void> {
+    console.log('[Sandbox] Resetting sandbox environment...')
+
+    if (!this.persistentIframe || !this.isInitialized) {
+      console.warn('[Sandbox] Not initialized, nothing to reset')
+      return
+    }
+
+    // Reload iframe to clear all state
+    if (this.persistentIframe.contentWindow) {
+      this.persistentIframe.srcdoc = `<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body></body></html>`
+
+      // Wait for reload
+      await new Promise<void>((resolve) => {
+        this.persistentIframe!.onload = () => resolve()
+      })
+    }
+
+    console.log('[Sandbox] Sandbox environment reset')
+  }
+
+  /**
+   * Destroys the persistent iframe completely
+   */
+  destroy(): void {
+    console.log('[Sandbox] Destroying persistent iframe...')
+
+    if (this.persistentIframe && this.persistentIframe.parentNode) {
+      this.persistentIframe.parentNode.removeChild(this.persistentIframe)
+    }
+    this.persistentIframe = null
+    this.isInitialized = false
+
+    console.log('[Sandbox] Persistent iframe destroyed')
+  }
+
+  /**
+   * Setup real-time event stream for logs and events
+   * This is separate from the execution coordination messageHandler
+   *
+   * @param handler - Callback to receive real-time log/event messages
+   * @returns Cleanup function to remove the listener
+   */
+  setupEventStream(handler: (event: { type: 'log' | 'event', payload: any }) => void): () => void {
+    this.eventStreamHandler = (event: MessageEvent) => {
+      if (!event.data.executionId) return;
+      const { type, payload } = event.data;
+
+      // Only handle log and event types (not success/error/functionCall)
+      if (type === 'log' || type === 'event') {
+        handler({ type, payload });
+      }
+    };
+
+    window.addEventListener('message', this.eventStreamHandler);
+
+    return () => {
+      if (this.eventStreamHandler) {
+        window.removeEventListener('message', this.eventStreamHandler);
+        this.eventStreamHandler = null;
+      }
+    };
+  }
+
+  /**
+   * Sync workspace into the running sandbox mid-execution.
+   * Posts a message to the sandbox iframe which updates the live workspace object.
+   */
+  syncWorkspace(workspace: Record<string, any>): void {
+    const iframe = this.persistentIframe || this.iframe
+    if (!iframe?.contentWindow || !this.executionId) return
+    iframe.contentWindow.postMessage({
+      executionId: this.executionId,
+      type: 'workspaceSync',
+      workspace
+    }, '*')
+  }
+
+  /**
+   * Sanitizes LLM-generated code to prevent common syntax errors.
+   *
+   * LLMs frequently embed Unicode typography characters in string literals
+   * that cause "Invalid or unexpected token" errors:
+   * - Curly/smart quotes (\u201c \u201d \u2018 \u2019)
+   * - Em/en dashes (\u2014 \u2013)
+   *
+   * Uses a simple state machine to track whether we're inside a string literal,
+   * so curly quotes inside a "..." string become escaped \" instead of bare "
+   * (which would break the string).
+   */
+  private sanitizeCode(code: string): string {
+    let result = ''
+    let inString: string | null = null // null | '"' | "'" | '`'
+    let escaped = false
+
+    for (let i = 0; i < code.length; i++) {
+      const ch = code[i]
+      const cp = ch.codePointAt(0)!
+
+      // Previous char was backslash inside a string — skip this char as-is
+      if (escaped) {
+        result += ch
+        escaped = false
+        continue
+      }
+
+      // Backslash inside a string — next char is escaped
+      if (ch === '\\' && inString) {
+        result += ch
+        escaped = true
+        continue
+      }
+
+      // Comment detection — only outside strings
+      if (!inString) {
+        // Line comment: consume to end of line (or end of input)
+        if (ch === '/' && i + 1 < code.length && code[i + 1] === '/') {
+          const nlIdx = code.indexOf('\n', i)
+          if (nlIdx === -1) {
+            result += code.slice(i)
+            break
+          }
+          result += code.slice(i, nlIdx + 1)
+          i = nlIdx // loop will i++ past the newline
+          continue
+        }
+        // Block comment: consume to closing */
+        if (ch === '/' && i + 1 < code.length && code[i + 1] === '*') {
+          const endIdx = code.indexOf('*/', i + 2)
+          if (endIdx === -1) {
+            result += code.slice(i)
+            break
+          }
+          result += code.slice(i, endIdx + 2)
+          i = endIdx + 1 // loop will i++ past the /
+          continue
+        }
+      }
+
+      // String open/close tracking (only ASCII quotes are valid JS delimiters)
+      if (!inString && (ch === '"' || ch === "'" || ch === '`')) {
+        inString = ch
+        result += ch
+        continue
+      }
+      if (inString && ch === inString) {
+        inString = null
+        result += ch
+        continue
+      }
+
+      // Curly double quotes → escaped if inside a "..." string, straight otherwise
+      if (cp === 0x201C || cp === 0x201D) {
+        result += inString === '"' ? '\\"' : '"'
+        continue
+      }
+
+      // Curly single quotes → escaped if inside a '...' string, straight otherwise
+      if (cp === 0x2018 || cp === 0x2019) {
+        result += inString === "'" ? "\\'" : "'"
+        continue
+      }
+
+      // Em/en dashes
+      if (cp === 0x2014) { result += '--'; continue }
+      if (cp === 0x2013) { result += '-'; continue }
+
+      // Literal newlines inside "..." or '...' → escape them
+      // (template literals allow literal newlines, so skip those)
+      if (inString && inString !== '`' && ch === '\n') {
+        result += '\\n'
+        continue
+      }
+
+      result += ch
+    }
+
+    return result
+  }
+
+  /**
+   * Executes JavaScript code in persistent isolated iframe sandbox
+   *
+   * @param code - JavaScript code to execute
+   * @param context - Variables and functions to inject
+   * @param timeout - Execution timeout in milliseconds
+   * @returns Promise resolving to execution result with observability data
+   */
+  async execute(
+    code: string,
+    context: Record<string, any> = {},
+    timeout: number = DEFAULT_SANDBOX_TIMEOUT
+  ): Promise<SandboxResult> {
+    // Sanitize LLM-generated code (curly quotes, smart quotes, em dashes)
+    code = this.sanitizeCode(code)
+
+    // Initialize if not already done
+    if (!this.isInitialized) {
+      await this.initializePersistent()
+    }
+
+    const startTime = Date.now()
+    this.executionId = generateExecutionId()
+
+    // Use persistent iframe
+    this.iframe = this.persistentIframe
+
+    // Observability collectors
+    const logs: SandboxLog[] = []
+    const events: SandboxEvent[] = []
+
+    // Pre-build srcdoc so we can include it in diagnostics on failure
+    const srcdoc = this.buildSrcDoc(code, context, this.executionId!)
+
+    try {
+      // Build execution promise with postMessage communication
+      const executionPromise = this.executeInIframeWithSrcdoc(srcdoc, context, logs, events)
+
+      // Build timeout promise
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => {
+          reject(new Error(`Sandbox execution timeout after ${timeout}ms`))
+        }, timeout)
+      })
+
+      // Race execution against timeout
+      const result = await Promise.race([executionPromise, timeoutPromise])
+
+      return {
+        ok: true,
+        data: result,
+        executionId: this.executionId,
+        logs,
+        events,
+        duration: Date.now() - startTime
+      }
+
+    } catch (error: any) {
+      console.error('[Sandbox] Execution failed:', error)
+
+      // Mark any in-flight function calls as errored
+      this.markActiveCallsAsErrored(events, error.message || String(error))
+
+      return {
+        ok: false,
+        error: error.message || String(error),
+        executionId: this.executionId,
+        logs,
+        events,
+        duration: Date.now() - startTime,
+        diagnostics: {
+          srcdoc,
+          code,
+          context_keys: Object.keys(context),
+        },
+      }
+    } finally {
+      // Cleanup message listener only (keep iframe alive)
+      this.cleanupExecution()
+    }
+  }
+
+  /**
+   * Executes code in iframe with postMessage communication
+   */
+  private async executeInIframeWithSrcdoc(
+    srcdoc: string,
+    context: Record<string, any>,
+    logs: SandboxLog[],
+    events: SandboxEvent[]
+  ): Promise<any> {
+    const executionId = this.executionId!
+
+    return new Promise((resolve, reject) => {
+      // Setup message handler for this execution
+      this.messageHandler = (event: MessageEvent) => {
+        // Only process messages for this execution
+        if (event.data.executionId !== executionId) {
+          return
+        }
+
+        const { type, payload } = event.data
+
+        switch (type) {
+          case 'success':
+            resolve(payload)
+            break
+
+          case 'error':
+            reject(new Error(payload))
+            break
+
+          case 'log':
+            logs.push(payload)
+            break
+
+          case 'event':
+            events.push(payload)
+            break
+
+          case 'functionCall':
+            // Execute function in parent context and send result back
+            this.handleFunctionCall(payload, context, executionId)
+            break
+        }
+      }
+
+      window.addEventListener('message', this.messageHandler)
+
+      // Inject code into persistent iframe
+      if (!this.iframe) {
+        reject(new Error('Persistent iframe not available'))
+        return
+      }
+
+      this.iframe.srcdoc = srcdoc
+
+      // Handle iframe load errors
+      this.iframe.onerror = (error) => {
+        reject(new Error(`Iframe load failed: ${error}`))
+      }
+    })
+  }
+
+  /**
+   * Handles function call requests from iframe
+   */
+  private async handleFunctionCall(
+    payload: { name: string; args: any[]; callId: string },
+    context: Record<string, any>,
+    executionId: string
+  ): Promise<void> {
+    const { name, args, callId } = payload
+
+    try {
+      // Execute function in parent context
+      const fn = context[name]
+      if (typeof fn !== 'function') {
+        throw new Error(`Context function '${name}' not found`)
+      }
+
+      const result = await fn(...args)
+
+      // Send result back to iframe
+      if (this.iframe?.contentWindow) {
+        this.iframe.contentWindow.postMessage({
+          executionId,
+          callId,
+          type: 'functionResult',
+          payload: result
+        }, '*')
+      }
+    } catch (error: any) {
+      // Send error back to iframe
+      if (this.iframe?.contentWindow) {
+        this.iframe.contentWindow.postMessage({
+          executionId,
+          callId,
+          type: 'functionError',
+          payload: error.message || String(error)
+        }, '*')
+      }
+    }
+  }
+
+  /**
+   * Builds complete iframe srcdoc HTML with embedded sandbox code
+   */
+  private buildSrcDoc(
+    code: string,
+    context: Record<string, any>,
+    executionId: string
+  ): string {
+    // Build context code (inject primitives and function stubs)
+    const contextCode = this.buildContextCode(context, executionId)
+
+    // JSON.stringify the code to safely escape all special characters
+    // Also escape </script> tags to prevent premature script tag closing in HTML parser
+    const escapedCode = JSON.stringify(code).replace(/<\/script>/gi, '<\\/script>')
+
+    return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+</head>
+<body>
+  <script>
+    (function() {
+      const executionId = '${executionId}'
+      const __userCode = ${escapedCode}
+
+      // Strip non-cloneable values (functions, symbols) so postMessage never throws
+      function safeClone(obj, depth) {
+        if (depth === undefined) depth = 0;
+        if (depth > 8) return '[max depth]';
+        if (obj === null || obj === undefined) return obj;
+        var t = typeof obj;
+        if (t === 'function') return '[function]';
+        if (t === 'symbol') return '[symbol]';
+        if (t !== 'object') return obj;
+        if (obj instanceof Date) return obj;
+        if (obj instanceof RegExp) return obj.toString();
+        if (obj instanceof Error) return { message: obj.message, stack: obj.stack };
+        if (Array.isArray(obj)) return obj.map(function(v) { return safeClone(v, depth + 1); });
+        var out = {};
+        for (var k in obj) {
+          if (Object.prototype.hasOwnProperty.call(obj, k)) {
+            out[k] = safeClone(obj[k], depth + 1);
+          }
+        }
+        return out;
+      }
+
+      // Helper to send messages to parent
+      function sendMessage(type, payload) {
+        try {
+          window.parent.postMessage({ executionId, type, payload }, '*')
+        } catch (e) {
+          // Log exactly what failed so we can trace the root cause
+          function findNonCloneable(obj, path) {
+            if (!obj || typeof obj !== 'object') return [];
+            var found = [];
+            for (var k in obj) {
+              if (Object.prototype.hasOwnProperty.call(obj, k)) {
+                var v = obj[k];
+                var p = path ? path + '.' + k : k;
+                if (typeof v === 'function') found.push(p + ' = ' + String(v).slice(0, 80));
+                else if (typeof v === 'symbol') found.push(p + ' = [symbol]');
+                else if (typeof v === 'object' && v !== null) found = found.concat(findNonCloneable(v, p));
+              }
+            }
+            return found;
+          }
+          console.warn('[Sandbox] postMessage clone failed for type:', type, 'non-cloneable:', findNonCloneable(payload, ''));
+          window.parent.postMessage({ executionId, type, payload: safeClone(payload) }, '*')
+        }
+      }
+
+      // Helper to emit observability events
+      function emitEvent(type, data) {
+        sendMessage('event', { type, data, timestamp: Date.now() })
+      }
+
+      try {
+        // Override console methods to capture logs
+        const originalConsole = {
+          log: console.log.bind(console),
+          error: console.error.bind(console),
+          warn: console.warn.bind(console),
+          info: console.info.bind(console)
+        }
+
+        console.log = (...args) => {
+          originalConsole.log('[Sandbox]', ...args)
+          sendMessage('log', { level: 'log', args, timestamp: Date.now() })
+        }
+
+        console.error = (...args) => {
+          originalConsole.error('[Sandbox]', ...args)
+          sendMessage('log', { level: 'error', args, timestamp: Date.now() })
+        }
+
+        console.warn = (...args) => {
+          originalConsole.warn('[Sandbox]', ...args)
+          sendMessage('log', { level: 'warn', args, timestamp: Date.now() })
+        }
+
+        console.info = (...args) => {
+          originalConsole.info('[Sandbox]', ...args)
+          sendMessage('log', { level: 'info', args, timestamp: Date.now() })
+        }
+
+        ${contextCode}
+
+        // Create proxy membrane with observability
+        const membrane = new Proxy(allowedGlobals, {
+          get(target, prop) {
+            if (prop === Symbol.unscopables) {
+              return undefined
+            }
+
+            // Track property access
+            emitEvent('property_access', { property: String(prop) })
+
+            if (target.hasOwnProperty(prop)) {
+              const value = target[prop]
+
+              // Don't wrap built-in constructors/objects - they need their static methods
+              // (e.g., Array.isArray, Object.keys, Date.now, Map, Set, etc.)
+              if (BUILTIN_PASSTHROUGH.has(String(prop))) {
+                return value
+              }
+
+              // Wrap user-provided functions to track calls
+              if (typeof value === 'function') {
+                return function(...args) {
+                  const callId = Math.random().toString(36)
+                  emitEvent('function_start', { name: String(prop), args, callId })
+
+                  const startTime = Date.now()
+                  try {
+                    const result = value.apply(this, args)
+
+                    // Handle async results
+                    if (result instanceof Promise) {
+                      return result.then(
+                        (res) => {
+                          emitEvent('function_end', {
+                            name: String(prop),
+                            callId,
+                            duration: Date.now() - startTime,
+                            result: res
+                          })
+                          return res
+                        },
+                        (err) => {
+                          emitEvent('function_error', {
+                            name: String(prop),
+                            callId,
+                            error: String(err)
+                          })
+                          throw err
+                        }
+                      )
+                    }
+
+                    emitEvent('function_end', {
+                      name: String(prop),
+                      callId,
+                      duration: Date.now() - startTime,
+                      result: result
+                    })
+                    return result
+                  } catch (error) {
+                    emitEvent('function_error', {
+                      name: String(prop),
+                      callId,
+                      error: String(error)
+                    })
+                    throw error
+                  }
+                }
+              }
+
+              return value
+            }
+
+            // Return undefined for non-existent properties (normal JavaScript behavior)
+            // Don't throw error, as has() now returns true for all properties
+            return undefined
+          },
+
+          has(target, prop) {
+            // Always return true so unqualified assignments go through set trap
+            // This enables variable tracking in the Variable Inspector
+            return true
+          },
+
+          set(target, prop, value) {
+            // Track variable assignments
+            emitEvent('variable_set', { name: String(prop), value })
+            target[prop] = value
+            return true
+          }
+        })
+
+        // Execute user code with membrane scope
+        // Use AsyncFunction constructor for top-level await
+        const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor
+
+        // Wrap code to execute user code and then return both result and workspace
+        // This allows unqualified assignments to go through the proxy
+        // Auto-return bare expressions (e.g. IIFEs) that start with '(' — they'd otherwise be
+        // fire-and-forget since async () => { (expr) } doesn't return the expression value
+        const __codeToRun = __userCode.trimStart().startsWith('(') ? 'return ' + __userCode : __userCode
+        const wrappedCode = 'with (this) { return (async () => { const __userResult = await (async () => { ' + __codeToRun + ' })(); return { __userResult, __workspace: workspace }; })(); }'
+        const fn = new AsyncFunction(wrappedCode)
+        const __result = fn.call(membrane)
+
+        // Handle async results
+        Promise.resolve(__result).then(
+          (result) => {
+            // Send the full result (includes __userResult and __workspace)
+            sendMessage('success', result)
+          },
+          (error) => {
+            sendMessage('error', error.message || String(error))
+          }
+        )
+
+      } catch (error) {
+        sendMessage('error', error.message || String(error))
+      }
+    })()
+  </script>
+</body>
+</html>`
+  }
+
+  /**
+   * Builds context code to inject into iframe
+   */
+  private buildContextCode(
+    context: Record<string, any>,
+    executionId: string
+  ): string {
+    // Separate primitives and functions
+    const primitiveEntries: string[] = []
+    const functionNames: string[] = []
+
+    for (const [key, value] of Object.entries(context)) {
+      if (typeof value === 'function') {
+        functionNames.push(key)
+      } else {
+        // Serialize primitives directly
+        try {
+          primitiveEntries.push(`${JSON.stringify(key)}: ${JSON.stringify(value)}`)
+        } catch (error) {
+          console.warn(`[Sandbox] Cannot serialize context key "${key}"`)
+        }
+      }
+    }
+
+    // Build function wrappers that call parent via postMessage
+    const functionCode = functionNames.map(name => {
+      return `${JSON.stringify(name)}: async (...args) => {
+        const callId = Math.random().toString(36)
+
+        // Send function call request to parent
+        window.parent.postMessage({
+          executionId: '${executionId}',
+          type: 'functionCall',
+          payload: { name: ${JSON.stringify(name)}, args, callId }
+        }, '*')
+
+        // Wait for response from parent
+        return new Promise((resolve, reject) => {
+          const handler = (event) => {
+            if (event.data.executionId === '${executionId}' && event.data.callId === callId) {
+              window.removeEventListener('message', handler)
+              if (event.data.type === 'functionResult') {
+                resolve(event.data.payload)
+              } else if (event.data.type === 'functionError') {
+                reject(new Error(event.data.payload))
+              }
+            }
+          }
+          window.addEventListener('message', handler)
+        })
+      }`
+    }).join(',\n        ')
+
+    // Combine primitives and functions
+    const contextSection = [...primitiveEntries, functionCode]
+      .filter(Boolean)
+      .join(',\n        ')
+
+    return `
+        // Built-in constructors/objects that should NOT be wrapped by the proxy
+        // (wrapping them loses their static methods like Array.isArray, Object.keys, Date.now, etc.)
+        const BUILTIN_PASSTHROUGH = new Set([
+          'Array', 'Object', 'String', 'Number', 'Boolean', 'Date', 'RegExp', 'Error',
+          'Promise', 'Map', 'Set', 'WeakMap', 'WeakSet', 'Symbol', 'Proxy', 'Reflect',
+          'JSON', 'Math', 'Intl', 'console',
+          'ArrayBuffer', 'DataView', 'Int8Array', 'Uint8Array', 'Uint8ClampedArray',
+          'Int16Array', 'Uint16Array', 'Int32Array', 'Uint32Array',
+          'Float32Array', 'Float64Array', 'BigInt64Array', 'BigUint64Array',
+          'TextEncoder', 'TextDecoder', 'URL', 'URLSearchParams',
+          'BigInt',
+          'setTimeout', 'setInterval', 'clearTimeout', 'clearInterval',
+          'isFinite', 'isNaN', 'parseFloat', 'parseInt',
+          'encodeURI', 'encodeURIComponent', 'decodeURI', 'decodeURIComponent',
+          'eval'
+        ])
+
+        // Create allowlist of exposed globals
+        const allowedGlobals = {
+          ${contextSection ? contextSection + ',\n\n' : ''}
+          // Safe built-ins - constructors and utility objects
+          console: {
+            log: console.log,
+            error: console.error,
+            warn: console.warn,
+            info: console.info,
+          },
+          JSON: JSON,
+          Math: Math,
+          Array: Array,
+          Object: Object,
+          String: String,
+          eval: eval,
+          Number: Number,
+          Boolean: Boolean,
+          Date: Date,
+          RegExp: RegExp,
+          Error: Error,
+          TypeError: TypeError,
+          RangeError: RangeError,
+          SyntaxError: SyntaxError,
+          ReferenceError: ReferenceError,
+          Promise: Promise,
+
+          // Collections
+          Map: Map,
+          Set: Set,
+          WeakMap: WeakMap,
+          WeakSet: WeakSet,
+
+          // Symbols and reflection
+          Symbol: Symbol,
+          Proxy: Proxy,
+          Reflect: Reflect,
+
+          // Typed arrays and binary data
+          ArrayBuffer: ArrayBuffer,
+          DataView: DataView,
+          Int8Array: Int8Array,
+          Uint8Array: Uint8Array,
+          Uint8ClampedArray: Uint8ClampedArray,
+          Int16Array: Int16Array,
+          Uint16Array: Uint16Array,
+          Int32Array: Int32Array,
+          Uint32Array: Uint32Array,
+          Float32Array: Float32Array,
+          Float64Array: Float64Array,
+          BigInt64Array: typeof BigInt64Array !== 'undefined' ? BigInt64Array : undefined,
+          BigUint64Array: typeof BigUint64Array !== 'undefined' ? BigUint64Array : undefined,
+
+          // Text encoding
+          TextEncoder: typeof TextEncoder !== 'undefined' ? TextEncoder : undefined,
+          TextDecoder: typeof TextDecoder !== 'undefined' ? TextDecoder : undefined,
+
+          // URL handling
+          URL: typeof URL !== 'undefined' ? URL : undefined,
+          URLSearchParams: typeof URLSearchParams !== 'undefined' ? URLSearchParams : undefined,
+
+          // Global values
+          Infinity: Infinity,
+          NaN: NaN,
+          undefined: undefined,
+
+          // Global functions
+          isFinite: isFinite,
+          isNaN: isNaN,
+          parseFloat: parseFloat,
+          parseInt: parseInt,
+          encodeURI: encodeURI,
+          encodeURIComponent: encodeURIComponent,
+          decodeURI: decodeURI,
+          decodeURIComponent: decodeURIComponent,
+
+          // BigInt
+          BigInt: typeof BigInt !== 'undefined' ? BigInt : undefined,
+
+          // Timers
+          setTimeout: (...a) => setTimeout(...a),
+          setInterval: (...a) => setInterval(...a),
+          clearTimeout: (id) => clearTimeout(id),
+          clearInterval: (id) => clearInterval(id),
+
+          // Intl for formatting
+          Intl: typeof Intl !== 'undefined' ? Intl : undefined,
+        }
+
+        // Sandbox helper: run_dynamic_function (defined after allowedGlobals so it can reference it)
+        // Listen for workspace sync messages from the host.
+        // When Cortex.update_workspace fires (e.g. from app bridge), the host
+        // posts the updated workspace here so code reads see live values.
+        window.addEventListener('message', function(event) {
+          if (event.data.executionId === '${executionId}' && event.data.type === 'workspaceSync') {
+            var ws = event.data.workspace;
+            if (ws && typeof ws === 'object') {
+              // Merge into the live workspace object so existing references stay valid
+              Object.keys(allowedGlobals.workspace).forEach(function(k) {
+                if (!(k in ws)) delete allowedGlobals.workspace[k];
+              });
+              Object.assign(allowedGlobals.workspace, ws);
+            }
+          }
+        });
+
+        allowedGlobals.run_dynamic_function = async function(args) {
+          const { name, args: functionArgs } = args;
+
+          // Load from DB (reference through allowedGlobals to go through membrane)
+          const dfn = await allowedGlobals.load_dynamic_function({ name });
+
+          // Validate required args against params_schema before execution
+          if (dfn.params_schema && Object.keys(dfn.params_schema).length > 0) {
+            const missing = Object.keys(dfn.params_schema)
+              .filter(k => functionArgs?.[k] === undefined || functionArgs?.[k] === null);
+            if (missing.length > 0) {
+              throw new Error(
+                "Dynamic function '" + name + "' missing required args: " + missing.join(", ") + ". " +
+                "Expected: " + JSON.stringify(dfn.params_schema) + ". " +
+                "Received: " + JSON.stringify(functionArgs)
+              );
+            }
+          }
+
+          // Inject args into allowedGlobals so they're accessible through membrane
+          // This solves the 'with' statement shadowing issue where the membrane's has() trap
+          // returns true for all properties, causing function parameters to be shadowed
+          const argsKey = '__dynamic_fn_args_' + Math.random().toString(36).slice(2);
+          allowedGlobals[argsKey] = functionArgs;
+
+          // Create function using AsyncFunction constructor
+          let fn;
+          try {
+            const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
+
+            // Check if code is a function declaration (starts with 'async function' or 'function')
+            const trimmedCode = dfn.code.trim();
+            const isFunctionDeclaration = trimmedCode.startsWith('async function') || trimmedCode.startsWith('function');
+
+            if (isFunctionDeclaration) {
+              // Extract function name and create wrapper that calls it
+              // This handles: async function foo(args) { ... }
+              const functionMatch = trimmedCode.match(/^(?:async\\s+)?function\\s+(\\w+)/);
+              const functionName = functionMatch ? functionMatch[1] : 'dynamicFn';
+
+              // Pass injected args to the function through membrane
+              fn = new AsyncFunction(\`
+                with (this) {
+                  \${dfn.code}
+                  return await \${functionName}(this.\${argsKey});
+                }
+              \`);
+            } else {
+              // Code is a raw function body, use as-is
+              // Bind the injected args to 'args' variable
+              fn = new AsyncFunction(\`
+                with (this) {
+                  const args = this.\${argsKey};
+                  \${dfn.code}
+                }
+              \`);
+            }
+          } catch (e) {
+            // Clean up on syntax error
+            delete allowedGlobals[argsKey];
+            throw new Error(\`Syntax error in dynamic function '\${name}': \${e.message}\`);
+          }
+
+          try {
+            // Execute with membrane context
+            const result = await fn.call(this);
+            return result;
+          } finally {
+            // Always clean up injected args
+            delete allowedGlobals[argsKey];
+          }
+        };
+    `
+  }
+
+  /**
+   * Cleans up message listener after execution (keeps iframe alive)
+   */
+  private cleanupExecution(): void {
+    // Remove message listener
+    if (this.messageHandler) {
+      window.removeEventListener('message', this.messageHandler)
+      this.messageHandler = null
+    }
+
+    // Don't remove iframe - it's persistent
+    // Just clear the reference
+    this.iframe = null
+    this.executionId = null
+  }
+
+  /**
+   * Marks any in-flight function calls as errored when execution fails
+   *
+   * Scans events array for function_start events without corresponding
+   * function_end or function_error events, and adds error events for them.
+   * Also emits these events to parent window for real-time UI updates.
+   */
+  private markActiveCallsAsErrored(events: SandboxEvent[], errorMessage: string): void {
+    // Track which function calls have completed
+    const completedCalls = new Set<string>()
+
+    // First pass: collect all callIds that have finished
+    for (const event of events) {
+      if (event.type === 'function_end' || event.type === 'function_error') {
+        completedCalls.add(event.data.callId)
+      }
+    }
+
+    // Second pass: find active (incomplete) function calls
+    const activeCalls: Array<{name: string, callId: string}> = []
+    for (const event of events) {
+      if (event.type === 'function_start') {
+        const callId = event.data.callId
+        if (!completedCalls.has(callId)) {
+          activeCalls.push({
+            name: event.data.name,
+            callId: callId
+          })
+        }
+      }
+    }
+
+    // Mark active calls as errored
+    const timestamp = Date.now()
+    for (const call of activeCalls) {
+      const errorEvent: SandboxEvent = {
+        type: 'function_error',
+        data: {
+          name: call.name,
+          callId: call.callId,
+          error: errorMessage
+        },
+        timestamp
+      }
+
+      // Add to events array
+      events.push(errorEvent)
+
+      // Also emit to parent window for real-time UI update
+      if (this.executionId && typeof window !== 'undefined') {
+        window.postMessage({
+          executionId: this.executionId,
+          type: 'event',
+          payload: errorEvent
+        }, '*')
+      }
+    }
+
+    if (activeCalls.length > 0) {
+      console.log(`[Sandbox] Marked ${activeCalls.length} active function calls as errored`)
+    }
+  }
+
+  /**
+   * Legacy cleanup method for backward compatibility
+   * @deprecated Use cleanupExecution() instead
+   */
+  private cleanup(): void {
+    this.cleanupExecution()
+  }
+}
+
+/**
+ * Singleton instance for reuse
+ */
+let executorInstance: IframeSandboxExecutor | null = null
+
+/**
+ * Gets or creates singleton executor instance
+ */
+export function getExecutor(): IframeSandboxExecutor {
+  if (!executorInstance) {
+    executorInstance = new IframeSandboxExecutor()
+  }
+  return executorInstance
+}

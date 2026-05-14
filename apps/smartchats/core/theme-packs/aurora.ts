@@ -1,0 +1,147 @@
+import type { PairedDesignPack } from '../types';
+
+/**
+ * Aurora design pack — flowing gradients and iridescent feel.
+ * Modern, premium aesthetic with violet-sky palette and spring-like motion.
+ */
+export const auroraPack: PairedDesignPack = {
+  id: 'aurora',
+  name: 'Aurora',
+  description: 'Iridescent premium aesthetic with flowing violet-sky palette',
+  dark: {
+    id: 'aurora-dark',
+    name: 'Aurora Dark',
+    description: 'Deep space with violet and sky blue iridescence',
+    mode: 'dark',
+    color: {
+      background: '#0c0c1a',
+      surface: 'rgba(255, 255, 255, 0.03)',
+      surfaceAlt: 'rgba(255, 255, 255, 0.06)',
+      text: '#e8e4f0',
+      textMuted: 'rgba(232, 228, 240, 0.5)',
+      primary: '#a78bfa',
+      accent: '#38bdf8',
+      border: 'rgba(167, 139, 250, 0.12)',
+      danger: '#f87171',
+      success: '#4ade80',
+      warning: '#fbbf24',
+    },
+    surface: {
+      elevated: 'linear-gradient(to bottom, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.02) 100%)',
+      insetHighlight: 'inset 0 1px 0 rgba(167, 139, 250, 0.08)',
+    },
+    shadow: {
+      sm: '0 1px 3px rgba(167, 139, 250, 0.15)',
+      md: '0 4px 12px rgba(167, 139, 250, 0.12), 0 1px 3px rgba(0, 0, 0, 0.4)',
+      lg: '0 12px 32px rgba(167, 139, 250, 0.15), 0 4px 12px rgba(0, 0, 0, 0.5)',
+      xl: '0 24px 64px rgba(167, 139, 250, 0.18), 0 8px 24px rgba(0, 0, 0, 0.6)',
+    },
+    opacity: {
+      hover: 0.06,
+      pressed: 0.1,
+      disabled: 0.3,
+      overlay: 0.55,
+    },
+    typography: {
+      fontSans: '"Outfit", "Work Sans", sans-serif',
+      fontMono: '"JetBrains Mono", monospace',
+      scale: 'base',
+      weight: 400,
+      sizes: { xs: '0.75rem', sm: '0.875rem', base: '1rem', lg: '1.125rem', xl: '1.25rem', '2xl': '1.5rem' },
+      weights: { normal: 400, medium: 500, semibold: 600, bold: 700 },
+      lineHeights: { tight: 1.25, normal: 1.5, relaxed: 1.75 },
+    },
+    space: {
+      unit: 8,
+      density: 'comfortable',
+    },
+    radius: {
+      sm: 8,
+      md: 14,
+      lg: 20,
+    },
+    motion: {
+      durationFast: '150ms',
+      durationBase: '300ms',
+      easing: 'cubic-bezier(0.34, 1.56, 0.64, 1)',
+    },
+    componentRules: {
+      panelStyle: 'glass',
+      buttonStyle: 'soft',
+      messageStyle: 'bubble',
+      inputStyle: 'filled',
+      badgeStyle: 'soft',
+      tooltipStyle: 'outlined',
+      dividerStyle: 'subtle',
+      focusRingStyle: 'glow',
+    },
+  },
+  light: {
+    id: 'aurora-light',
+    name: 'Aurora Light',
+    description: 'Soft lavender light theme with violet and sky blue accents',
+    mode: 'light',
+    color: {
+      background: '#faf8ff',
+      surface: '#ffffff',
+      surfaceAlt: '#f5f0ff',
+      text: '#1e1b3a',
+      textMuted: 'rgba(30, 27, 58, 0.5)',
+      primary: '#7c3aed',
+      accent: '#0ea5e9',
+      border: 'rgba(0, 0, 0, 0.08)',
+      danger: '#ef4444',
+      success: '#22c55e',
+      warning: '#f59e0b',
+    },
+    surface: {
+      elevated: 'linear-gradient(to bottom, #ffffff 0%, #faf8ff 100%)',
+      insetHighlight: 'inset 0 1px 0 rgba(255, 255, 255, 0.6)',
+    },
+    shadow: {
+      sm: '0 1px 2px rgba(124, 58, 237, 0.06)',
+      md: '0 2px 8px rgba(124, 58, 237, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04)',
+      lg: '0 8px 24px rgba(124, 58, 237, 0.08), 0 2px 8px rgba(0, 0, 0, 0.05)',
+      xl: '0 16px 48px rgba(124, 58, 237, 0.1), 0 4px 16px rgba(0, 0, 0, 0.07)',
+    },
+    opacity: {
+      hover: 0.04,
+      pressed: 0.08,
+      disabled: 0.3,
+      overlay: 0.4,
+    },
+    typography: {
+      fontSans: '"Outfit", "Work Sans", sans-serif',
+      fontMono: '"JetBrains Mono", monospace',
+      scale: 'base',
+      weight: 400,
+      sizes: { xs: '0.75rem', sm: '0.875rem', base: '1rem', lg: '1.125rem', xl: '1.25rem', '2xl': '1.5rem' },
+      weights: { normal: 400, medium: 500, semibold: 600, bold: 700 },
+      lineHeights: { tight: 1.25, normal: 1.5, relaxed: 1.75 },
+    },
+    space: {
+      unit: 8,
+      density: 'comfortable',
+    },
+    radius: {
+      sm: 8,
+      md: 14,
+      lg: 20,
+    },
+    motion: {
+      durationFast: '150ms',
+      durationBase: '300ms',
+      easing: 'cubic-bezier(0.34, 1.56, 0.64, 1)',
+    },
+    componentRules: {
+      panelStyle: 'outlined',
+      buttonStyle: 'soft',
+      messageStyle: 'bubble',
+      inputStyle: 'filled',
+      badgeStyle: 'soft',
+      tooltipStyle: 'outlined',
+      dividerStyle: 'subtle',
+      focusRingStyle: 'glow',
+    },
+  },
+};

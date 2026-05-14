@@ -1,0 +1,147 @@
+import type { PairedDesignPack } from '../types';
+
+/**
+ * Brutalist design pack — raw, bold, uncompromising.
+ * Zero radius, instant transitions, monospace everything.
+ */
+export const brutalistPack: PairedDesignPack = {
+  id: 'brutalist',
+  name: 'Brutalist',
+  description: 'Raw bold aesthetic with zero radius, instant transitions, and monospace type',
+  dark: {
+    id: 'brutalist-dark',
+    name: 'Brutalist Dark',
+    description: 'Pure black with raw primary colors and no ornamentation',
+    mode: 'dark',
+    color: {
+      background: '#000000',
+      surface: '#111111',
+      surfaceAlt: '#1a1a1a',
+      text: '#ffffff',
+      textMuted: 'rgba(255, 255, 255, 0.6)',
+      primary: '#ff0000',
+      accent: '#0000ff',
+      border: 'rgba(255, 255, 255, 0.3)',
+      danger: '#ff0000',
+      success: '#00ff00',
+      warning: '#ffff00',
+    },
+    surface: {
+      elevated: '#111111',
+      insetHighlight: 'none',
+    },
+    shadow: {
+      sm: 'none',
+      md: 'none',
+      lg: 'none',
+      xl: 'none',
+    },
+    opacity: {
+      hover: 0.1,
+      pressed: 0.2,
+      disabled: 0.4,
+      overlay: 0.8,
+    },
+    typography: {
+      fontSans: '"Space Mono", "Courier New", monospace',
+      fontMono: '"Space Mono", monospace',
+      scale: 'base',
+      weight: 400,
+      sizes: { xs: '0.75rem', sm: '0.875rem', base: '1rem', lg: '1.125rem', xl: '1.25rem', '2xl': '1.5rem' },
+      weights: { normal: 400, medium: 500, semibold: 600, bold: 700 },
+      lineHeights: { tight: 1.25, normal: 1.5, relaxed: 1.75 },
+    },
+    space: {
+      unit: 8,
+      density: 'comfortable',
+    },
+    radius: {
+      sm: 0,
+      md: 0,
+      lg: 0,
+    },
+    motion: {
+      durationFast: '0ms',
+      durationBase: '0ms',
+      easing: 'linear',
+    },
+    componentRules: {
+      panelStyle: 'outlined',
+      buttonStyle: 'solid',
+      messageStyle: 'flat',
+      inputStyle: 'underlined',
+      badgeStyle: 'solid',
+      tooltipStyle: 'solid',
+      dividerStyle: 'solid',
+      focusRingStyle: 'outline',
+    },
+  },
+  light: {
+    id: 'brutalist-light',
+    name: 'Brutalist Light',
+    description: 'Pure white with raw primary colors and no ornamentation',
+    mode: 'light',
+    color: {
+      background: '#ffffff',
+      surface: '#f0f0f0',
+      surfaceAlt: '#e0e0e0',
+      text: '#000000',
+      textMuted: 'rgba(0, 0, 0, 0.6)',
+      primary: '#0000ff',
+      accent: '#ff0000',
+      border: 'rgba(0, 0, 0, 0.3)',
+      danger: '#ff0000',
+      success: '#008000',
+      warning: '#cc8800',
+    },
+    surface: {
+      elevated: '#f0f0f0',
+      insetHighlight: 'none',
+    },
+    shadow: {
+      sm: 'none',
+      md: 'none',
+      lg: 'none',
+      xl: 'none',
+    },
+    opacity: {
+      hover: 0.1,
+      pressed: 0.2,
+      disabled: 0.4,
+      overlay: 0.8,
+    },
+    typography: {
+      fontSans: '"Space Mono", "Courier New", monospace',
+      fontMono: '"Space Mono", monospace',
+      scale: 'base',
+      weight: 400,
+      sizes: { xs: '0.75rem', sm: '0.875rem', base: '1rem', lg: '1.125rem', xl: '1.25rem', '2xl': '1.5rem' },
+      weights: { normal: 400, medium: 500, semibold: 600, bold: 700 },
+      lineHeights: { tight: 1.25, normal: 1.5, relaxed: 1.75 },
+    },
+    space: {
+      unit: 8,
+      density: 'comfortable',
+    },
+    radius: {
+      sm: 0,
+      md: 0,
+      lg: 0,
+    },
+    motion: {
+      durationFast: '0ms',
+      durationBase: '0ms',
+      easing: 'linear',
+    },
+    componentRules: {
+      panelStyle: 'outlined',
+      buttonStyle: 'solid',
+      messageStyle: 'flat',
+      inputStyle: 'underlined',
+      badgeStyle: 'solid',
+      tooltipStyle: 'solid',
+      dividerStyle: 'solid',
+      focusRingStyle: 'outline',
+    },
+  },
+};

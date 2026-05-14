@@ -1,0 +1,148 @@
+import type { PairedDesignPack } from '../types';
+
+/**
+ * Default design pack — refined, professional dark/light theme.
+ * Inspired by Vercel/HuggingFace: layered shadows, subtle gradients,
+ * refined borders, and purposeful surface contrast.
+ */
+export const defaultPack: PairedDesignPack = {
+  id: 'default',
+  name: 'SmartChats Default',
+  description: 'Refined professional dark/light theme',
+  dark: {
+    id: 'default-dark',
+    name: 'SmartChats Dark',
+    description: 'Default dark theme',
+    mode: 'dark',
+    color: {
+      background: '#09090b',
+      surface: '#18181b',
+      surfaceAlt: '#27272a',
+      text: '#fafafa',
+      textMuted: 'rgba(161, 161, 170, 0.9)',
+      primary: '#3b82f6',
+      accent: '#f472b6',
+      border: 'rgba(255, 255, 255, 0.08)',
+      danger: '#ef4444',
+      success: '#22c55e',
+      warning: '#eab308',
+    },
+    surface: {
+      elevated: 'linear-gradient(to bottom, #1f1f23 0%, #1a1a1e 100%)',
+      insetHighlight: 'inset 0 1px 0 rgba(255, 255, 255, 0.05)',
+    },
+    shadow: {
+      sm: '0 1px 2px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.04)',
+      md: '0 0 0 1px rgba(255, 255, 255, 0.04), 0 2px 4px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.25)',
+      lg: '0 0 0 1px rgba(255, 255, 255, 0.05), 0 4px 12px rgba(0, 0, 0, 0.3), 0 16px 48px rgba(0, 0, 0, 0.35)',
+      xl: '0 0 0 1px rgba(255, 255, 255, 0.05), 0 8px 24px rgba(0, 0, 0, 0.4), 0 24px 64px rgba(0, 0, 0, 0.5)',
+    },
+    opacity: {
+      hover: 0.06,
+      pressed: 0.1,
+      disabled: 0.38,
+      overlay: 0.6,
+    },
+    typography: {
+      fontSans: '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+      fontMono: '"JetBrains Mono", "Fira Code", "Cascadia Code", monospace',
+      scale: 'base',
+      weight: 400,
+      sizes: { xs: '0.75rem', sm: '0.875rem', base: '0.9375rem', lg: '1.0625rem', xl: '1.25rem', '2xl': '1.5rem' },
+      weights: { normal: 400, medium: 500, semibold: 600, bold: 700 },
+      lineHeights: { tight: 1.25, normal: 1.5, relaxed: 1.75 },
+    },
+    space: {
+      unit: 8,
+      density: 'comfortable',
+    },
+    radius: {
+      sm: 6,
+      md: 8,
+      lg: 12,
+    },
+    motion: {
+      durationFast: '150ms',
+      durationBase: '250ms',
+      easing: 'cubic-bezier(0.16, 1, 0.3, 1)',
+    },
+    componentRules: {
+      panelStyle: 'elevated',
+      buttonStyle: 'solid',
+      messageStyle: 'flat',
+      inputStyle: 'outlined',
+      badgeStyle: 'soft',
+      tooltipStyle: 'solid',
+      dividerStyle: 'subtle',
+      focusRingStyle: 'ring',
+    },
+  },
+  light: {
+    id: 'default-light',
+    name: 'SmartChats Light',
+    description: 'Default light theme',
+    mode: 'light',
+    color: {
+      background: '#f3f5f8',
+      surface: '#ffffff',
+      surfaceAlt: '#eef2f7',
+      text: '#111827',
+      textMuted: 'rgba(71, 85, 105, 0.84)',
+      primary: '#2563eb',
+      accent: '#e11d48',
+      border: 'rgba(15, 23, 42, 0.10)',
+      danger: '#dc2626',
+      success: '#16a34a',
+      warning: '#ca8a04',
+    },
+    surface: {
+      elevated: 'linear-gradient(to bottom, #ffffff 0%, #f8fafc 100%)',
+      insetHighlight: 'inset 0 1px 0 rgba(255, 255, 255, 0.82)',
+    },
+    shadow: {
+      sm: '0 1px 2px rgba(15, 23, 42, 0.04), 0 0 0 1px rgba(15, 23, 42, 0.03)',
+      md: '0 0 0 1px rgba(15, 23, 42, 0.04), 0 6px 16px rgba(15, 23, 42, 0.06), 0 18px 36px rgba(15, 23, 42, 0.04)',
+      lg: '0 0 0 1px rgba(15, 23, 42, 0.04), 0 12px 28px rgba(15, 23, 42, 0.08), 0 24px 56px rgba(15, 23, 42, 0.06)',
+      xl: '0 0 0 1px rgba(15, 23, 42, 0.05), 0 18px 42px rgba(15, 23, 42, 0.10), 0 32px 72px rgba(15, 23, 42, 0.08)',
+    },
+    opacity: {
+      hover: 0.04,
+      pressed: 0.08,
+      disabled: 0.38,
+      overlay: 0.4,
+    },
+    typography: {
+      fontSans: '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+      fontMono: '"JetBrains Mono", "Fira Code", "Cascadia Code", monospace',
+      scale: 'base',
+      weight: 400,
+      sizes: { xs: '0.75rem', sm: '0.875rem', base: '0.9375rem', lg: '1.0625rem', xl: '1.25rem', '2xl': '1.5rem' },
+      weights: { normal: 400, medium: 500, semibold: 600, bold: 700 },
+      lineHeights: { tight: 1.25, normal: 1.5, relaxed: 1.75 },
+    },
+    space: {
+      unit: 8,
+      density: 'comfortable',
+    },
+    radius: {
+      sm: 6,
+      md: 8,
+      lg: 12,
+    },
+    motion: {
+      durationFast: '150ms',
+      durationBase: '250ms',
+      easing: 'cubic-bezier(0.4, 0, 0.2, 1)',
+    },
+    componentRules: {
+      panelStyle: 'elevated',
+      buttonStyle: 'solid',
+      messageStyle: 'flat',
+      inputStyle: 'outlined',
+      badgeStyle: 'soft',
+      tooltipStyle: 'solid',
+      dividerStyle: 'subtle',
+      focusRingStyle: 'ring',
+    },
+  },
+};

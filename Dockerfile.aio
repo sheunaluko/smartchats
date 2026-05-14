@@ -1,0 +1,140 @@
+# SmartChats — all-in-one image (AIO).
+#
+# Single container running SurrealDB + smartchats-server (Express backend) +
+# smartchats-app (Next.js). The browser only ever sees port 3000; the Express
+# server and SurrealDB live on container loopback, with Next.js proxying
+# /local-api/* to the server so the frontend uses a single same-origin URL.
+#
+# This is the path `npx smartchats` invokes — laptop-friendly, one-port,
+# one-volume.
+#
+# Build (from repo root):
+#   docker build -f Dockerfile.aio -t smartchats-aio:latest .
+#
+# Run:
+#   docker run --rm -p 3000:3000 -v $HOME/.smartchats/data:/data \
+#     --env-file .env smartchats-aio:latest
+
+# ───── Stage 0: SurrealDB binary ─────
+FROM surrealdb/surrealdb:v3.0.5 AS surreal-bin
+
+# ───── Stage 1: builder ─────
+FROM node:22-slim AS builder
+
+WORKDIR /repo
+
+COPY package.json package-lock.json* turbo.json ./
+
+# Open-core workspace packages only — no smartchats-cloud, no closed code.
+COPY packages/cortex ./packages/cortex
+COPY packages/tivi ./packages/tivi
+COPY packages/simi ./packages/simi
+COPY packages/graph-viz ./packages/graph-viz
+COPY packages/smartchats-common ./packages/smartchats-common
+COPY packages/smartchats-backend ./packages/smartchats-backend
+COPY packages/smartchats-database ./packages/smartchats-database
+COPY packages/smartchats-backend-firebase ./packages/smartchats-backend-firebase
+COPY packages/smartchats-backend-local ./packages/smartchats-backend-local
+COPY packages/llm-service ./packages/llm-service
+COPY packages/smartchats-local-server ./packages/smartchats-local-server
+
+# The Next.js prebuild needs the silero VAD model — only this single asset
+# from ts_next_app, no app source.
+COPY apps/ts_next_app/public/onnx/silero_vad_v5.onnx \
+     ./apps/ts_next_app/public/onnx/silero_vad_v5.onnx
+
+COPY apps/smartchats ./apps/smartchats
+COPY scripts/fix-esm-extensions.mjs ./scripts/fix-esm-extensions.mjs
+
+# Skip onnxruntime-node's CUDA-binary download (we don't run ONNX on the server;
+# tivi's VAD uses onnxruntime-web in the browser). Without this, npm install
+# blocks on a 200 MB GitHub download that frequently 502s.
+ENV ONNXRUNTIME_NODE_INSTALL_CUDA=skip
+RUN npm install --include=optional --onnxruntime-node-install-cuda=skip
+
+# Build workspace deps in correct dependency order.
+#   simi              → (no workspace deps)
+#   smartchats-common → simi
+#   smartchats-backend → (no workspace deps)
+#   graph-viz         → (no workspace deps)
+#   cortex            → smartchats-common
+#   tivi              → smartchats-common
+#   llm-service       → cortex
+#   smartchats-backend-{firebase,local} → smartchats-backend
+#   smartchats-local-server → smartchats-backend, cortex, llm-service
+RUN npm run build --workspace=simi \
+    && npm run build --workspace=smartchats-common \
+    && npm run build --workspace=smartchats-backend \
+    && npm run build --workspace=smartchats-database \
+    && npm run build --workspace=graph-viz \
+    && npm run build --workspace=cortex \
+    && npm run build --workspace=tivi \
+    && npm run build --workspace=llm-service \
+    && npm run build --workspace=smartchats-backend-firebase \
+    && npm run build --workspace=smartchats-backend-local \
+    && npm run build --workspace=smartchats-local-server
+
+# Post-build: tsc emits relative imports verbatim, so `from './foo'` (which
+# TypeScript happily resolves at compile time via Bundler resolution) becomes
+# `from './foo'` in dist/ — and Node's ESM loader rejects it at runtime.
+# Walk every workspace dist/ and add explicit .js / /index.js suffixes.
+# Source files are untouched; only the build output is corrected.
+RUN node scripts/fix-esm-extensions.mjs \
+    packages/simi/dist \
+    packages/smartchats-common/dist \
+    packages/smartchats-backend/dist \
+    packages/graph-viz/dist \
+    packages/cortex/dist \
+    packages/tivi/dist \
+    packages/llm-service/dist \
+    packages/smartchats-backend-firebase/dist \
+    packages/smartchats-backend-local/dist \
+    packages/smartchats-local-server/dist
+
+# Build-time env so the bundled JS uses the same-origin proxy path
+# (`/local-api`) and webpack tree-shakes the wrapper bootstrap branch.
+ENV NEXT_PUBLIC_SMARTCHATS_BOOTSTRAP=local
+ENV NEXT_PUBLIC_SMARTCHATS_INTERNAL_PROXY=1
+ENV SMARTCHATS_INTERNAL_PROXY=1
+ENV NEXT_TELEMETRY_DISABLED=1
+
+WORKDIR /repo/apps/smartchats
+RUN npm run build
+
+# ───── Stage 2: runtime ─────
+FROM node:22-slim AS runtime
+
+# tini for clean PID 1 signal handling. curl for the supervisor's readiness
+# probes. ca-certificates for outbound HTTPS to LLM providers.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends tini ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# SurrealDB binary from the official image.
+COPY --from=surreal-bin /surreal /usr/local/bin/surreal
+
+WORKDIR /app
+
+COPY --from=builder /repo/package.json /repo/package-lock.json* ./
+COPY --from=builder /repo/node_modules ./node_modules
+COPY --from=builder /repo/packages ./packages
+COPY --from=builder /repo/apps/smartchats/package.json ./apps/smartchats/package.json
+COPY --from=builder /repo/apps/smartchats/.next ./apps/smartchats/.next
+COPY --from=builder /repo/apps/smartchats/public ./apps/smartchats/public
+COPY --from=builder /repo/apps/smartchats/next.config.mjs ./apps/smartchats/next.config.mjs
+
+# Supervisor script.
+COPY scripts/aio-entrypoint.sh /usr/local/bin/aio-entrypoint
+RUN chmod +x /usr/local/bin/aio-entrypoint
+
+# Persistent data volume for SurrealDB.
+VOLUME ["/data"]
+
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV PORT=3000
+ENV SMARTCHATS_INTERNAL_PROXY=1
+
+EXPOSE 3000
+
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/aio-entrypoint"]

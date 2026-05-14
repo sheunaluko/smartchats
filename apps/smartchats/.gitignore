@@ -1,0 +1,40 @@
+# dependencies
+/node_modules
+/.pnp
+.pnp.js
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# local env files
+.env*.local
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# generated ONNX runtime assets (copied by prebuild from node_modules/onnxruntime-web)
+/public/onnx/
+# Exception: silero_vad_v5.onnx is the VAD model — vendored as a tracked asset
+!/public/onnx/silero_vad_v5.onnx
+
+# playwright
+/.auth/
+/test-results/
+/playwright-report/

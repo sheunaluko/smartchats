@@ -1,0 +1,147 @@
+import type { PairedDesignPack } from '../types';
+
+/**
+ * Crypto Gold design pack — fintech/crypto aesthetic with gold primary
+ * and purple accent. Trust and premium feel for financial applications.
+ */
+export const cryptoGoldPack: PairedDesignPack = {
+  id: 'crypto_gold',
+  name: 'Crypto Gold',
+  description: 'Fintech/crypto theme with gold primary and purple accent',
+  dark: {
+    id: 'crypto_gold-dark',
+    name: 'Crypto Gold Dark',
+    description: 'Premium dark fintech theme with gold accents',
+    mode: 'dark',
+    color: {
+      background: '#0f172a',
+      surface: '#1b2336',
+      surfaceAlt: '#222d42',
+      text: '#f8fafc',
+      textMuted: 'rgba(248, 250, 252, 0.55)',
+      primary: '#f59e0b',
+      accent: '#8b5cf6',
+      border: 'rgba(245, 158, 11, 0.15)',
+      danger: '#ef4444',
+      success: '#22c55e',
+      warning: '#fbbf24',
+    },
+    surface: {
+      elevated: 'linear-gradient(to bottom, #202840 0%, #1b2336 100%)',
+      insetHighlight: 'inset 0 1px 0 rgba(245, 158, 11, 0.06)',
+    },
+    shadow: {
+      sm: '0 1px 2px rgba(0, 0, 0, 0.5)',
+      md: '0 4px 12px rgba(0, 0, 0, 0.4)',
+      lg: '0 12px 32px rgba(0, 0, 0, 0.5)',
+      xl: '0 24px 48px rgba(0, 0, 0, 0.6)',
+    },
+    opacity: {
+      hover: 0.06,
+      pressed: 0.1,
+      disabled: 0.35,
+      overlay: 0.6,
+    },
+    typography: {
+      fontSans: '"Inter", -apple-system, sans-serif',
+      fontMono: '"JetBrains Mono", monospace',
+      scale: 'base',
+      weight: 400,
+      sizes: { xs: '0.75rem', sm: '0.875rem', base: '1rem', lg: '1.125rem', xl: '1.25rem', '2xl': '1.5rem' },
+      weights: { normal: 400, medium: 500, semibold: 600, bold: 700 },
+      lineHeights: { tight: 1.25, normal: 1.5, relaxed: 1.75 },
+    },
+    space: {
+      unit: 8,
+      density: 'comfortable',
+    },
+    radius: {
+      sm: 4,
+      md: 8,
+      lg: 12,
+    },
+    motion: {
+      durationFast: '120ms',
+      durationBase: '200ms',
+      easing: 'cubic-bezier(0.25, 1, 0.5, 1)',
+    },
+    componentRules: {
+      panelStyle: 'elevated',
+      buttonStyle: 'solid',
+      messageStyle: 'flat',
+      inputStyle: 'outlined',
+      badgeStyle: 'soft',
+      tooltipStyle: 'solid',
+      dividerStyle: 'subtle',
+      focusRingStyle: 'ring',
+    },
+  },
+  light: {
+    id: 'crypto_gold-light',
+    name: 'Crypto Gold Light',
+    description: 'Light counterpart with warm amber tones',
+    mode: 'light',
+    color: {
+      background: '#fffbf0',
+      surface: '#ffffff',
+      surfaceAlt: '#fef3c7',
+      text: '#1c1917',
+      textMuted: 'rgba(28, 25, 23, 0.55)',
+      primary: '#b45309',
+      accent: '#7c3aed',
+      border: 'rgba(0, 0, 0, 0.1)',
+      danger: '#dc2626',
+      success: '#16a34a',
+      warning: '#d97706',
+    },
+    surface: {
+      elevated: 'linear-gradient(to bottom, #ffffff 0%, #fffbf0 100%)',
+      insetHighlight: 'inset 0 1px 0 rgba(255, 255, 255, 0.6)',
+    },
+    shadow: {
+      sm: '0 1px 2px rgba(0, 0, 0, 0.05)',
+      md: '0 2px 8px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04)',
+      lg: '0 8px 24px rgba(0, 0, 0, 0.1), 0 2px 8px rgba(0, 0, 0, 0.05)',
+      xl: '0 16px 48px rgba(0, 0, 0, 0.14), 0 4px 16px rgba(0, 0, 0, 0.07)',
+    },
+    opacity: {
+      hover: 0.04,
+      pressed: 0.08,
+      disabled: 0.38,
+      overlay: 0.4,
+    },
+    typography: {
+      fontSans: '"Inter", -apple-system, sans-serif',
+      fontMono: '"JetBrains Mono", monospace',
+      scale: 'base',
+      weight: 400,
+      sizes: { xs: '0.75rem', sm: '0.875rem', base: '1rem', lg: '1.125rem', xl: '1.25rem', '2xl': '1.5rem' },
+      weights: { normal: 400, medium: 500, semibold: 600, bold: 700 },
+      lineHeights: { tight: 1.25, normal: 1.5, relaxed: 1.75 },
+    },
+    space: {
+      unit: 8,
+      density: 'comfortable',
+    },
+    radius: {
+      sm: 4,
+      md: 8,
+      lg: 12,
+    },
+    motion: {
+      durationFast: '120ms',
+      durationBase: '200ms',
+      easing: 'cubic-bezier(0.25, 1, 0.5, 1)',
+    },
+    componentRules: {
+      panelStyle: 'elevated',
+      buttonStyle: 'solid',
+      messageStyle: 'flat',
+      inputStyle: 'outlined',
+      badgeStyle: 'soft',
+      tooltipStyle: 'solid',
+      dividerStyle: 'subtle',
+      focusRingStyle: 'ring',
+    },
+  },
+};

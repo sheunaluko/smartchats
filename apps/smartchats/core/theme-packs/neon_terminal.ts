@@ -1,0 +1,147 @@
+import type { PairedDesignPack } from '../types';
+
+/**
+ * Neon Terminal design pack — cyberpunk terminal aesthetic.
+ * Developer-focused with high-contrast neons on deep black.
+ */
+export const neonTerminalPack: PairedDesignPack = {
+  id: 'neon_terminal',
+  name: 'Neon Terminal',
+  description: 'Cyberpunk terminal aesthetic with high-contrast neons on deep black',
+  dark: {
+    id: 'neon_terminal-dark',
+    name: 'Neon Terminal Dark',
+    description: 'High-contrast neon on deep black terminal',
+    mode: 'dark',
+    color: {
+      background: '#0a0a0a',
+      surface: '#111118',
+      surfaceAlt: '#1a1a24',
+      text: '#e0ffe0',
+      textMuted: 'rgba(0, 255, 100, 0.45)',
+      primary: '#00ff88',
+      accent: '#00ccff',
+      border: 'rgba(0, 255, 136, 0.15)',
+      danger: '#ff3366',
+      success: '#00ff88',
+      warning: '#ffcc00',
+    },
+    surface: {
+      elevated: 'linear-gradient(to bottom, #161620 0%, #111118 100%)',
+      insetHighlight: 'inset 0 1px 0 rgba(0, 255, 136, 0.06)',
+    },
+    shadow: {
+      sm: '0 1px 3px rgba(0, 255, 136, 0.1)',
+      md: '0 4px 12px rgba(0, 255, 136, 0.1), 0 1px 3px rgba(0, 0, 0, 0.5)',
+      lg: '0 12px 32px rgba(0, 255, 136, 0.12), 0 4px 12px rgba(0, 0, 0, 0.6)',
+      xl: '0 24px 64px rgba(0, 255, 136, 0.15), 0 8px 24px rgba(0, 0, 0, 0.7)',
+    },
+    opacity: {
+      hover: 0.08,
+      pressed: 0.15,
+      disabled: 0.3,
+      overlay: 0.7,
+    },
+    typography: {
+      fontSans: '"JetBrains Mono", "Fira Code", monospace',
+      fontMono: '"JetBrains Mono", "Fira Code", monospace',
+      scale: 'base',
+      weight: 400,
+      sizes: { xs: '0.75rem', sm: '0.875rem', base: '1rem', lg: '1.125rem', xl: '1.25rem', '2xl': '1.5rem' },
+      weights: { normal: 400, medium: 500, semibold: 600, bold: 700 },
+      lineHeights: { tight: 1.25, normal: 1.5, relaxed: 1.75 },
+    },
+    space: {
+      unit: 8,
+      density: 'comfortable',
+    },
+    radius: {
+      sm: 2,
+      md: 4,
+      lg: 6,
+    },
+    motion: {
+      durationFast: '100ms',
+      durationBase: '180ms',
+      easing: 'cubic-bezier(0.25, 1, 0.5, 1)',
+    },
+    componentRules: {
+      panelStyle: 'outlined',
+      buttonStyle: 'outline',
+      messageStyle: 'bordered',
+      inputStyle: 'outlined',
+      badgeStyle: 'outline',
+      tooltipStyle: 'outlined',
+      dividerStyle: 'solid',
+      focusRingStyle: 'glow',
+    },
+  },
+  light: {
+    id: 'neon_terminal-light',
+    name: 'Neon Terminal Light',
+    description: 'Light counterpart with muted terminal greens',
+    mode: 'light',
+    color: {
+      background: '#f0f8f0',
+      surface: '#ffffff',
+      surfaceAlt: '#e8f5e8',
+      text: '#0a2a0a',
+      textMuted: 'rgba(10, 42, 10, 0.55)',
+      primary: '#059669',
+      accent: '#0891b2',
+      border: 'rgba(0, 0, 0, 0.12)',
+      danger: '#dc2626',
+      success: '#059669',
+      warning: '#d97706',
+    },
+    surface: {
+      elevated: 'linear-gradient(to bottom, #ffffff 0%, #f0f8f0 100%)',
+      insetHighlight: 'inset 0 1px 0 rgba(255, 255, 255, 0.7)',
+    },
+    shadow: {
+      sm: '0 1px 2px rgba(0, 0, 0, 0.06)',
+      md: '0 2px 8px rgba(0, 0, 0, 0.07), 0 1px 2px rgba(0, 0, 0, 0.04)',
+      lg: '0 8px 24px rgba(0, 0, 0, 0.1), 0 2px 8px rgba(0, 0, 0, 0.05)',
+      xl: '0 16px 48px rgba(0, 0, 0, 0.14), 0 4px 16px rgba(0, 0, 0, 0.07)',
+    },
+    opacity: {
+      hover: 0.05,
+      pressed: 0.1,
+      disabled: 0.35,
+      overlay: 0.4,
+    },
+    typography: {
+      fontSans: '"JetBrains Mono", "Fira Code", monospace',
+      fontMono: '"JetBrains Mono", "Fira Code", monospace',
+      scale: 'base',
+      weight: 400,
+      sizes: { xs: '0.75rem', sm: '0.875rem', base: '1rem', lg: '1.125rem', xl: '1.25rem', '2xl': '1.5rem' },
+      weights: { normal: 400, medium: 500, semibold: 600, bold: 700 },
+      lineHeights: { tight: 1.25, normal: 1.5, relaxed: 1.75 },
+    },
+    space: {
+      unit: 8,
+      density: 'comfortable',
+    },
+    radius: {
+      sm: 2,
+      md: 4,
+      lg: 6,
+    },
+    motion: {
+      durationFast: '100ms',
+      durationBase: '180ms',
+      easing: 'cubic-bezier(0.25, 1, 0.5, 1)',
+    },
+    componentRules: {
+      panelStyle: 'outlined',
+      buttonStyle: 'outline',
+      messageStyle: 'bordered',
+      inputStyle: 'outlined',
+      badgeStyle: 'outline',
+      tooltipStyle: 'outlined',
+      dividerStyle: 'solid',
+      focusRingStyle: 'glow',
+    },
+  },
+};

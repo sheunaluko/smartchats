@@ -1,0 +1,123 @@
+#!/usr/bin/env bash
+# Dev environment — smartchats Next.js app + local Express server.
+#
+# Two-process foreground orchestrator with prefixed output and clean
+# shutdown. Standard self-host stack: the app talks to packages/smartchats-
+# local-server (Express) via HTTP, which in turn talks to SurrealDB.
+# Bring your own SurrealDB (or run `bin/aio` for the full container).
+#
+# Usage: bin/devserve [OPTIONS]
+#   --no-server     Skip the local Express server (assume already running)
+#   --no-app        Skip the Next.js app (server only)
+#   --port=<n>      Next.js dev port (default 3000)
+#   --help
+
+set -uo pipefail
+source "$(dirname "$0")/_lib.sh"
+
+NO_SERVER=false
+NO_APP=false
+SMARTCHATS_PORT=3000
+PIDS=()
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --no-server)  NO_SERVER=true; shift ;;
+    --no-app)     NO_APP=true; shift ;;
+    --port=*)     SMARTCHATS_PORT="${1#*=}"; shift ;;
+    --port)       SMARTCHATS_PORT="$2"; shift 2 ;;
+    --help|-h)
+      sed -n '2,/^$/p' "$0" | sed 's/^# \?//'
+      exit 0
+      ;;
+    -*)  err "Unknown option: $1"; exit 1 ;;
+    *)   err "Unexpected argument: $1"; exit 1 ;;
+  esac
+done
+
+# Validate port
+if ! [[ "$SMARTCHATS_PORT" =~ ^[0-9]+$ ]] || (( SMARTCHATS_PORT < 1 || SMARTCHATS_PORT > 65535 )); then
+  err "Invalid --port: $SMARTCHATS_PORT (expected integer 1-65535)"; exit 1
+fi
+
+cd "$REPO_ROOT"
+
+# Recursively kill a process and all its descendants
+kill_tree() {
+  local pid="$1" sig="${2:-TERM}"
+  local children
+  children=$(pgrep -P "$pid" 2>/dev/null)
+  for child in $children; do
+    kill_tree "$child" "$sig"
+  done
+  kill -"$sig" "$pid" 2>/dev/null
+}
+
+cleanup() {
+  echo "" >&2
+  info "Shutting down dev services..."
+  for pid in "${PIDS[@]}"; do
+    if kill -0 "$pid" 2>/dev/null; then
+      kill_tree "$pid" TERM
+    fi
+  done
+  sleep 2
+  for pid in "${PIDS[@]}"; do
+    if kill -0 "$pid" 2>/dev/null; then
+      kill_tree "$pid" 9
+    fi
+  done
+  ok "All services stopped."
+  exit 0
+}
+
+trap cleanup SIGINT SIGTERM EXIT
+
+run_prefixed() {
+  local label="$1" color="$2"
+  shift 2
+  local prefix
+  if [[ -z "${NO_COLOR:-}" ]] && [[ -t 2 ]]; then
+    prefix="${color}[${label}]${_C_RESET}"
+  else
+    prefix="[${label}]"
+  fi
+
+  local logdir="$REPO_ROOT/data/logs"
+  mkdir -p "$logdir"
+  local logfile="$logdir/${label}.log"
+  > "$logfile"
+
+  {
+    "$@" 2>&1 | while IFS= read -r line; do
+      printf "%b %s\n" "$prefix" "$line"
+      printf "%s\n" "$line" >> "$logfile"
+    done
+  } &
+  PIDS+=($!)
+}
+
+header "Starting dev services..."
+
+if ! $NO_SERVER; then
+  info "Starting smartchats-local-server (Express)..."
+  run_prefixed "server" "$_C_YELLOW" \
+    bash -c "cd '$REPO_ROOT/packages/smartchats-local-server' && npm run dev"
+fi
+
+if ! $NO_APP; then
+  info "Starting smartchats Next.js on port $SMARTCHATS_PORT..."
+  run_prefixed "app" "$_C_GREEN" \
+    bash -c "cd '$REPO_ROOT/apps/smartchats' && npx next dev -p $SMARTCHATS_PORT"
+fi
+
+if [[ ${#PIDS[@]} -eq 0 ]]; then
+  info "No services to start."
+  exit 0
+fi
+
+ok "Dev services running. Press Ctrl+C to stop."
+info "  app:    http://localhost:$SMARTCHATS_PORT"
+info "  server: http://localhost:4242 (default port)"
+
+wait -n 2>/dev/null || wait
