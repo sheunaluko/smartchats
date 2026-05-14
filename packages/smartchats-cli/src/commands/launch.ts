@@ -17,6 +17,8 @@ import * as path from 'node:path';
 import { confirm, input, password } from '@inquirer/prompts';
 import consola from 'consola';
 
+import { detectContext, requireRepo } from '../lib/context.js';
+
 interface ProviderSpec {
     label: string;
     canonical: string;
@@ -118,16 +120,12 @@ function writeDotenv(file: string, values: Record<string, string>): void {
     fs.writeFileSync(file, lines.join('\n') + '\n');
 }
 
+/**
+ * @deprecated Use `detectContext()` + `requireRepo()` from `lib/context.ts`.
+ * Kept as a thin wrapper for callers we haven't migrated yet.
+ */
 export function findRepoRoot(start: string): string {
-    let dir = path.resolve(start);
-    while (dir !== '/') {
-        if (fs.existsSync(path.join(dir, 'package.json')) &&
-            fs.existsSync(path.join(dir, 'Dockerfile.aio'))) {
-            return dir;
-        }
-        dir = path.dirname(dir);
-    }
-    throw new Error('Could not find smartchats repo root (no package.json + Dockerfile.aio in any ancestor of cwd).');
+    return requireRepo(detectContext(start));
 }
 
 function checkDocker(): boolean {
@@ -205,7 +203,11 @@ export async function runLaunch(args: LaunchArgs): Promise<void> {
         process.exit(1);
     }
 
-    const repoRoot = findRepoRoot(process.cwd());
+    const ctx = detectContext(process.cwd());
+    const repoRoot = requireRepo(ctx);
+    if (ctx.mode === 'explicit') {
+        consola.info(`Using $SMARTCHATS_HOME=${repoRoot}`);
+    }
     process.chdir(repoRoot);
 
     const dotenvPath = path.join(repoRoot, '.env');
