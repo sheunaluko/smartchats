@@ -81,9 +81,9 @@ This package is **transport-agnostic** — it queries via the `Client` interface
 
 - **Local AIO**: `createClient({url: 'ws://localhost:8000/rpc', ns: 'production', db: 'main', auth: { username: 'root', password: 'root' }})`
 - **Self-hosted**: same shape, different URL
-- **Cloud**: `createClient` with `SURREAL_TIDYSCRIPTS_BACKEND_*` env vars (root creds — `insights_events` has `PERMISSIONS NONE` so user JWTs cannot read it)
+- **Hosted SurrealDB**: `createClient` with credentials sourced from your environment (root creds expected — `insights_events` has `PERMISSIONS NONE` so user JWTs cannot read it)
 
-The `scripts/save_session.ts` CLI handles the local-AIO case out of the box. The cloud path lives in `packages/smartchats-cloud/scripts/cloud_save_session.ts` (closed-source, mirrors the structure but configures cloud creds).
+The `scripts/save_session.ts` CLI handles the local-AIO case out of the box.
 
 ## CLI usage
 

@@ -43,7 +43,7 @@ import type { CalibrationPhase } from './lib/useCalibration';
 const log = logger.get_logger({ id: 'tivi' });
 
 /**
- * Tivi - Tidyscripts Voice Interface Component
+ * Tivi - Voice Interface Component
  *
  * Features:
  * - VAD-based voice activity detection using Silero VAD v5
@@ -188,7 +188,7 @@ export const Tivi: React.FC<TiviProps> = ({
         {/* Header */}
         <Box display="flex" justifyContent="space-between" alignItems="center">
           <Typography variant="h5" color="primary" fontWeight="bold">
-            Tidyscripts Voice Interface (Tivi)
+            Voice Interface (Tivi)
           </Typography>
           <Stack direction="row" spacing={1}>
             <Chip

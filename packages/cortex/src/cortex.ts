@@ -247,8 +247,9 @@ export class Cortex extends EventEmitter  {
 	this.utilities = utilities || {};
 	this.llmCallFn = llmCallFn;
 
-	// Set API base URL - default to window origin in browser or production in Node
-	this.apiBaseUrl = apiBaseUrl || (typeof window !== 'undefined' ? window.location.origin : 'https://www.tidyscripts.com')
+	// Set API base URL - default to window origin in browser, empty string in Node
+	// (callers running outside a browser must supply apiBaseUrl explicitly).
+	this.apiBaseUrl = apiBaseUrl || (typeof window !== 'undefined' ? window.location.origin : '')
 
 	let log_instance = logger.get_logger({'id' : `cortex:${name}` }); this.log = log_instance;
 

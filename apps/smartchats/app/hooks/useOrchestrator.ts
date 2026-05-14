@@ -545,11 +545,11 @@ export function useOrchestrator(params: OrchestratorParams): OrchestratorActions
             setInterimResult(e.detail);
         };
         if (typeof window !== 'undefined') {
-            window.addEventListener('tidyscripts_web_speech_recognition_interim', handleInterim);
+            window.addEventListener('tivi_speech_recognition_interim', handleInterim);
         }
         return () => {
             if (typeof window !== 'undefined') {
-                window.removeEventListener('tidyscripts_web_speech_recognition_interim', handleInterim);
+                window.removeEventListener('tivi_speech_recognition_interim', handleInterim);
             }
         };
     }, [setInterimResult]);
@@ -619,10 +619,10 @@ async function onInitAudio(transcribeRef: any, transcriptionCb: any, tivi: any):
         }
     };
 
-    (window as any).addEventListener('tidyscripts_web_speech_recognition_result', handleTranscript);
+    (window as any).addEventListener('tivi_speech_recognition_result', handleTranscript);
     await tivi.startListening();
 
     return () => {
-        (window as any).removeEventListener('tidyscripts_web_speech_recognition_result', handleTranscript);
+        (window as any).removeEventListener('tivi_speech_recognition_result', handleTranscript);
     };
 }

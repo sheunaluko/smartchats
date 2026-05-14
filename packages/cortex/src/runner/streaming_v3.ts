@@ -324,10 +324,10 @@ Simple greeting (response only → turn complete):
 {"response": "Hey there! How can I help you today?", "code": null, "thoughts": "User greeted me, responding directly."}
 
 Knowledge search turn 1 (code → loop continues):
-{"response": null, "code": "results = await retrieve_declarative_knowledge({query: \\"tidyscripts\\", limit: 5});\\nreturn results;", "thoughts": "User asked about tidyscripts. Need to search first."}
+{"response": null, "code": "results = await retrieve_declarative_knowledge({query: \\"photosynthesis\\", limit: 5});\\nreturn results;", "thoughts": "User asked about photosynthesis. Need to search first."}
 
 Knowledge search turn 2 (response only → turn complete):
-{"response": "I found 3 entries about tidyscripts. The main one describes it as a TypeScript utility library.", "code": null, "thoughts": "Found results in last_result. Summarizing for user."}
+{"response": "I found 3 entries about photosynthesis. The main one summarizes the light-dependent reactions.", "code": null, "thoughts": "Found results in last_result. Summarizing for user."}
 
 Verbal status + code (response + code → speaks while executing):
 {"response": "Let me look that up for you right now.", "code": "results = await retrieve_declarative_knowledge({query: \\"architecture\\", limit: 5});\\nreturn results;", "thoughts": "Told the user I'm looking it up while I search in parallel."}

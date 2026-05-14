@@ -17,8 +17,8 @@ export interface RecognitionOps {
   onEnd?: () => void;
 }
 
-const DEFAULT_RESULT_DISPATCH = 'tidyscripts_web_speech_recognition_result';
-const DEFAULT_INTERIM_DISPATCH = 'tidyscripts_web_speech_recognition_interim';
+const DEFAULT_RESULT_DISPATCH = 'tivi_speech_recognition_result';
+const DEFAULT_INTERIM_DISPATCH = 'tivi_speech_recognition_interim';
 
 export function get_recognition_object(ops: RecognitionOps = {}) {
   const {

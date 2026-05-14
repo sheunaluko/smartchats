@@ -30,7 +30,7 @@ export function normalize_id(s: string): string {
 
 /**
  * Generate a relation ID from source, kind, and target
- * ("shay", "created", "tidyscripts") -> "shay_created_tidyscripts"
+ * ("alice", "authored", "paper_x") -> "alice_authored_paper_x"
  */
 export function generate_relation_id(sourceId: string, kind: string, targetId: string): string {
     return `${sourceId}_${kind}_${targetId}`;
@@ -50,10 +50,10 @@ export function relation_embedding_text(sourceId: string, kind: string, targetId
 export type Triple = [string, string, string]; // [subject, relation, object]
 
 export type RelationInfo = {
-    name: string;       // composite key: "shay_created_tidyscripts"
-    sourceName: string; // "shay"
-    targetName: string; // "tidyscripts"
-    kind: string;       // "created"
+    name: string;       // composite key: "alice_authored_paper_x"
+    sourceName: string; // "alice"
+    targetName: string; // "paper_x"
+    kind: string;       // "authored"
 };
 
 export type ParsedTriples = {

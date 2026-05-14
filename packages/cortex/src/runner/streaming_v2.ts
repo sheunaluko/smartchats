@@ -231,14 +231,14 @@ const STREAMING_OUTPUT_FORMAT_EXAMPLES = `
 <<<START>>> <<<RESPONSE>>> Hey there! How can I help you today? <<<THOUGHTS>>> User greeted me, responding directly. <<<END>>>
 
 [Example] Knowledge search turn 1 (CODE present → loop continues):
-<<<START>>> <<<CODE>>> results = await retrieve_declarative_knowledge({query: "tidyscripts", limit: 5});
-return results; <<<THOUGHTS>>> User asked about tidyscripts. Need to search first, then respond next turn. <<<END>>>
+<<<START>>> <<<CODE>>> results = await retrieve_declarative_knowledge({query: "photosynthesis", limit: 5});
+return results; <<<THOUGHTS>>> User asked about photosynthesis. Need to search first, then respond next turn. <<<END>>>
 
 [Example] Knowledge search turn 2 (RESPONSE only → turn complete):
-<<<START>>> <<<RESPONSE>>> I found 3 entries about tidyscripts. The main one describes it as a TypeScript utility library for web and Node development. <<<THOUGHTS>>> Found results in last_result. There are 3 entries about tidyscripts. <<<END>>>
+<<<START>>> <<<RESPONSE>>> I found 3 entries about photosynthesis. The main one summarizes the light-dependent reactions in plants. <<<THOUGHTS>>> Found results in last_result. There are 3 entries about photosynthesis. <<<END>>>
 
 [Example] Verbal status + code (RESPONSE + CODE → speaks while executing, loop continues):
-<<<START>>> <<<RESPONSE>>> Let me look that up for you right now. <<<CODE>>> results = await retrieve_declarative_knowledge({query: "tidyscripts architecture", limit: 5});
+<<<START>>> <<<RESPONSE>>> Let me look that up for you right now. <<<CODE>>> results = await retrieve_declarative_knowledge({query: "photosynthesis enzymes", limit: 5});
 return results; <<<THOUGHTS>>> Told the user I'm looking it up while I search in parallel. <<<END>>>
 
 [Example] Empathy response (RESPONSE only → turn complete):

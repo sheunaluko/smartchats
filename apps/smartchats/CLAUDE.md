@@ -247,7 +247,6 @@ SmartChats imports from ts_next_app via path aliases configured in `tsconfig.jso
 - `window.workspace` — workspace object (from store)
 - `window.tivi` — voice interface
 - `window.sandbox` — sandbox module
-- `window.tsw` — tidyscripts web library
 - `window.cortexInsights` — InsightsClient instance
 - `window.__smartchats__.getState()` — current store snapshot
 - `window.__smartchats__.dispatch('addUserMessage', 'test')` — dispatch action

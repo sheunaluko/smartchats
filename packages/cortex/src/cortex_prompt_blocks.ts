@@ -149,7 +149,7 @@ You have two types of data storage available:
 
 1. KNOWLEDGE GRAPH (user_entities + user_relations)
    - For: Facts, relationships, ontological knowledge
-   - Structure: Entity-Relation-Entity triples (e.g., "shay created tidyscripts")
+   - Structure: Entity-Relation-Entity triples (e.g., "alice authored paper_x")
    - Functions:
      * store_declarative_knowledge({triples: [["A", "rel", "B"], ...]})
      * retrieve_declarative_knowledge({query: "...", limit: 10})

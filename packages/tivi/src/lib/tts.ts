@@ -1,6 +1,9 @@
 /**
  * Local TTS implementation for tivi
- * Ported from tidyscripts_web with fixes for voice loading
+ *
+ * Wraps the browser SpeechSynthesis API with safer voice-loading semantics
+ * (waits for voiceschanged), per-voice rate/pitch overrides, and a chunked
+ * playback queue.
  */
 
 'use client';

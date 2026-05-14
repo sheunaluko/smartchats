@@ -2,7 +2,7 @@
  * TTS Backend Factories
  *
  * Two factories that return TTSCallFn for different backends:
- * - Local (OAAK): Uses OpenAI API key from localStorage via tidyscripts_web
+ * - Local (OAAK): Uses OpenAI API key from localStorage
  * - Firebase: Uses Firebase Cloud Function callable
  */
 

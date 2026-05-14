@@ -51,14 +51,14 @@ const STREAMING_OUTPUT_FORMAT_EXAMPLES = `
 <<<RESPONSE>>> Hey there! How can I help you today? <<<THOUGHTS>>> User greeted me, responding directly.
 
 [Example] Knowledge search turn 1 (CODE present → loop continues):
-<<<CODE>>> results = await retrieve_declarative_knowledge({query: "tidyscripts", limit: 5});
-return results; <<<THOUGHTS>>> User asked about tidyscripts. Need to search first, then respond next turn.
+<<<CODE>>> results = await retrieve_declarative_knowledge({query: "photosynthesis", limit: 5});
+return results; <<<THOUGHTS>>> User asked about photosynthesis. Need to search first, then respond next turn.
 
 [Example] Knowledge search turn 2 (RESPONSE only → turn complete):
-<<<RESPONSE>>> I found 3 entries about tidyscripts. The main one describes it as a TypeScript utility library for web and Node development. <<<THOUGHTS>>> Found results in last_result. There are 3 entries about tidyscripts.
+<<<RESPONSE>>> I found 3 entries about photosynthesis. The main one summarizes the light-dependent reactions in plants. <<<THOUGHTS>>> Found results in last_result. There are 3 entries about photosynthesis.
 
 [Example] Verbal status + code (RESPONSE + CODE → speaks while executing, loop continues):
-<<<RESPONSE>>> Let me look that up for you right now. <<<CODE>>> results = await retrieve_declarative_knowledge({query: "tidyscripts architecture", limit: 5});
+<<<RESPONSE>>> Let me look that up for you right now. <<<CODE>>> results = await retrieve_declarative_knowledge({query: "photosynthesis enzymes", limit: 5});
 return results; <<<THOUGHTS>>> Told the user I'm looking it up while I search in parallel.
 
 [Example] Empathy response (RESPONSE only → turn complete):

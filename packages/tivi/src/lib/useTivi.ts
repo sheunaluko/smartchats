@@ -222,12 +222,12 @@ export function useTivi(options: UseTiviOptions): UseTiviReturn {
       setInterimResult(text);
     };
 
-    window.addEventListener('tidyscripts_web_speech_recognition_result', handleTranscription as EventListener);
-    window.addEventListener('tidyscripts_web_speech_recognition_interim', handleInterim as EventListener);
+    window.addEventListener('tivi_speech_recognition_result', handleTranscription as EventListener);
+    window.addEventListener('tivi_speech_recognition_interim', handleInterim as EventListener);
 
     return () => {
-      window.removeEventListener('tidyscripts_web_speech_recognition_result', handleTranscription as EventListener);
-      window.removeEventListener('tidyscripts_web_speech_recognition_interim', handleInterim as EventListener);
+      window.removeEventListener('tivi_speech_recognition_result', handleTranscription as EventListener);
+      window.removeEventListener('tivi_speech_recognition_interim', handleInterim as EventListener);
     };
   }, [onTranscription, verbose]);
 
@@ -250,7 +250,7 @@ export function useTivi(options: UseTiviOptions): UseTiviReturn {
           if (isFinal) {
             // Dispatch final result
             window.dispatchEvent(
-              new CustomEvent('tidyscripts_web_speech_recognition_result', {
+              new CustomEvent('tivi_speech_recognition_result', {
                 detail: text
               })
             );
@@ -258,7 +258,7 @@ export function useTivi(options: UseTiviOptions): UseTiviReturn {
           } else {
             // Dispatch interim result
             window.dispatchEvent(
-              new CustomEvent('tidyscripts_web_speech_recognition_interim', {
+              new CustomEvent('tivi_speech_recognition_interim', {
                 detail: text
               })
             );

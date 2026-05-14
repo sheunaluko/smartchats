@@ -1,5 +1,5 @@
 /**
- * Tivi - Tidyscripts Voice Interface Component
+ * Tivi - Voice Interface Component
  *
  * A self-contained voice interaction component with:
  * - VAD-based speech detection (Silero VAD v5)

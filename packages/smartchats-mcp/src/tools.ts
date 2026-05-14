@@ -181,7 +181,7 @@ export function registerTools(server: McpServer, opts: RegisterToolsOptions): vo
     // -------------------------------------------------------------------------
     server.tool(
         "query_knowledge_graph",
-        "Search the user's knowledge graph for entities and relations by name. The knowledge graph stores facts as entity-relation-entity triples (e.g., 'shay' -created-> 'tidyscripts'). Returns matching entities and relations.",
+        "Search the user's knowledge graph for entities and relations by name. The knowledge graph stores facts as entity-relation-entity triples (e.g., 'alice' -authored-> 'paper_x'). Returns matching entities and relations.",
         {
             query: z.string().describe("Search term to match against entity and relation names (substring match)"),
             limit: z.number().optional().describe("Maximum results per type (default: 20)"),

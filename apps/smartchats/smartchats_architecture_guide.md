@@ -119,7 +119,6 @@ apps/smartchats/
 - `next` 14.2.3, `react` 18, `zustand` 5.0.9
 - `firebase` 10.12.4, `react-firebase-hooks` 5.1.1
 - `@mui/material` 6.4.7 (main UI), `@chakra-ui/react` 2.10.6 (LoginModal/Toast only)
-- `tidyscripts_common`, `tidyscripts_web` (workspace packages)
 - `onnxruntime-web` 1.23.2, `@ricky0123/vad-react` 0.0.36 (VAD)
 - `@react-sigma/core`, `graphology`, `sigma` (knowledge graph)
 - `react-grid-layout` 2.2.2 (widget layout)
@@ -136,7 +135,6 @@ apps/smartchats/
 ```
 
 ### next.config.mjs
-- `transpilePackages: ['tidyscripts_web']`
 - Webpack aliases mirror tsconfig paths (`@lab-components`, `@shared-lib`)
 - Client-side externals: `onnxruntime-web` → `ort` (loaded from `public/onnx/`)
 - `NodePolyfillPlugin` for Node.js polyfills in browser
@@ -171,8 +169,7 @@ All called via `firebase/functions` `httpsCallable`. Defined in `src/firebase_ut
 | `newUserTable` | Initialize user tables |
 | `testAuth` | Verify authentication status |
 
-**Firebase project**: `tidyscripts`
-**Emulator**: In non-production, connects Functions emulator at `localhost:5001`
+> **Note**: this section describes the cloud-flavored variant of the app, which is built and deployed from a separate downstream repo. In *this* open repo, the default bootstrap is local-only (`LocalAuthProvider` + `LocalBackend`) — no Firebase, no Cloud Functions, no Stripe.
 
 ### Provider Routing (Server-Side)
 The `llmCall` Cloud Function routes to providers via `ts_node/apis/llm_service`:

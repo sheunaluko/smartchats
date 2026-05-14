@@ -54,13 +54,13 @@ async function run_tests(): Promise<string> {
 
     // Test 2: generate_relation_id
     try {
-        const result = graph_utils.generate_relation_id("shay", "created", "tidyscripts");
-        const expected = "shay_created_tidyscripts";
+        const result = graph_utils.generate_relation_id("alice", "authored", "paper_x");
+        const expected = "alice_authored_paper_x";
         const passed = result === expected;
 
         results.push({ name: "generate_relation_id", passed, output: result });
         output_lines.push(`[${passed ? "PASS" : "FAIL"}] generate_relation_id`);
-        output_lines.push(`  ("shay", "created", "tidyscripts") -> "${result}"`);
+        output_lines.push(`  ("alice", "authored", "paper_x") -> "${result}"`);
         output_lines.push("");
     } catch (e: any) {
         results.push({ name: "generate_relation_id", passed: false, output: null, error: e.message });
@@ -71,10 +71,10 @@ async function run_tests(): Promise<string> {
     // Test 3: parse_triples
     try {
         const triples: graph_utils.Triple[] = [
-            ["Shay", "created", "Tidyscripts"],
-            ["Tidyscripts", "is_a", "Framework"],
-            ["Shay", "lives_in", "San Francisco"],
-            ["Shay", "created", "Tidyscripts"], // duplicate
+            ["Alice", "authored", "Paper X"],
+            ["Paper X", "is_a", "Publication"],
+            ["Alice", "lives_in", "San Francisco"],
+            ["Alice", "authored", "Paper X"], // duplicate
         ];
 
         const parsed = graph_utils.parse_triples(triples);
