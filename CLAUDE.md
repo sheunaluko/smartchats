@@ -120,6 +120,6 @@ npx smartchats-test                    # confirm build is green
 
 ## Project conventions
 
-- **Commits via `bin/checkpoint "msg"`** — prefixes with `checkpoint:`. Used for snapshot commits during dev. Don't use it for targeted fixes (use plain git for those).
+- **All commits go through `bin/checkpoint "msg"`** — prefixes with `checkpoint:`. Applies to snapshots AND targeted fixes; don't run `git commit` manually.
 - **No Co-Authored-By trailers** — agent attribution doesn't go in commits.
 - **TS 5.4.5 pin must stay** until tivi typing is fixed. Bumping breaks tivi.
