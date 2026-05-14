@@ -24,8 +24,9 @@ import { runLogin, loginHelp } from './commands/login.js';
 import { runLogout, logoutHelp } from './commands/logout.js';
 import { runWhoami, whoamiHelp } from './commands/whoami.js';
 import { runData, parseDataArgs, dataHelp } from './commands/data.js';
+import { runDoctor, parseDoctorArgs, doctorHelp } from './commands/doctor.js';
 
-const KNOWN_COMMANDS = new Set(['launch', 'login', 'logout', 'whoami', 'data', 'help', '--help', '-h']);
+const KNOWN_COMMANDS = new Set(['launch', 'doctor', 'login', 'logout', 'whoami', 'data', 'help', '--help', '-h']);
 
 function topHelp(): string {
     return `smartchats — CLI for SmartChats (cloud + local self-hosted)
@@ -35,6 +36,7 @@ Usage:
 
 Commands:
   launch         Interactive launcher for the local docker stack (default if no command).
+  doctor         Diagnose the local stack: docker, image, container, port 3000, LLM keys.
   login          Sign in to the SmartChats cloud (browser OAuth).
   logout         Clear cached cloud credentials.
   whoami         Show the currently-authenticated cloud user.
@@ -42,8 +44,14 @@ Commands:
   data export    Save a SmartChats deployment's user data to JSON.
   help <cmd>     Show detailed help for <cmd>.
 
+Environment:
+  SMARTCHATS_HOME   Explicit path to a smartchats repo clone. Overrides dir walk.
+  XDG_CONFIG_HOME   If set, CLI config lives at $XDG_CONFIG_HOME/smartchats/config.json
+                    (else ~/.smartchats/config.json).
+
 Examples:
   smartchats login
+  smartchats doctor
   smartchats data export ~/backup.json --target=cloud
   smartchats data import ~/backup.json --target=local
   smartchats launch --no-prompt -d
@@ -67,6 +75,7 @@ async function main(): Promise<void> {
         const sub = argv[3];
         if (!sub) { console.log(topHelp()); return; }
         if (sub === 'launch') console.log(launchHelp());
+        else if (sub === 'doctor') console.log(doctorHelp());
         else if (sub === 'login') console.log(loginHelp);
         else if (sub === 'logout') console.log(logoutHelp);
         else if (sub === 'whoami') console.log(whoamiHelp);
@@ -87,6 +96,11 @@ async function main(): Promise<void> {
             const args = parseLaunchArgs(argv.slice(3));
             await runLaunch(args);
             return;
+        }
+        case 'doctor': {
+            const args = parseDoctorArgs(argv.slice(3));
+            const exit = await runDoctor(args);
+            process.exit(exit);
         }
         case 'login':
             await runLogin();
