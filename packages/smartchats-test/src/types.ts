@@ -40,6 +40,12 @@ export interface LevelContext {
      * underlying tool (e.g. Playwright). Empty when nothing was passed.
      */
     passthroughArgs: string[];
+    /**
+     * When true, levels MAY prompt interactively (e.g. ask the user to
+     * pick specific Simi workflows, choose headed/headless). Levels that
+     * don't support interactive mode just ignore this.
+     */
+    pickInteractive: boolean;
 }
 
 export interface LevelResult {

@@ -29,6 +29,8 @@ interface ParsedArgs {
     help: boolean;
     /** Args after `--` on the command line; forwarded to each level's tool. */
     passthrough: string[];
+    /** Enable interactive prompts in levels that support them (e.g. e2e). */
+    pick: boolean;
 }
 
 function parseArgs(argv: string[]): ParsedArgs {
@@ -39,6 +41,7 @@ function parseArgs(argv: string[]): ParsedArgs {
         list: false,
         help: false,
         passthrough: [],
+        pick: false,
     };
     // Everything after `--` is forwarded verbatim to the level's underlying
     // tool (e.g. `smartchats-test e2e -- --grep time_shift_metric_flow` ->
@@ -51,6 +54,7 @@ function parseArgs(argv: string[]): ParsedArgs {
         else if (a === '--list') out.list = true;
         else if (a === '--include-infra') out.includeInfra = true;
         else if (a === '--continue-on-failure') out.continueOnFailure = true;
+        else if (a === '--pick' || a === '-i') out.pick = true;
         else if (a.startsWith('--')) {
             process.stderr.write(`Unknown option: ${a}\n`);
             process.exit(2);
@@ -76,6 +80,10 @@ Options:
   --include-infra         Also run levels marked requiresInfra=true (caller
                           ensures cloud_test_db / AIO is up first)
   --continue-on-failure   Don't bail on first FAIL — run every selected level
+  -i, --pick              Interactive mode — for the e2e level, prompts to
+                          pick specific Simi workflows + headed/headless +
+                          reuseBrowser before invoking Playwright. Levels
+                          that don't support interactive mode ignore this.
   --list                  List available levels and exit
   -h, --help              Show this help
 
@@ -136,6 +144,7 @@ async function main(): Promise<void> {
         continueOnFailure: args.continueOnFailure,
         skipInfra,
         passthroughArgs: args.passthrough,
+        pickInteractive: args.pick,
     });
 
     printSummary(outcome);

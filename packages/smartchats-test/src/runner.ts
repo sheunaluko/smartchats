@@ -23,6 +23,8 @@ export interface RunOptions {
     logger?: Logger;
     /** Args after `--` on the CLI, forwarded to each level's tool. */
     passthroughArgs?: string[];
+    /** Enable interactive prompts in levels that support them. */
+    pickInteractive?: boolean;
 }
 
 export async function runLevels(opts: RunOptions): Promise<RunOutcome> {
@@ -59,6 +61,7 @@ export async function runLevels(opts: RunOptions): Promise<RunOutcome> {
                 log,
                 continueOnFailure,
                 passthroughArgs: opts.passthroughArgs ?? [],
+                pickInteractive: opts.pickInteractive ?? false,
             });
         } catch (err) {
             result = {
