@@ -9,7 +9,7 @@
     "predev:https": "npm run prebuild",
     "type-check": "tsc --noEmit --project tsconfig.json",
     "prebuild": "npm run prebuild:site && npm run prebuild:assets",
-    "prebuild:site": "cd ../site && npm run build && rm -rf ../smartchats/public/_site && cp -r out ../smartchats/public/_site",
+    "prebuild:site": "[ -d ../site/out ] || (cd ../site && npm run build) ; rm -rf public/_site && cp -r ../site/out public/_site",
     "prebuild:assets": "mkdir -p public/onnx public/lib && cp ../../node_modules/onnxruntime-web/dist/*.wasm public/onnx/ && cp ../../node_modules/onnxruntime-web/dist/*.mjs public/onnx/ && cp ../../node_modules/graphology/dist/graphology.umd.min.js public/lib/ && cp ../../node_modules/sigma/dist/sigma.min.js public/lib/ && npm run cleanup-onnx",
     "cleanup-onnx": "rm -f public/onnx/*.js public/onnx/*.map public/onnx/ort.all.bundle.* public/onnx/ort.all.mjs public/onnx/ort.bundle.* public/onnx/ort.mjs public/onnx/ort.min.mjs public/onnx/ort.webgl.* public/onnx/ort.webgpu.* public/onnx/ort.node.* public/onnx/*asyncify* public/onnx/*jsep* public/onnx/silero_vad_legacy.onnx && rm -rf public/onnx/cpu",
     "build": "next build",
@@ -63,6 +63,7 @@
     "smartchats-backend": "*",
     "smartchats-backend-local": "*",
     "smartchats-database": "*",
+    "smartchats-site": "*",
     "ramda": "^0.29.1",
     "zod": "^3.25.76",
     "zustand": "^5.0.9"

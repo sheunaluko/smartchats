@@ -14,7 +14,9 @@
     "clean": "rm -rf dist",
     "type-check": "tsc --noEmit"
   },
-  "dependencies": {},
+  "dependencies": {
+    "@inquirer/prompts": "^7.0.0"
+  },
   "devDependencies": {
     "@types/node": "^20.0.0",
     "tsx": "^4.19.0",
