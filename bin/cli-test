@@ -73,7 +73,8 @@ BIN_PATH="$TEST_DIR/node_modules/.bin"
 
 if [[ "${1:-}" == "--shell" ]]; then
     say "Opening sub-shell with CLI on PATH. Exit to return."
-    PATH="$BIN_PATH:$PATH" cd "$TEST_DIR" exec bash
+    cd "$TEST_DIR"
+    PATH="$BIN_PATH:$PATH" exec bash
 fi
 
 if [[ $# -eq 0 ]]; then
