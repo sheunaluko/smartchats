@@ -112,6 +112,20 @@ async function main(): Promise<void> {
         return;
     }
 
+    // `--pick` only does anything for the e2e level; if the user didn't pick
+    // a level explicitly, default to e2e (much friendlier than having --pick
+    // silently no-op against the default lint+build run).
+    if (args.pick && args.selector.length === 0) {
+        args.selector = ['e2e'];
+    }
+
+    // `--pick` only does anything for the e2e level; if the user didn't pick
+    // a level explicitly, default to e2e (more discoverable than silently
+    // no-op'ing against the default lint+build run).
+    if (args.pick && args.selector.length === 0) {
+        args.selector = ['e2e'];
+    }
+
     // Resolve selector → list of Level objects
     let selected;
     if (args.selector.length === 0) {

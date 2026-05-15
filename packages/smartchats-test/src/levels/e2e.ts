@@ -109,20 +109,23 @@ async function promptForRun(ctx: LevelContext): Promise<RunChoices | null> {
             default: false,
         });
 
-        // No selection → run everything; otherwise build a grep with alternation.
-        // We use a `›`-boundary so we anchor on the test-title boundary —
-        // Playwright's full test path looks like:
-        //   `[chromium] › tests/e2e/simi.spec.ts:NN:N › <workflow>`
-        // Anchoring with `^...$` matches the whole path (fails). A leading
-        // ` › ` ensures we match the test-title segment, not a path substring,
-        // and avoids false positives from one name being a prefix of another
-        // (e.g. metrics_explorer_flow vs auto_metrics_explorer_flow).
-        const TITLE_BOUNDARY = '\\s\\u203A\\s'; // ' › ' as regex
+        // Build a grep pattern that matches a workflow name as a whole
+        // identifier — anchored on word-char boundaries (handles underscores
+        // correctly, unlike \b). Without this, `metrics_explorer_flow` would
+        // also match `auto_metrics_explorer_flow`.
+        //
+        // Playwright's --grep matches against the test title (NOT the full
+        // path), so simple anchored patterns work; we just need to avoid
+        // prefix-overlap false positives.
+        //
+        // Lookbehind/ahead syntax: (?<!\w)name(?!\w)
+        //   — not preceded by a word char AND not followed by one
+        //   — supported by Node 10+ regex engine, which Playwright uses
         const grep = selected.length === 0
             ? null
             : selected.length === 1
-                ? `${TITLE_BOUNDARY}${escapeRegex(selected[0])}$`
-                : `${TITLE_BOUNDARY}(${selected.map(escapeRegex).join('|')})$`;
+                ? `(?<!\\w)${escapeRegex(selected[0])}(?!\\w)`
+                : `(?<!\\w)(${selected.map(escapeRegex).join('|')})(?!\\w)`;
 
         return { grep, headed, reuseBrowser };
     } catch (err) {
