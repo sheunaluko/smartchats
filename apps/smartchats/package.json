@@ -4,7 +4,9 @@
   "private": true,
   "scripts": {
     "dev": "next dev -p 3000",
+    "predev": "npm run prebuild",
     "dev:https": "next dev -p 3000 --experimental-https --experimental-https-key ./localhost+1-key.pem --experimental-https-cert ./localhost+1.pem",
+    "predev:https": "npm run prebuild",
     "type-check": "tsc --noEmit --project tsconfig.json",
     "prebuild": "npm run prebuild:site && npm run prebuild:assets",
     "prebuild:site": "cd ../site && npm run build && rm -rf ../smartchats/public/_site && cp -r out ../smartchats/public/_site",
