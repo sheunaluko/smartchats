@@ -32,6 +32,7 @@ const ALL_WORKFLOWS: WorkflowDef[] = [
   { name: 'kg_settings_flow', bridge: '__smartchats__' },
   { name: 'auth_guard_flow', bridge: '__smartchats__' },
   { name: 'storage_mode_switch_flow', bridge: '__smartchats__' },
+  { name: 'time_shift_metric_flow', bridge: '__smartchats__' },
   { name: 'balance_fetch_flow', bridge: '__smartchats_billing__', requiresBilling: true },
   { name: 'usage_fetch_flow', bridge: '__smartchats_billing__' },
   { name: 'byo_key_lifecycle_flow', bridge: '__smartchats_billing__' },
@@ -179,14 +180,24 @@ function attachPageListeners(page: any) {
 }
 
 async function launchBrowser() {
-  if (!fs.existsSync(path.join(PROFILE_DIR, 'Default'))) {
-    throw new Error('No test profile. Run: npx playwright test setup-test-profile --headed');
-  }
   const headed = !!process.env.HEADED || process.argv.includes('--headed');
-  const context = await chromium.launchPersistentContext(PROFILE_DIR, {
-    headless: !headed,
-    viewport: { width: 1280, height: 720 },
-  });
+  const hasProfile = fs.existsSync(path.join(PROFILE_DIR, 'Default'));
+
+  // Cloud-flavored variant: persistent context preserves Firebase auth state
+  // across runs (set up once via setup-test-profile.spec.ts).
+  // Open variant: no Firebase, no profile → use ephemeral context. Auth is
+  // a no-op for LocalAuthProvider, so no setup needed.
+  let context: any;
+  if (hasProfile) {
+    context = await chromium.launchPersistentContext(PROFILE_DIR, {
+      headless: !headed,
+      viewport: { width: 1280, height: 720 },
+    });
+  } else {
+    const browser = await chromium.launch({ headless: !headed });
+    context = await browser.newContext({ viewport: { width: 1280, height: 720 } });
+  }
+
   const page = await context.newPage();
   await page.addInitScript(() => {
     (window as any).__DISABLE_ONBOARDING__ = true;
