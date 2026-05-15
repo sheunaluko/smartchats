@@ -1,16 +1,16 @@
 /**
- * Open-core bootstrap entrypoint.
+ * Bootstrap entrypoint.
  *
  * `bootstrap(config?)` returns a wired `{ auth, backend }` pair ready to be
  * passed to the facade providers in `app/layout.tsx`. With no config supplied
- * it defaults to LocalAuthProvider + LocalBackend — the open-core deployment.
+ * it defaults to LocalAuthProvider + LocalBackend — the standard self-hosted
+ * deployment.
  *
- * Closed-source wrappers consume this entrypoint by passing their own
- * provider implementations:
+ * Callers can override either provider by passing their own implementations:
  *
  *     bootstrap({
- *         auth:    new MyClosedAuthProvider(),
- *         backend: new MyClosedBackend({ ... }),
+ *         auth:    new MyAuthProvider(),
+ *         backend: new MyBackend({ ... }),
  *     })
  *
  * This file is the canonical open-core surface. It must not import any

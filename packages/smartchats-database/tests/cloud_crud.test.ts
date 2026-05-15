@@ -1,8 +1,8 @@
 /**
  * Cloud CRUD + cross-user isolation tests.
  *
- * Validates the canonical cloud schema (`smartchats-cloud/schema/`) by
- * authenticating as TWO distinct users (`alice` and `bob`) via SIGNUP /
+ * Validates the canonical cloud schema by authenticating as TWO distinct
+ * users (`alice` and `bob`) via SIGNUP /
  * SIGNIN against a local SurrealDB instance with the cloud schema applied.
  *
  * What's asserted:

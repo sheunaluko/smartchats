@@ -106,8 +106,6 @@ npm run save-session -- --session-id ses_abc123
 npm run save-session -- --app smartchats --out ~/my-exports/
 ```
 
-For cloud admin (closed): `packages/smartchats-cloud/scripts/cloud_save_session.ts` wraps the same flow with `SMARTCHATS_CLOUD_*` root creds. The admin UI (`packages/smartchats-cloud-admin-ui`) also downloads bundles into the canonical local dir (`~/.smartchats/session_bundles/`).
-
 ### Triage (cross-session query against the DB)
 
 ```bash
@@ -125,7 +123,7 @@ npm run find-sessions -- --has-error --since 24h --format=ids \
   | xargs -I{} npm run save-session -- --session-id {}
 ```
 
-Defaults to local AIO (`ws://localhost:8000/rpc`, root/root). **Does not** target cloud — for cloud admin triage across all users see `packages/smartchats-cloud/scripts/cloud_session_find.ts` (closed package). Both share the same query builder + dispatcher (`findCandidateSessions`) and CLI orchestration (`runFindCli`); only the connection wiring differs. See `data/ARCHITECTURE_NOTES.md` for the open/closed security boundary.
+Defaults to local AIO (`ws://localhost:8000/rpc`, root/root).
 
 ### Per-session analysis (against a bundle)
 

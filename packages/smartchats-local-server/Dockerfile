@@ -7,9 +7,9 @@
 # Run from repo root:
 #   docker build -f packages/smartchats-local-server/Dockerfile -t smartchats-local-server .
 #
-# This image contains only OPEN-CORE packages — no smartchats-cloud, no
-# Firebase code, no billing module. The local server has `capabilities.billing
-# = false` and runs entirely against a local SurrealDB + BYO API keys.
+# This image is local-only — no Firebase, no billing module. The local
+# server has `capabilities.billing = false` and runs entirely against a
+# local SurrealDB + BYO API keys.
 
 # ───── builder ─────
 FROM node:22-slim AS builder

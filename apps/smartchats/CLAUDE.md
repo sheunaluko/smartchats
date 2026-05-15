@@ -197,7 +197,7 @@ const lts = toLocalTimestamp(new Date(), tz)
 
 Server-side writes (e.g. `usage_records` from the local server) stamp `lts = time::now()` since the server has no user-tz context — real UTC, not fake-UTC local. Acceptable because usage records aren't migrated cross-database.
 
-Schema source-of-truth: `packages/smartchats-local-server/src/schema.ts` header. Cloud template: `packages/smartchats-cloud/functions/src/index.ts:185-220`.
+Schema source-of-truth: `packages/smartchats-local-server/src/schema.ts` header.
 
 ## Shared Code from ts_next_app
 SmartChats imports from ts_next_app via path aliases configured in `tsconfig.json` and `next.config.mjs`:

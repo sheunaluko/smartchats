@@ -1,8 +1,7 @@
 /**
  * SmartChatsBackend — typed interface contract for all backend operations.
  *
- * Three planned implementations:
- *   - FirebaseBackend: wraps existing cloud functions (closed, smartchats-cloud)
+ * Implementations:
  *   - LocalBackend:    Express/Fastify + SurrealDB in docker, BYO keys, single user
  *   - CustomBackend:   user-provided endpoint implementing this interface
  *
@@ -248,18 +247,16 @@ export interface DataAPI {
 
   /**
    * Probe DB connectivity + run a minimal query against each required table.
-   * Schema provisioning is a devops concern (not part of the runtime interface) —
-   * see the `smartchats-cloud` devops tool for cloud, and the local backend's
-   * startup routine for local installs.
+   * Schema provisioning is a devops concern (not part of the runtime interface);
+   * the local backend handles it in its startup routine.
    */
   healthCheck(): Promise<DataHealthReport>;
 }
 
 /**
- * Tables SmartChats expects to exist in both cloud and local deployments.
- * Cloud schemas are closed-source (lives in smartchats-cloud); local
- * schemas ship with LocalBackend. This list is the shared contract —
- * backends assume every table here exists when the app runs.
+ * Tables SmartChats expects to exist in any deployment. Local schemas ship
+ * with LocalBackend. This list is the shared contract — every backend
+ * implementation assumes these tables exist when the app runs.
  */
 export const SMARTCHATS_REQUIRED_TABLES = [
   'logs',

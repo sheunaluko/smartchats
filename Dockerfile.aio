@@ -25,7 +25,6 @@ WORKDIR /repo
 
 COPY package.json package-lock.json* turbo.json ./
 
-# Open-core workspace packages only — no smartchats-cloud, no closed code.
 COPY packages/cortex ./packages/cortex
 COPY packages/tivi ./packages/tivi
 COPY packages/simi ./packages/simi

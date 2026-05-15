@@ -28,9 +28,7 @@
  *   • `insert(table,p)` — passthrough for `db.insert`, used by the local
  *                         insights batch route.
  *   • `query(q, vars)`  — passthrough for `db.query`. Kept on the surface so
- *                         the schema admin functions (`applyLocalSchema` here,
- *                         and `createUserTable` / `migrateAddLts` /
- *                         `applyCloudSchema` over in `smartchats-cloud`) can
+ *                         the schema admin functions (`applyLocalSchema`) can
  *                         take a `Client` directly without a separate adapter.
  *   • `close()`         — passthrough for `db.close`.
  */
@@ -62,7 +60,7 @@ export interface ClientConfig {
  * Use this for queries that should respect record-level PERMISSIONS
  * (per-user data access). The connection authenticates with a JWT
  * token previously obtained via SIGNIN against an `ACCESS RECORD`
- * definition (see `smartchats-cloud/schema/access.ts`).
+ * definition.
  *
  * If `token` is omitted, the client connects unauthenticated; the
  * caller is then responsible for invoking `signupAsUser` /
@@ -112,14 +110,9 @@ export interface QueryResult<T = unknown> {
  * Runtime client interface. Implementations encapsulate connection
  * lifecycle and query dispatch; consumers never see the underlying SDK.
  *
- * The interface is a superset that satisfies:
- *   • `LocalSchemaDb`   (schema/local.ts)                  — needs `query(...)`
- *   • `CloudAdminDb`    (smartchats-cloud/schema)          — needs `query(...)`
- *   • `CloudSchemaDb`   (smartchats-cloud/schema/index.ts) — needs `query(...)`
- *
- * so a `Client` can be passed directly to `applyLocalSchema`,
- * `createUserTable`, `migrateAddLts`, and `applyCloudSchema` without
- * an adapter.
+ * The interface satisfies the `LocalSchemaDb` shape (schema/local.ts) —
+ * needs `query(...)` — so a `Client` can be passed directly to
+ * `applyLocalSchema` without an adapter.
  */
 export interface Client {
     /**

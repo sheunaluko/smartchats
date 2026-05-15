@@ -1,11 +1,11 @@
 /**
  * App-local backend facade.
  *
- * Every open-core UI/component consumes the SmartChatsBackend through this
- * module — never by importing provider classes directly. The only place a
- * concrete backend class is constructed is the app bootstrap; the closed
- * production wrapper replaces that bootstrap with one that injects the
- * closed-source backend variant.
+ * Every UI/component consumes the SmartChatsBackend through this module —
+ * never by importing provider classes directly. The only place a concrete
+ * backend class is constructed is the app bootstrap; callers can inject an
+ * alternative backend implementation at bootstrap time without touching
+ * consumers.
  *
  * This facade exposes:
  *   - `BackendFacadeProvider` — React context provider taking a `SmartChatsBackend`

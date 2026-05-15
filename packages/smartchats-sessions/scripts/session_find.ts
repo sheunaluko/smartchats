@@ -1,18 +1,15 @@
 #!/usr/bin/env -S npx tsx
 /**
- * session_find — cross-session triage against a SmartChats SurrealDB
- * (open variant). Defaults to the local AIO at ws://localhost:8000/rpc
- * with root/root credentials. Single-user host, root-on-localhost — fine
- * for self-hosted users.
- *
- * For cloud admin triage (root creds across all users), see
- * packages/smartchats-cloud/scripts/cloud_session_find.ts.
+ * session_find — cross-session triage against a SmartChats SurrealDB.
+ * Defaults to the local AIO at ws://localhost:8000/rpc with root/root
+ * credentials. Single-user host, root-on-localhost — fine for self-hosted
+ * users.
  *
  * Run via the package script: `npm run find-sessions -- [options]`.
  *
- * See full flag docs by running with `--help`. Shared CLI orchestration
+ * See full flag docs by running with `--help`. CLI orchestration
  * (arg parsing, dispatching, output formatting) lives in
- * `src/cli/find_cli.ts` so the cloud-admin variant stays a one-liner.
+ * `src/cli/find_cli.ts`.
  */
 
 import { createClient } from 'smartchats-database';

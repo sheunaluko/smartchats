@@ -6,9 +6,6 @@
  * AIO at ws://localhost:8000/rpc with root/root) and exports one or more
  * sessions matching the supplied filters.
  *
- * For cloud exports, see `packages/smartchats-cloud/scripts/cloud_save_session.ts`
- * — same logic, different connection wiring.
- *
  * Usage:
  *
  *   npm run save-session -- [options]
@@ -111,8 +108,6 @@ Options:
   --db <database>       Default 'main'
   --user, --password    Default root/root (AIO)
   -h, --help            Show this help
-
-For cloud exports, see packages/smartchats-cloud/scripts/cloud_save_session.ts
 `);
 }
 

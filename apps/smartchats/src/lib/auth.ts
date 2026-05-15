@@ -1,11 +1,11 @@
 /**
  * App-local auth facade.
  *
- * Every open-core UI/component consumes auth through this module — never
- * through provider SDKs directly. The one file that instantiates a concrete
+ * Every UI/component consumes auth through this module — never through
+ * provider SDKs directly. The one file that instantiates a concrete
  * provider is the app root bootstrap (see `app/app3.tsx` / root layout);
- * in the closed-source production wrapper, that bootstrap is replaced with
- * one that injects the closed provider variant.
+ * callers can inject an alternative provider implementation at bootstrap
+ * time without touching consumers.
  *
  * This facade exposes:
  *   - `AuthFacadeProvider` — React context provider taking an `AuthProvider` instance

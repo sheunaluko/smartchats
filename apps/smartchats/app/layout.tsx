@@ -15,13 +15,9 @@ import { bootstrap } from '@/lib/bootstrap';
 
 declare var window: any;
 
-// Open-core RootLayout: constructs LocalAuthProvider + LocalBackend by
-// default, talks to a local Express server (smartchats-local-server).
-// Self-hostable end users get this — no Firebase, no cloud.
-//
-// The cloud-flavored variant lives in the closed smartchats-cloud repo
-// (overlays/smartchats-app/app/layout.tsx) and is applied via
-// bin/sync-from-open after this file is rsynced.
+// RootLayout: constructs LocalAuthProvider + LocalBackend by default,
+// talks to a local Express server (smartchats-local-server). Self-hostable
+// end users get this — no Firebase, no external services required.
 export default function RootLayout({ children }: { children: React.ReactNode }) {
     const { authProvider, backend } = useMemo(() => {
         const result = bootstrap();

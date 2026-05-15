@@ -4,11 +4,6 @@
  *   • `local.ts` — local self-hosted DDL + version constant +
  *                  `applyLocalSchema(db)` orchestration.
  *
- * Cloud schema (per-user templates, ACCESS rules, migrations) lives in
- * the closed-source `smartchats-cloud` package — see
- * `packages/smartchats-cloud/schema/`. This split keeps cloud-permissions
- * logic out of the open-core surface.
- *
  * Consumers:
  *   import { schema } from 'smartchats-database';
  *   await schema.applyLocalSchema(db);
