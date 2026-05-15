@@ -1,31 +1,61 @@
 #!/usr/bin/env bash
-# Dev environment — smartchats Next.js app + local Express server.
+# Dev environment — smartchats Next.js + local Express server, with two
+# target modes for the backing stack:
 #
-# Two-process foreground orchestrator with prefixed output and clean
-# shutdown. Standard self-host stack: the app talks to packages/smartchats-
-# local-server (Express) via HTTP, which in turn talks to SurrealDB.
-# Bring your own SurrealDB (or run `bin/aio` for the full container).
+#   --target=surreal  (default)
+#       Spins up a SurrealDB container on port 8000 (file-backed,
+#       ~/.smartchats/data). Then runs `npm run prebuild` (builds + embeds
+#       apps/site, copies onnx/lib assets), then starts the local Express
+#       server + Next.js dev server. Hot-reload for code; SurrealDB
+#       persists across restarts.
+#
+#   --target=aio
+#       Delegates to `bin/aio` — full all-in-one Docker container
+#       (SurrealDB + Express + Next.js). Production build, slower iteration
+#       but matches deploy artifact. Use --rebuild to refresh the image.
 #
 # Usage: bin/devserve [OPTIONS]
-#   --no-server     Skip the local Express server (assume already running)
-#   --no-app        Skip the Next.js app (server only)
-#   --port=<n>      Next.js dev port (default 3000)
+#   --target=<mode>   surreal (default) | aio
+#   --no-server       (surreal mode) skip local Express server
+#   --no-app          (surreal mode) skip Next.js dev
+#   --no-prebuild     (surreal mode) skip apps/site + asset prebuild
+#   --no-surreal      (surreal mode) don't auto-start SurrealDB container
+#                     (assumes one's already running at SURREAL_URL)
+#   --clean           Wipe SurrealDB data + image cache before starting
+#                     (surreal: removes container + ~/.smartchats/data ;
+#                      aio: forwards --rebuild to bin/aio)
+#   --rebuild         (aio mode) force docker build of the AIO image
+#   --port=<n>        Next.js dev port (default 3000)
 #   --help
+#
+# Defaults match the smartchats-local-server config defaults:
+#   SURREAL_URL=ws://127.0.0.1:8000/rpc  SURREAL_USER=root  SURREAL_PASSWORD=root
 
 set -uo pipefail
 source "$(dirname "$0")/_lib.sh"
 
+TARGET=surreal
 NO_SERVER=false
 NO_APP=false
+NO_PREBUILD=false
+NO_SURREAL=false
+CLEAN=false
+REBUILD=false
 SMARTCHATS_PORT=3000
 PIDS=()
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --no-server)  NO_SERVER=true; shift ;;
-    --no-app)     NO_APP=true; shift ;;
-    --port=*)     SMARTCHATS_PORT="${1#*=}"; shift ;;
-    --port)       SMARTCHATS_PORT="$2"; shift 2 ;;
+    --target=*)     TARGET="${1#*=}"; shift ;;
+    --target)       TARGET="$2"; shift 2 ;;
+    --no-server)    NO_SERVER=true; shift ;;
+    --no-app)       NO_APP=true; shift ;;
+    --no-prebuild)  NO_PREBUILD=true; shift ;;
+    --no-surreal)   NO_SURREAL=true; shift ;;
+    --clean)        CLEAN=true; shift ;;
+    --rebuild)      REBUILD=true; shift ;;
+    --port=*)       SMARTCHATS_PORT="${1#*=}"; shift ;;
+    --port)         SMARTCHATS_PORT="$2"; shift 2 ;;
     --help|-h)
       sed -n '2,/^$/p' "$0" | sed 's/^# \?//'
       exit 0
@@ -35,6 +65,11 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+case "$TARGET" in
+  surreal|aio) ;;
+  *) err "Invalid --target: $TARGET (expected: surreal | aio)"; exit 1 ;;
+esac
+
 # Validate port
 if ! [[ "$SMARTCHATS_PORT" =~ ^[0-9]+$ ]] || (( SMARTCHATS_PORT < 1 || SMARTCHATS_PORT > 65535 )); then
   err "Invalid --port: $SMARTCHATS_PORT (expected integer 1-65535)"; exit 1
@@ -42,7 +77,76 @@ fi
 
 cd "$REPO_ROOT"
 
-# Recursively kill a process and all its descendants
+# ────────────────────────────────────────────────────────────────────
+# AIO target — just delegate to bin/aio.
+# ────────────────────────────────────────────────────────────────────
+if [[ "$TARGET" == "aio" ]]; then
+  AIO_ARGS=( -d )
+  $REBUILD && AIO_ARGS+=(--rebuild)
+  $CLEAN && AIO_ARGS+=(--rebuild)  # --clean for aio = rebuild
+  (( SMARTCHATS_PORT != 3000 )) && AIO_ARGS+=(--port "$SMARTCHATS_PORT")
+  header "Starting AIO container (target=aio)..."
+  info "Forwarding to: bin/aio ${AIO_ARGS[*]}"
+  exec "$REPO_ROOT/bin/aio" "${AIO_ARGS[@]}"
+fi
+
+# ────────────────────────────────────────────────────────────────────
+# SurrealDB container management (surreal target)
+# ────────────────────────────────────────────────────────────────────
+SURREAL_CONTAINER=smartchats-surreal
+SURREAL_DATA_DIR="${HOME}/.smartchats/data"
+SURREAL_IMAGE=surrealdb/surrealdb:v3.0.5
+
+start_surreal_if_needed() {
+  $NO_SURREAL && { info "Skipping SurrealDB container (--no-surreal)."; return; }
+
+  # --clean: stop + remove container, wipe data, recreate
+  if $CLEAN; then
+    warn "Wiping SurrealDB container + data dir (--clean)..."
+    docker rm -f "$SURREAL_CONTAINER" 2>/dev/null || true
+    rm -rf "$SURREAL_DATA_DIR"
+  fi
+
+  # Already running?
+  if docker container inspect -f '{{.State.Running}}' "$SURREAL_CONTAINER" 2>/dev/null | grep -q true; then
+    ok "SurrealDB container already running ($SURREAL_CONTAINER)."
+    return
+  fi
+
+  # Exists but stopped → start it
+  if docker container inspect "$SURREAL_CONTAINER" &>/dev/null; then
+    info "Starting existing SurrealDB container..."
+    docker start "$SURREAL_CONTAINER" >/dev/null
+  else
+    info "Creating SurrealDB container ($SURREAL_IMAGE)..."
+    mkdir -p "$SURREAL_DATA_DIR"
+    docker run -d --name "$SURREAL_CONTAINER" \
+      -p 8000:8000 \
+      -v "$SURREAL_DATA_DIR:/data" \
+      "$SURREAL_IMAGE" \
+      start --user root --pass root --bind 0.0.0.0:8000 \
+        "rocksdb:/data/db.rocksdb" \
+      >/dev/null
+  fi
+
+  # Wait until SurrealDB responds
+  info "Waiting for SurrealDB to be ready on :8000..."
+  local i
+  for i in $(seq 1 30); do
+    # Surreal HTTP health endpoint returns 200 when up
+    if curl -sf -m 2 http://127.0.0.1:8000/health >/dev/null 2>&1; then
+      ok "SurrealDB ready."
+      return
+    fi
+    sleep 1
+  done
+  err "SurrealDB didn't become ready within 30s. Check: docker logs $SURREAL_CONTAINER"
+  exit 1
+}
+
+# ────────────────────────────────────────────────────────────────────
+# Process management
+# ────────────────────────────────────────────────────────────────────
 kill_tree() {
   local pid="$1" sig="${2:-TERM}"
   local children
@@ -55,7 +159,7 @@ kill_tree() {
 
 cleanup() {
   echo "" >&2
-  info "Shutting down dev services..."
+  info "Shutting down dev services (SurrealDB container left running — use --clean to wipe)..."
   for pid in "${PIDS[@]}"; do
     if kill -0 "$pid" 2>/dev/null; then
       kill_tree "$pid" TERM
@@ -97,7 +201,24 @@ run_prefixed() {
   PIDS+=($!)
 }
 
-header "Starting dev services..."
+# ────────────────────────────────────────────────────────────────────
+# Main (surreal target)
+# ────────────────────────────────────────────────────────────────────
+header "Starting dev services (target=surreal)..."
+
+start_surreal_if_needed
+
+# Run apps/smartchats prebuild — embeds apps/site, copies onnx/lib.
+# Without it, `/` returns 404 (no public/_site) and onnxruntime-web fails
+# to load WASM in the browser. We invoke directly because `next dev`
+# doesn't run npm pre-hooks.
+if ! $NO_PREBUILD && ! $NO_APP; then
+  header "Running apps/smartchats prebuild (embeds apps/site, copies onnx/lib)..."
+  if ! (cd "$REPO_ROOT/apps/smartchats" && npm run prebuild); then
+    err "prebuild failed. Pass --no-prebuild to skip if you know what you're doing."
+    exit 1
+  fi
+fi
 
 if ! $NO_SERVER; then
   info "Starting smartchats-local-server (Express)..."
@@ -117,7 +238,8 @@ if [[ ${#PIDS[@]} -eq 0 ]]; then
 fi
 
 ok "Dev services running. Press Ctrl+C to stop."
-info "  app:    http://localhost:$SMARTCHATS_PORT"
-info "  server: http://localhost:4242 (default port)"
+info "  app:      http://localhost:$SMARTCHATS_PORT"
+info "  server:   http://localhost:4242"
+info "  surreal:  ws://127.0.0.1:8000/rpc (container: $SURREAL_CONTAINER)"
 
 wait -n 2>/dev/null || wait
