@@ -33,9 +33,11 @@ export function defaultClonePath(): string {
     if (process.env.SMARTCHATS_REPO_PATH) {
         return path.resolve(process.env.SMARTCHATS_REPO_PATH);
     }
+    // Namespaced under `cli/` so we don't collide with whatever else users
+    // (or other tools) might keep under ~/.smartchats/.
     const xdgData = process.env.XDG_DATA_HOME;
-    if (xdgData) return path.join(xdgData, 'smartchats', 'repo');
-    return path.join(process.env.HOME ?? '/tmp', '.smartchats', 'repo');
+    if (xdgData) return path.join(xdgData, 'smartchats', 'cli', 'source');
+    return path.join(process.env.HOME ?? '/tmp', '.smartchats', 'cli', 'source');
 }
 
 function checkGit(): boolean {
@@ -85,12 +87,27 @@ export async function ensureRepoRoot(opts: EnsureRepoOptions = {}): Promise<stri
         return target;
     }
 
-    // Bail if the path exists but isn't a valid repo root — don't clobber.
+    // Recovery for non-clone content at the target:
+    //   - empty dir: just remove it (git clone won't reuse it anyway)
+    //   - has .git but no Dockerfile.aio: partial/aborted clone from a prior
+    //     run; safe to nuke since we know we put it there
+    //   - has other files: refuse — that's user content
     if (fs.existsSync(target)) {
-        throw new Error(
-            `Cannot clone into ${target}: directory exists but doesn't look like a smartchats clone.\n`
-            + 'Remove it or pick a different path with --repo-path / $SMARTCHATS_REPO_PATH.',
-        );
+        const entries = fs.readdirSync(target);
+        const isEmpty = entries.length === 0;
+        const isPartialClone = entries.includes('.git') && !entries.includes(DOCKERFILE_MARKER);
+
+        if (isEmpty) {
+            fs.rmdirSync(target);
+        } else if (isPartialClone) {
+            consola.warn(`Removing partial clone at ${target}`);
+            fs.rmSync(target, { recursive: true, force: true });
+        } else {
+            throw new Error(
+                `Cannot clone into ${target}: it has files that aren't from a smartchats clone.\n`
+                + 'Move/remove its contents, or pass --repo-path / $SMARTCHATS_REPO_PATH to use a different location.',
+            );
+        }
     }
 
     const url = process.env.SMARTCHATS_REPO_URL ?? DEFAULT_REPO_URL;

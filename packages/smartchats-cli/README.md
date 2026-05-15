@@ -53,7 +53,7 @@ The CLI never asks for credentials twice — it reads from your environment firs
 
 ## How it works on a fresh machine
 
-On first run, `smartchats launch` auto-clones the smartchats repo into `~/.smartchats/repo/` (or `$XDG_DATA_HOME/smartchats/repo/`), which has the `Dockerfile.aio` needed to build the AIO image. Subsequent runs reuse the clone.
+On first run, `smartchats launch` auto-clones the smartchats repo into `~/.smartchats/cli/source/` (or `$XDG_DATA_HOME/smartchats/cli/source/`), which has the `Dockerfile.aio` needed to build the AIO image. Subsequent runs reuse the clone.
 
 To use your own clone instead, pass `--repo-path /path/to/clone` or set `$SMARTCHATS_HOME`.
 

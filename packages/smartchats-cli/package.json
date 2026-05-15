@@ -1,6 +1,6 @@
 {
   "name": "smartchats-ai",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "SmartChats — one-stop CLI for the open-source voice AI agent. Launch the local docker stack (`smartchats launch`), verify it (`smartchats doctor`), sign in / login to the cloud SaaS, and import + export user data. Single entry point for end users and contributors.",
   "type": "module",
   "main": "dist/cli.js",

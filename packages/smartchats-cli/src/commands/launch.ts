@@ -198,9 +198,9 @@ Options:
   --test             Launch detached, wait until the stack is ready, run
                      \`smartchats doctor\`, exit with doctor's exit code.
                      Implies --no-prompt and --detached.
-  --repo-path <path> Override the repo location (default: \$XDG_DATA_HOME/smartchats/repo
-                     or ~/.smartchats/repo). On fresh installs the CLI clones the
-                     repo to this path on first run.
+  --repo-path <path> Override the repo location (default:
+                     \$XDG_DATA_HOME/smartchats/cli/source or ~/.smartchats/cli/source).
+                     On fresh installs the CLI clones the repo to this path on first run.
   -h, --help         Show this help.
 `;
 }
