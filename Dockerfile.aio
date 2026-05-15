@@ -32,7 +32,6 @@ COPY packages/graph-viz ./packages/graph-viz
 COPY packages/smartchats-common ./packages/smartchats-common
 COPY packages/smartchats-backend ./packages/smartchats-backend
 COPY packages/smartchats-database ./packages/smartchats-database
-COPY packages/smartchats-backend-firebase ./packages/smartchats-backend-firebase
 COPY packages/smartchats-backend-local ./packages/smartchats-backend-local
 COPY packages/llm-service ./packages/llm-service
 COPY packages/smartchats-local-server ./packages/smartchats-local-server
@@ -41,6 +40,11 @@ COPY packages/smartchats-local-server ./packages/smartchats-local-server
 # from ts_next_app, no app source.
 COPY apps/ts_next_app/public/onnx/silero_vad_v5.onnx \
      ./apps/ts_next_app/public/onnx/silero_vad_v5.onnx
+
+# apps/site: built as a static export, copied into apps/smartchats/public/_site
+# by apps/smartchats's prebuild:site script (which runs during apps/smartchats
+# `npm run build` below).
+COPY apps/site ./apps/site
 
 COPY apps/smartchats ./apps/smartchats
 COPY scripts/fix-esm-extensions.mjs ./scripts/fix-esm-extensions.mjs
@@ -59,7 +63,7 @@ RUN npm install --include=optional --onnxruntime-node-install-cuda=skip
 #   cortex            → smartchats-common
 #   tivi              → smartchats-common
 #   llm-service       → cortex
-#   smartchats-backend-{firebase,local} → smartchats-backend
+#   smartchats-backend-local → smartchats-backend
 #   smartchats-local-server → smartchats-backend, cortex, llm-service
 RUN npm run build --workspace=simi \
     && npm run build --workspace=smartchats-common \
@@ -69,7 +73,6 @@ RUN npm run build --workspace=simi \
     && npm run build --workspace=cortex \
     && npm run build --workspace=tivi \
     && npm run build --workspace=llm-service \
-    && npm run build --workspace=smartchats-backend-firebase \
     && npm run build --workspace=smartchats-backend-local \
     && npm run build --workspace=smartchats-local-server
 
@@ -86,7 +89,6 @@ RUN node scripts/fix-esm-extensions.mjs \
     packages/cortex/dist \
     packages/tivi/dist \
     packages/llm-service/dist \
-    packages/smartchats-backend-firebase/dist \
     packages/smartchats-backend-local/dist \
     packages/smartchats-local-server/dist
 
