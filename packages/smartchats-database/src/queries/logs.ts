@@ -155,7 +155,8 @@ export interface ListLogsArgs {
 /**
  * General-purpose log list/search builder. Supports any combination of
  * category filter, lts-range filter, and content substring search.
- * Sort is `created_at DESC`.
+ * Sort is `lts DESC` so the order survives bundle export/import (matches
+ * the dual-timestamp invariant: UI sorts/filters by `lts`).
  *
  * Sole canonical builder for log lookups — the previous `getRecentLogs`
  * and `searchLogs` helpers were trivial special cases (no searchText vs
@@ -196,7 +197,7 @@ export function listLogs(args: ListLogsArgs): QuerySpec {
     }
 
     return {
-        query: `SELECT id, content, category, created_at, lts FROM logs ${where} ORDER BY created_at DESC LIMIT ${limit}`,
+        query: `SELECT id, content, category, created_at, lts FROM logs ${where} ORDER BY lts DESC LIMIT ${limit}`,
         variables,
     };
 }
