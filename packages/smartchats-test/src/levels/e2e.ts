@@ -37,6 +37,13 @@ export const e2eLevel: Level = {
         const extraArgs: string[] = [];
         const extraEnv: Record<string, string> = {};
 
+        // simi.spec.ts creates its own chromium context, so Playwright's
+        // --headed (consumed before the spec worker reads argv) doesn't
+        // reach it. Mirror to HEADED=1 in env, which the spec DOES read.
+        if (passthrough.includes('--headed')) {
+            extraEnv.HEADED = '1';
+        }
+
         if (ctx.pickInteractive) {
             const choices = await promptForRun(ctx);
             if (choices === null) {
