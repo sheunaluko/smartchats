@@ -1025,10 +1025,10 @@ export default function LandingPage() {
           {/* CTAs */}
           <div className="flex flex-col sm:flex-row items-center justify-center gap-3 mb-20">
             <a
-              href="mailto:shay@sattvicsystems.com?subject=SmartChats%20demo%20request"
+              href="/app"
               className="hero-cta cta-light group inline-flex items-center gap-2 px-6 py-3 rounded-md bg-white text-sm font-medium hover:bg-blue-100 transition-all"
             >
-              Request a demo
+              Try the app
               <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-0.5" />
             </a>
             <a
@@ -1067,7 +1067,7 @@ export default function LandingPage() {
 
           <FadeIn delay={0.2} className="text-center mt-8">
             <p className="text-white/40 text-xs font-mono">
-              recorded session · loops automatically · live demo on request — <a href="mailto:shay@sattvicsystems.com?subject=SmartChats%20demo%20request" className="text-blue-300/80 hover:text-blue-300 transition-colors">shay@sattvicsystems.com</a>
+              recorded session · loops automatically · <a href="/app" className="text-blue-300/80 hover:text-blue-300 transition-colors">or try it yourself →</a>
             </p>
           </FadeIn>
         </div>
@@ -1351,11 +1351,11 @@ export default function LandingPage() {
                 </a>
                 <span className="text-white/20">·</span>
                 <a
-                  href="mailto:shay@sattvicsystems.com?subject=SmartChats%20demo%20request"
+                  href="/app"
                   className="inline-flex items-center gap-2 text-white/80 hover:text-white transition-colors"
                 >
                   <ExternalLink className="w-4 h-4" />
-                  Demo on request
+                  Try the app
                 </a>
               </div>
             </div>
@@ -1380,11 +1380,11 @@ export default function LandingPage() {
             </p>
             <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
               <a
-                href="mailto:shay@sattvicsystems.com?subject=SmartChats%20demo%20request"
+                href="/app"
                 className="cta-light group inline-flex items-center gap-2 px-7 py-3.5 rounded-md bg-white text-sm font-medium hover:bg-blue-100 transition-all"
               >
                 <Sparkles className="w-4 h-4" />
-                Request a demo
+                Try the app
                 <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-0.5" />
               </a>
               <a
