@@ -33,22 +33,27 @@
   },
   "scripts": {
     "build": "tsc",
+    "build:bundle": "tsup",
     "clean": "rm -rf dist",
     "type-check": "tsc --noEmit",
     "dev": "tsx src/cli.ts",
-    "start": "node dist/cli.js"
+    "start": "node dist/cli.js",
+    "prepack": "npm run build:bundle"
   },
   "dependencies": {
     "@inquirer/prompts": "^7.0.0",
     "consola": "^3.2.3",
-    "smartchats-backend": "*",
-    "smartchats-cloud-client": "*",
-    "smartchats-database": "*"
+    "open": "^10.1.0",
+    "surrealdb": "^2.0.3"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
+    "smartchats-backend": "*",
+    "smartchats-cloud-client": "*",
+    "smartchats-database": "*",
+    "tsup": "^8.5.1",
     "tsx": "^4.7.0",
     "typescript": "^5.4.5"
   },
-  "license": "Apache-2.0"
+  "license": "MIT"
 }

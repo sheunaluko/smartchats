@@ -18,6 +18,8 @@ import { confirm, input, password } from '@inquirer/prompts';
 import consola from 'consola';
 
 import { detectContext, requireRepo } from '../lib/context.js';
+import { updateConfig } from '../lib/config.js';
+import { runDoctor } from './doctor.js';
 
 interface ProviderSpec {
     label: string;
@@ -149,6 +151,7 @@ export interface LaunchArgs {
     port: number;
     dataDir: string;
     imageTag: string;
+    test: boolean;
 }
 
 export function parseLaunchArgs(rest: string[]): LaunchArgs {
@@ -159,6 +162,7 @@ export function parseLaunchArgs(rest: string[]): LaunchArgs {
         port: 3000,
         dataDir: defaultDataDir(),
         imageTag: 'smartchats-aio:latest',
+        test: false,
     };
     for (let i = 0; i < rest.length; i++) {
         const a = rest[i];
@@ -168,10 +172,17 @@ export function parseLaunchArgs(rest: string[]): LaunchArgs {
         else if (a === '--port') args.port = parseInt(rest[++i], 10);
         else if (a === '--data-dir') args.dataDir = rest[++i];
         else if (a === '--tag') args.imageTag = rest[++i];
+        else if (a === '--test') args.test = true;
         else if (a === '--help' || a === '-h') {
             console.log(launchHelp());
             process.exit(0);
         }
+    }
+    // --test implies --no-prompt (no human at the keyboard) + --detached
+    // (the test path needs the launch call to return so it can poll + doctor).
+    if (args.test) {
+        args.noPrompt = true;
+        args.detached = true;
     }
     return args;
 }
@@ -190,8 +201,32 @@ Options:
   --port <n>         Host port to expose (default 3000).
   --data-dir <path>  Where to persist SurrealDB data (default ${defaultDataDir()}).
   --tag <tag>        Docker image tag (default smartchats-aio:latest).
+  --test             Launch detached, wait until the stack is ready, run
+                     \`smartchats doctor\`, exit with doctor's exit code.
+                     Implies --no-prompt and --detached.
   -h, --help         Show this help.
 `;
+}
+
+/**
+ * Poll an HTTP URL until it returns 2xx or the timeout elapses.
+ * Returns true on success, false on timeout.
+ */
+async function waitForHttp(url: string, timeoutMs: number, intervalMs: number = 1000): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+        try {
+            const controller = new AbortController();
+            const t = setTimeout(() => controller.abort(), 2000);
+            const res = await fetch(url, { signal: controller.signal });
+            clearTimeout(t);
+            if (res.ok) return true;
+        } catch {
+            // Not up yet — keep polling.
+        }
+        await new Promise((r) => setTimeout(r, intervalMs));
+    }
+    return false;
 }
 
 export async function runLaunch(args: LaunchArgs): Promise<void> {
@@ -312,7 +347,24 @@ export async function runLaunch(args: LaunchArgs): Promise<void> {
         consola.info(`  Logs:  docker logs -f smartchats`);
     }
 
+    // Persist preferences for next time / doctor's default port.
+    updateConfig({ lastUsedMode: 'aio', lastUsedPort: args.port });
+
     const proc = spawn('docker', runArgs, { stdio: 'inherit' });
+
+    // --test path: container is detached, so the spawn returns once docker
+    // hands off. Poll for the stack to come up, then run doctor.
+    if (args.test) {
+        const ready = await waitForHttp(`http://localhost:${args.port}`, 90_000);
+        if (!ready) {
+            consola.error(`Stack did not become ready on port ${args.port} within 90s.`);
+            consola.info('Inspect with: docker logs smartchats');
+            process.exit(1);
+        }
+        consola.success(`Stack responded on port ${args.port}. Running doctor...`);
+        const exit = await runDoctor({ port: args.port, json: false });
+        process.exit(exit);
+    }
 
     proc.on('exit', (code) => process.exit(code ?? 0));
 

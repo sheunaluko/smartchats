@@ -8,26 +8,31 @@ Public, MIT-licensed open-source voice AI agent. End users clone this repo and r
 
 | You're trying to… | Start here |
 |---|---|
-| Run the app stack locally | `bin/aio` (Docker AIO container) or `bin/devserve` (BYO SurrealDB) |
+| Run the app stack locally | `smartchats launch` (CLI, canonical) or `bin/aio` / `bin/devserve` (legacy aliases) |
+| Verify a running stack | `smartchats doctor` |
+| Smoke-test the full launch flow | `smartchats launch --test` |
 | Type-check + build everything | `bin/preflight` or `npx smartchats-test` |
 | Export a session for analysis | `bin/save_session smartchats` |
 | Triage errors across sessions | `cd packages/smartchats-sessions && npm run triage:errors` |
 | Understand the agent runtime | `packages/cortex/` |
 | Understand the voice pipeline | `packages/tivi/` |
 | Understand the smartchats app | `apps/smartchats/CLAUDE.md` (auto-loads when entering subtree) |
+| Understand the CLI | `packages/smartchats-cli/README.md` |
 
 ## Dev workflow
 
 ```bash
-# Full stack (recommended for new clones): SurrealDB + Express + Next.js in one container
-bin/aio                # http://localhost:3000
+# Canonical entry point — works for both end users and contributors:
+smartchats launch          # interactive; builds + runs AIO docker container
+smartchats launch --test   # detached + verify + exit with doctor exit code
+smartchats doctor          # status check of a running stack
 
-# Hot-reload dev with your own SurrealDB:
-bin/devserve           # starts smartchats-local-server (Express) + Next.js
-                       # assumes SurrealDB at localhost:8000 (or set SMARTCHATS_DB_URL)
+# Legacy aliases (still here while we migrate):
+bin/aio                    # roughly equivalent to `smartchats launch --no-prompt`
+bin/devserve               # hot-reload dev — smartchats-local-server + next dev (BYO SurrealDB)
 ```
 
-No external services required for a basic boot — local-mode only.
+No external services required for a basic boot — local-mode only. The CLI walks up from cwd to find `Dockerfile.aio`; override with `SMARTCHATS_HOME` if running from outside a clone.
 
 ## Architecture
 
