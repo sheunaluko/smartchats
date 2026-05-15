@@ -5,7 +5,7 @@ A voice-first AI agent that runs locally on your machine. Self-hostable, BYO API
 ## Quick start
 
 ```bash
-npx smartchats
+npx smartchats-ai
 ```
 
 That's it. The CLI:
@@ -30,7 +30,7 @@ Provider keys — at least an OpenAI key is required. The CLI checks these env v
 CLI flags:
 
 ```text
-npx smartchats [--no-prompt] [--rebuild] [-d] [--port N] [--data-dir PATH]
+npx smartchats-ai [--no-prompt] [--rebuild] [-d] [--port N] [--data-dir PATH]
 ```
 
 - `--no-prompt` — skip prompts, use whatever's in env / `.env`
@@ -63,7 +63,7 @@ npx smartchats [--no-prompt] [--rebuild] [-d] [--port N] [--data-dir PATH]
 
 ## Architecture: one container vs three
 
-The default `npx smartchats` packages SurrealDB + Express server + Next.js into a **single container** (the AIO image, defined in `Dockerfile.aio`). Browser sees only `localhost:3000`; the server proxies API calls to the Express backend over container loopback. One image, one port, one volume.
+The default `npx smartchats-ai` packages SurrealDB + Express server + Next.js into a **single container** (the AIO image, defined in `Dockerfile.aio`). Browser sees only `localhost:3000`; the server proxies API calls to the Express backend over container loopback. One image, one port, one volume.
 
 For development, the repo also ships a **three-service `docker-compose.yml`** with separate containers for SurrealDB, the server, and the app. Use this if you want to:
 - Restart one component without restarting the others

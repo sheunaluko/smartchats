@@ -40,7 +40,7 @@ Docker image so it works without a local clone.
 1. Bump version in `packages/smartchats-cli/package.json` (`npm version <patch|minor|major>` from inside the package).
 2. From repo root: `npm publish --workspace=packages/smartchats-cli --access=public`.
 3. Tag the release: `git tag smartchats-cli-vX.Y.Z && git push --tags`.
-4. Verify on npm: <https://www.npmjs.com/package/smartchats>.
+4. Verify on npm: <https://www.npmjs.com/package/smartchats-ai>.
 
 ## Things to watch on each release
 

@@ -5,15 +5,15 @@
 ## Install
 
 ```bash
-npm install -g smartchats
+npm install -g smartchats-ai
 ```
 
-(once published — see *Status* below)
+After install, both `smartchats` and `smartchats-ai` are on your PATH (same binary, two aliases).
 
 Or run without installing:
 
 ```bash
-npx smartchats <command>
+npx smartchats-ai <command>
 ```
 
 ## Quick start
@@ -53,7 +53,7 @@ The CLI never asks for credentials twice — it reads from your environment firs
 
 ## Status
 
-Phase 1 — published as `smartchats` on npm; currently **requires a clone of the smartchats repo** to find `Dockerfile.aio` (set via `SMARTCHATS_HOME` or run from within the clone). Future phases will:
+Phase 1 — published as `smartchats-ai` on npm; currently **requires a clone of the smartchats repo** to find `Dockerfile.aio` (set via `SMARTCHATS_HOME` or run from within the clone). Future phases will:
 
 - Ship pre-built Docker images so no clone is needed
 - Add `--mode byo-db` for bringing your own SurrealDB instance
