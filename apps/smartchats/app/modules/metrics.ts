@@ -221,7 +221,7 @@ function fillDateGaps(rows: any[], spec: MetricsQuerySpec): any[] {
     }
 
     // Daily: fill missing days
-    const getBucket = (r: any) => r.timestamp || r.bucket
+    const getBucket = (r: any) => rowDate(r)
     const sorted = [...rows].sort((a, b) => getBucket(a).localeCompare(getBucket(b)))
 
     // Determine date range
@@ -260,8 +260,20 @@ function mapRowValue(r: any): number | null {
     return Number(r.value) || 0
 }
 
+// Date source priority for chart x-axis:
+//   1. r.lts        — user-time, canonical (raw entries)
+//   2. r.bucket     — already user-time (queries use time::group(lts, 'day'))
+//   3. iso week     — computed from yr/wk on weekly aggregations
+//   4. r.timestamp  — legacy real-UTC fallback for rows without lts (older data)
+// Without preferring lts, charts render UTC dates and gaps misalign with the
+// user's perceived day boundaries (the bug we fixed alongside the queries
+// switching from ORDER BY created_at → ORDER BY lts).
+function rowDate(r: any): any {
+    return r.lts || r.bucket || isoWeekMonday(r.yr, r.wk) || r.timestamp
+}
+
 function mapRowToPoint(r: any): { x: string; y: number | null; _date?: string } {
-    const rawDate = r.timestamp || r.bucket || isoWeekMonday(r.yr, r.wk)
+    const rawDate = rowDate(r)
     return {
         x: formatDateLabel(rawDate),
         y: mapRowValue(r),
@@ -270,7 +282,7 @@ function mapRowToPoint(r: any): { x: string; y: number | null; _date?: string } 
 }
 
 function mapRowToItem(r: any): { label: string; value: number | null; _date?: string } {
-    const rawDate = r.timestamp || r.bucket || isoWeekMonday(r.yr, r.wk)
+    const rawDate = rowDate(r)
     return {
         label: formatDateLabel(rawDate),
         value: mapRowValue(r),
@@ -360,7 +372,7 @@ function transformToVizProps(rows: any[], spec: MetricsQuerySpec & { presentatio
                             { key: 'value', label: `Value${unit ? ` (${unit})` : ''}` },
                         ],
                         rows: rows.map(r => ({
-                            date: formatDateLabel(r.timestamp || r.bucket || isoWeekMonday(r.yr, r.wk)),
+                            date: formatDateLabel(rowDate(r)),
                             metric: (r.metric_name || 'unknown').replace(/_/g, ' '),
                             value: Number(r.value) || 0,
                         })),
@@ -376,7 +388,7 @@ function transformToVizProps(rows: any[], spec: MetricsQuerySpec & { presentatio
                         { key: 'value', label: `Value${unit ? ` (${unit})` : ''}` },
                     ],
                     rows: rows.map(r => ({
-                        date: formatDateLabel(r.timestamp || r.bucket || isoWeekMonday(r.yr, r.wk)),
+                        date: formatDateLabel(rowDate(r)),
                         value: Number(r.value) || 0,
                     })),
                 },
@@ -433,7 +445,7 @@ function transformToVizProps(rows: any[], spec: MetricsQuerySpec & { presentatio
                 const doneDatesSet = new Set<string>()
                 for (const r of rows) {
                     if (Number(r.value) < 1) continue
-                    const ts = r.timestamp || r.bucket || r.lts
+                    const ts = rowDate(r)
                     if (ts) doneDatesSet.add(new Date(ts).toISOString().slice(0, 10))
                 }
                 const doneDates = Array.from(doneDatesSet).sort()
@@ -493,7 +505,7 @@ function transformToVizProps(rows: any[], spec: MetricsQuerySpec & { presentatio
                             let sum = 0
                             return {
                                 label: mn.replace(/_/g, ' '),
-                                points: pts.map(r => { sum += mapRowValue(r) || 0; return { x: formatDateLabel(r.timestamp || r.bucket || isoWeekMonday(r.yr, r.wk)), y: sum }; }),
+                                points: pts.map(r => { sum += mapRowValue(r) || 0; return { x: formatDateLabel(rowDate(r)), y: sum }; }),
                             }
                         }),
                         xLabel: 'Date',
@@ -509,7 +521,7 @@ function transformToVizProps(rows: any[], spec: MetricsQuerySpec & { presentatio
                     title: title || `${name} (cumulative)`,
                     series: [{
                         label: name,
-                        points: filledRows.map(r => { sum += mapRowValue(r) || 0; return { x: formatDateLabel(r.timestamp || r.bucket || isoWeekMonday(r.yr, r.wk)), y: sum }; }),
+                        points: filledRows.map(r => { sum += mapRowValue(r) || 0; return { x: formatDateLabel(rowDate(r)), y: sum }; }),
                     }],
                     xLabel: 'Date',
                     yLabel: `Total ${unit || 'Value'}`,
@@ -525,7 +537,7 @@ function transformToVizProps(rows: any[], spec: MetricsQuerySpec & { presentatio
             const calMonth = firstDate.getUTCMonth() + 1
             const isBoolean = unit === 'done' || unit === 'completed' || unit === 'boolean'
             const days = filledRows.map(r => {
-                const rawDate = r.timestamp || r.bucket || isoWeekMonday(r.yr, r.wk)
+                const rawDate = rowDate(r)
                 const dateStr = typeof rawDate === 'string' ? rawDate.slice(0, 10) : new Date(rawDate).toISOString().slice(0, 10)
                 const val = mapRowValue(r)
                 return {
