@@ -11,6 +11,11 @@ import { defineWorkflow } from 'simi';
  * lts. Regression test for the prior bug where time_shift was stored as
  * metadata only and lts was always pinned to "now," which made charts
  * plot retroactive entries on the wrong day.
+ *
+ * Uses `id:` on each `callFunction` step + `results.<id>` in the assert —
+ * direct callFunction invocations bypass the sandbox so `state.functionCalls`
+ * isn't populated (that's the agent/LLM path). The Simi runner captures
+ * action return values under `results.<id>` instead.
  */
 export const timeShiftMetricFlow = defineWorkflow({
   id: 'time_shift_metric_flow',
@@ -26,8 +31,7 @@ export const timeShiftMetricFlow = defineWorkflow({
       value: 1,
       unit: 'test',
       category: 'test',
-    }], timeout: 10000 },
-    { waitFor: 'state.functionCalls.some(c => c.name === "save_metric" && c.args?.[0]?.metric_name === "simi_shift_realtime" && c.status === "success")', timeout: 15000 },
+    }], id: 'realtime', timeout: 10000 },
 
     // ── Save with -1 day shift ──
     { action: 'callFunction', args: ['save_metric', {
@@ -37,18 +41,16 @@ export const timeShiftMetricFlow = defineWorkflow({
       category: 'test',
       time_shift_quantity: -1,
       time_shift_unit: 'day',
-    }], timeout: 10000 },
-    { waitFor: 'state.functionCalls.some(c => c.name === "save_metric" && c.args?.[0]?.metric_name === "simi_shift_yesterday" && c.status === "success")', timeout: 15000 },
+    }], id: 'yesterday', timeout: 10000 },
 
-    // ── Assert lts delta is ~24h (allow a 1h tolerance for clock drift / TZ DST edges) ──
+    // ── Both calls returned. save_metric returns `response.rows` which is
+    //    a 1-element array (the inserted row). Assert lts delta ≈ 24h. ──
     { assert: `(() => {
-      const realtime = state.functionCalls.find(c => c.name === "save_metric" && c.args?.[0]?.metric_name === "simi_shift_realtime");
-      const yesterday = state.functionCalls.find(c => c.name === "save_metric" && c.args?.[0]?.metric_name === "simi_shift_yesterday");
-      if (!realtime?.result || !yesterday?.result) return false;
-      const ltsRealtime = realtime.result?.[0]?.lts || realtime.result?.lts;
-      const ltsYesterday = yesterday.result?.[0]?.lts || yesterday.result?.lts;
+      const ltsRealtime = results.realtime?.[0]?.lts;
+      const ltsYesterday = results.yesterday?.[0]?.lts;
       if (!ltsRealtime || !ltsYesterday) return false;
       const deltaHours = (new Date(ltsRealtime).getTime() - new Date(ltsYesterday).getTime()) / 3600000;
+      // realtime is "now", yesterday is "now - 24h" → diff ≈ +24h (1h tolerance for DST / clock drift)
       return deltaHours > 23 && deltaHours < 25;
     })()`, message: 'time_shift=-1day should produce lts ~24h earlier than no-shift save (verify save_metric applies time_shift to lts, not just stores as metadata)' },
   ],
