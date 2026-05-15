@@ -156,6 +156,23 @@ async function executeMetricsQuery(spec: MetricsQuerySpec, log: Function): Promi
 }
 
 /** Compute the Monday (ISO week start) for a given ISO year + week number */
+/**
+ * Convert a time-shift descriptor (e.g. -1 day, +3 hours) into a
+ * milliseconds delta you can add/subtract from a Date. Used by save_metric
+ * to derive the anchor moment when the user describes a past entry
+ * verbally ("yesterday", "2 hours ago", etc.).
+ *
+ * Returns 0 for unknown units — caller doesn't shift, falls back to "now."
+ */
+function shiftMs(quantity: number, unit: string): number {
+    const u = unit.toLowerCase().replace(/s$/, '');
+    if (u === 'minute') return quantity * 60 * 1000;
+    if (u === 'hour') return quantity * 60 * 60 * 1000;
+    if (u === 'day') return quantity * 24 * 60 * 60 * 1000;
+    if (u === 'week') return quantity * 7 * 24 * 60 * 60 * 1000;
+    return 0;
+}
+
 function isoWeekMonday(year: number, week: number): string {
     // Jan 4 is always in ISO week 1
     const jan4 = new Date(Date.UTC(year, 0, 4))
@@ -599,11 +616,26 @@ export function createMetricsModule() {
 
                     log(`Saving metric: ${metric_name} = ${resolvedValue} ${resolvedUnit} (${resolvedMetricType})`)
 
-                    // Conversation path: lts is always current local time (when the user reported it)
+                    // Resolve the anchor moment the metric actually represents:
+                    //   1. explicit `timestamp` param (agent extracted a specific past time) wins
+                    //   2. else apply `time_shift` to "now" (e.g. "yesterday" → -1 day)
+                    //   3. else "now"
+                    // Both `timestamp` (real UTC) and `lts` (user-local fake UTC) derive
+                    // from the same anchor — they used to diverge because lts was hardcoded
+                    // to `new Date()`, which made chart x-axis misrepresent past entries
+                    // (line chart at user's "today" instead of the day they described).
                     const tz = getUserTimezone()
                     const tsValue = timestamp && timestamp.trim() ? timestamp.trim() : null
-                    const realTimestamp = tsValue || new Date().toISOString()
-                    const lts = toLocalTimestamp(new Date(), tz)
+                    let anchor: Date
+                    if (tsValue) {
+                        anchor = new Date(tsValue)
+                    } else if (time_shift_quantity != null && time_shift_unit) {
+                        anchor = new Date(Date.now() + shiftMs(Number(time_shift_quantity), String(time_shift_unit)))
+                    } else {
+                        anchor = new Date()
+                    }
+                    const realTimestamp = anchor.toISOString()
+                    const lts = toLocalTimestamp(anchor, tz)
 
                     const response = await getBackend().data.query(queries.insertMetric({
                         metric_name: metric_name || '',
