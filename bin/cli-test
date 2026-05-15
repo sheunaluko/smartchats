@@ -1,0 +1,107 @@
+#!/usr/bin/env bash
+# bin/cli-test — pack + install the smartchats-ai CLI into a clean tmp dir
+# and run it as if it had been installed from npm. Use this to validate
+# local CLI changes before bumping the version and publishing.
+#
+# Usage:
+#   bin/cli-test                         # pack + install; print run instructions
+#   bin/cli-test help                    # pack + install + run `smartchats help`
+#   bin/cli-test doctor                  # pack + install + run `smartchats doctor`
+#   bin/cli-test launch --no-prompt      # full launch flow against the installed CLI
+#   bin/cli-test --shell                 # open a sub-shell with the CLI on PATH
+#   bin/cli-test --clean                 # remove the tmp test dir
+#
+# Env overrides:
+#   SMARTCHATS_CLI_TEST_DIR=<path>       # where to install (default /tmp/smartchats-cli-test)
+#   SMARTCHATS_REPO_URL=file://...       # for testing auto-clone with the local repo
+#                                          instead of hitting github
+#   SMARTCHATS_REPO_PATH=<path>          # where the auto-clone lands (default
+#                                          ~/.smartchats/repo; override for tests)
+#
+# Typical iteration loop:
+#   1. Edit packages/smartchats-cli/src/...
+#   2. bin/cli-test launch --no-prompt --repo-path /tmp/sc-test-repo
+#   3. Check the output
+#   4. Repeat
+#
+# The script rebuilds the bundle via prepack on every run, so source edits
+# are always picked up.
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+TEST_DIR="${SMARTCHATS_CLI_TEST_DIR:-/tmp/smartchats-cli-test}"
+
+# ---------- helpers ----------
+say()  { echo -e "\033[0;34m==>\033[0m $*"; }
+ok()   { echo -e "\033[0;32m✓\033[0m $*"; }
+warn() { echo -e "\033[0;33m!\033[0m $*"; }
+
+# ---------- modes ----------
+if [[ "${1:-}" == "--clean" ]]; then
+    if [[ -d "$TEST_DIR" ]]; then
+        rm -rf "$TEST_DIR"
+        ok "Removed $TEST_DIR"
+    else
+        warn "$TEST_DIR didn't exist"
+    fi
+    exit 0
+fi
+
+# ---------- pack ----------
+cd "$REPO_ROOT"
+say "Packing smartchats-ai (rebuilds bundle via prepack)..."
+rm -f smartchats-ai-*.tgz
+npm pack --workspace=packages/smartchats-cli --silent > /dev/null
+TARBALL="$(ls smartchats-ai-*.tgz | head -1)"
+TARBALL_ABS="$REPO_ROOT/$TARBALL"
+ok "Built $TARBALL"
+
+# ---------- install ----------
+say "Installing into $TEST_DIR..."
+rm -rf "$TEST_DIR"
+mkdir -p "$TEST_DIR"
+cd "$TEST_DIR"
+npm init -y > /dev/null
+npm install "$TARBALL_ABS" --silent
+rm "$TARBALL_ABS"
+ok "Installed; binary at $TEST_DIR/node_modules/.bin/smartchats"
+
+# ---------- run / shell / no-op ----------
+BIN_PATH="$TEST_DIR/node_modules/.bin"
+
+if [[ "${1:-}" == "--shell" ]]; then
+    say "Opening sub-shell with CLI on PATH. Exit to return."
+    PATH="$BIN_PATH:$PATH" cd "$TEST_DIR" exec bash
+fi
+
+if [[ $# -eq 0 ]]; then
+    cat <<EOF
+
+CLI installed. Run a command:
+
+  cd $TEST_DIR
+  PATH="\$PWD/node_modules/.bin:\$PATH" smartchats <command>
+
+Or use this script with args:
+
+  bin/cli-test help
+  bin/cli-test doctor
+  bin/cli-test launch --no-prompt
+  bin/cli-test --shell                  # interactive sub-shell
+
+To test the auto-clone against the local repo (no GitHub round-trip):
+
+  SMARTCHATS_REPO_URL=file://$REPO_ROOT \\
+  SMARTCHATS_REPO_PATH=/tmp/sc-test-repo \\
+  bin/cli-test launch --no-prompt
+
+EOF
+    exit 0
+fi
+
+# Run with passed args
+say "Running: smartchats $*"
+cd "$TEST_DIR"
+PATH="$BIN_PATH:$PATH" smartchats "$@"
