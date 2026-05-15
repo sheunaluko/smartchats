@@ -27,6 +27,17 @@ const nextConfig = {
       });
     }
 
+    // Embedded apps/site (static export). prebuild:site copies
+    // apps/site/out/ → public/_site/. Map user-facing URLs to those
+    // static files so the landing + docs live on the same Vercel
+    // deployment as the app (no zones / no second project).
+    rules.push(
+      { source: '/', destination: '/_site/index.html' },
+      { source: '/docs', destination: '/_site/docs/index.html' },
+      { source: '/docs/:slug', destination: '/_site/docs/:slug/index.html' },
+      { source: '/docs/:slug/', destination: '/_site/docs/:slug/index.html' },
+    );
+
     return rules;
   },
   webpack: (config, { isServer }) => {

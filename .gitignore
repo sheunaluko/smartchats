@@ -13,6 +13,9 @@ dist
 **/*.tsbuildinfo
 next-env.d.ts
 
+# Embedded site bundle (apps/smartchats prebuild copies apps/site/out → here)
+apps/smartchats/public/_site/
+
 # Turborepo
 .turbo
 **/.turbo
