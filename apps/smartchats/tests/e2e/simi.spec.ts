@@ -276,7 +276,10 @@ for (const wf of WORKFLOWS) {
     }
 
     try {
-      await page.goto('http://localhost:3000', { waitUntil: 'networkidle' });
+      // /app — the chat UI. Root (/) now serves the embedded apps/site landing,
+      // which doesn't load the Simi runtime. All Simi workflows assume the
+      // chat app, so navigate explicitly to /app.
+      await page.goto('http://localhost:3000/app', { waitUntil: 'networkidle' });
 
       // Wait for the correct bridge + workflow to be ready
       await page.waitForFunction(
