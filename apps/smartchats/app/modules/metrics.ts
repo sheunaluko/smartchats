@@ -53,12 +53,33 @@ You can track quantifiable activities the user mentions. When the user says some
 - Call get_metrics_context() at session start to learn existing metrics, units, and recent entries
 - Normalize metric_name to snake_case (e.g. "running_distance", "pushups", "workout_duration")
 - Match existing unit conventions — check get_metrics_context() output before saving
-- For conversation metrics: just call save_metric — timestamps are handled automatically
-- For extraction from logs: use the extraction review workflow (show_metric_extraction_review → save_reviewed_metrics). Timestamps are resolved automatically from the source log.
+- For extraction from logs: use the extraction review workflow (show_metric_extraction_review → save_reviewed_metrics). Timestamps are resolved automatically from the source log entry's date.
 - When extracting from logs, use the log entry's category as the metric category (e.g. a metric from an "exercise" log → category "exercise", from a "nutrition" log → category "nutrition")
-- Set time_shift_quantity and time_shift_unit to record the original offset when extracting (e.g. "yesterday" → time_shift_quantity: -1, time_shift_unit: "day")
 - Do NOT ask for confirmation on obvious metrics — just save and confirm briefly
 - For ambiguous values or units, ask the user to clarify
+
+### Timing — when did the event happen?
+
+Every metric represents an event that happened at a specific moment in user-local time. The agent is responsible for capturing that moment. There are three cases:
+
+**1. Real-time** — the user is reporting something that just happened. No timing fields needed; \`lts\` and \`timestamp\` default to "now."
+   Examples: "I just ran 3 miles", "did 20 pushups", "ate lunch", "drank water"
+
+**2. Relative offset** — the user uses a relative phrase. Set \`time_shift_quantity\` (signed integer, negative = past) and \`time_shift_unit\` (one of: \`"hour"\`, \`"day"\`, \`"week"\`).
+   Examples:
+   - "I did 20 pushups yesterday" → \`time_shift_quantity: -1, time_shift_unit: "day"\`
+   - "2 hours ago I had coffee" → \`time_shift_quantity: -2, time_shift_unit: "hour"\`
+   - "last week I swam 3 times" → for an aggregated mention you may need multiple save_metric calls; for a single entry pick a representative day with \`time_shift\`
+   - "this morning" (and it's currently evening) → \`time_shift_quantity: -8, time_shift_unit: "hour"\` (rough)
+
+**3. Absolute date** — the user names a specific date or weekday. Resolve to an ISO datetime using the **Current local date** from the [Timing] block in your context, then pass it as \`timestamp\`. Default to noon local if no time of day was given.
+   Examples:
+   - "On May 13 I swam 44 laps" → \`timestamp: "2026-05-13T17:00:00Z"\` (noon ET = 17:00 UTC; use the user's TZ)
+   - "Last Tuesday I ran 5K" → resolve which Tuesday relative to today, then ISO datetime at noon local
+
+If both \`time_shift\` and \`timestamp\` are passed, \`timestamp\` wins. The system derives \`lts\` (user-local event time) and \`timestamp\` (UTC event time) from whichever you provide.
+
+**Why this matters**: \`lts\` drives the chart x-axis and day buckets. If you save a "yesterday" entry without setting \`time_shift\`, it will plot on today's bar — the user will see the bar in the wrong place.
 
 ### Preparing Metrics (No Data Yet)
 Use prepare_metric when the user says they WANT to track something but hasn't reported a value yet (e.g. during onboarding: "I want to track handstands"). This registers the metric definition so it appears in future get_metrics_context calls. The agent decides metric_type (boolean vs numeric) and unit based on context. Do NOT call save_metric — no data point is created.
@@ -171,6 +192,32 @@ function shiftMs(quantity: number, unit: string): number {
     if (u === 'day') return quantity * 24 * 60 * 60 * 1000;
     if (u === 'week') return quantity * 7 * 24 * 60 * 60 * 1000;
     return 0;
+}
+
+/**
+ * Compute the anchor moment a metric event actually represents.
+ *
+ * `lts` (user-local event time) and `timestamp` (UTC event time) both
+ * derive from this single anchor — keeps the two fields consistent.
+ *
+ * Resolution priority:
+ *   1. explicit `timestamp` (agent extracted a specific event datetime,
+ *      e.g. "on May 13")
+ *   2. `time_shift_quantity` + `time_shift_unit` applied to now (e.g.
+ *      "yesterday" → -1 day)
+ *   3. now (real-time save — most common path)
+ */
+function computeAnchor(opts: {
+    timestamp?: string | null;
+    time_shift_quantity?: number | null;
+    time_shift_unit?: string | null;
+}): Date {
+    const tsValue = opts.timestamp && String(opts.timestamp).trim() ? String(opts.timestamp).trim() : null;
+    if (tsValue) return new Date(tsValue);
+    if (opts.time_shift_quantity != null && opts.time_shift_unit) {
+        return new Date(Date.now() + shiftMs(Number(opts.time_shift_quantity), String(opts.time_shift_unit)));
+    }
+    return new Date();
 }
 
 function isoWeekMonday(year: number, week: number): string {
@@ -616,24 +663,11 @@ export function createMetricsModule() {
 
                     log(`Saving metric: ${metric_name} = ${resolvedValue} ${resolvedUnit} (${resolvedMetricType})`)
 
-                    // Resolve the anchor moment the metric actually represents:
-                    //   1. explicit `timestamp` param (agent extracted a specific past time) wins
-                    //   2. else apply `time_shift` to "now" (e.g. "yesterday" → -1 day)
-                    //   3. else "now"
-                    // Both `timestamp` (real UTC) and `lts` (user-local fake UTC) derive
-                    // from the same anchor — they used to diverge because lts was hardcoded
-                    // to `new Date()`, which made chart x-axis misrepresent past entries
-                    // (line chart at user's "today" instead of the day they described).
+                    // Both `timestamp` (UTC event time) and `lts` (user-local event
+                    // time, fake-UTC formatted) derive from the same anchor moment.
+                    // See computeAnchor() for resolution priority.
                     const tz = getUserTimezone()
-                    const tsValue = timestamp && timestamp.trim() ? timestamp.trim() : null
-                    let anchor: Date
-                    if (tsValue) {
-                        anchor = new Date(tsValue)
-                    } else if (time_shift_quantity != null && time_shift_unit) {
-                        anchor = new Date(Date.now() + shiftMs(Number(time_shift_quantity), String(time_shift_unit)))
-                    } else {
-                        anchor = new Date()
-                    }
+                    const anchor = computeAnchor({ timestamp, time_shift_quantity, time_shift_unit })
                     const realTimestamp = anchor.toISOString()
                     const lts = toLocalTimestamp(anchor, tz)
 
@@ -718,13 +752,16 @@ export function createMetricsModule() {
                     const results = await Promise.allSettled(
                         toSave.map((m: any) => {
                             const tz = getUserTimezone()
-                            const tsValue = m.timestamp && String(m.timestamp).trim() ? String(m.timestamp).trim() : null
-                            // Extraction path: lts is set by show_metric_extraction_review (already local).
-                            // Only compute from timestamp as fallback for legacy data.
-                            const lts = m.lts
-                                ? m.lts
-                                : tsValue ? toLocalTimestamp(tsValue, tz) : toLocalTimestamp(new Date(), tz)
-                            const realTimestamp = tsValue || new Date().toISOString()
+                            // Extraction path: m.lts may be pre-computed by the review UI from
+                            // the source log entry's date. Trust it when present; otherwise use
+                            // the shared anchor logic (same as conversation save_metric).
+                            const anchor = computeAnchor({
+                                timestamp: m.timestamp,
+                                time_shift_quantity: m.time_shift_quantity,
+                                time_shift_unit: m.time_shift_unit,
+                            })
+                            const lts = m.lts ? m.lts : toLocalTimestamp(anchor, tz)
+                            const realTimestamp = anchor.toISOString()
 
                             const isBool = m.metric_type === 'boolean'
 

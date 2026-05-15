@@ -20,6 +20,7 @@ import { agentDelegationFlow } from './workflows/agent_delegation_flow';
 import { agentWaitFlow } from './workflows/agent_wait_flow';
 import { agentInputFlow } from './workflows/agent_input_flow';
 import { booleanMetricsFlow } from './workflows/boolean_metrics_flow';
+import { timeShiftMetricFlow } from './workflows/time_shift_metric_flow';
 import { appLifecycleFlow } from './workflows/app_lifecycle_flow';
 import { breathingAppFlow } from './workflows/breathing_app_flow';
 import { canarySweepFlow } from './workflows/canary_sweep_flow';
@@ -56,6 +57,7 @@ export const cortexWorkflows = {
   agent_wait_flow: agentWaitFlow,
   agent_input_flow: agentInputFlow,
   boolean_metrics_flow: booleanMetricsFlow,
+  time_shift_metric_flow: timeShiftMetricFlow,
   app_lifecycle_flow: appLifecycleFlow,
   breathing_app_flow: breathingAppFlow,
   canary_sweep_flow: canarySweepFlow,
