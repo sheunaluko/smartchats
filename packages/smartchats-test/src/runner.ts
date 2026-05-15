@@ -21,6 +21,8 @@ export interface RunOptions {
     /** Skip levels marked requiresInfra=true. */
     skipInfra?: boolean;
     logger?: Logger;
+    /** Args after `--` on the CLI, forwarded to each level's tool. */
+    passthroughArgs?: string[];
 }
 
 export async function runLevels(opts: RunOptions): Promise<RunOutcome> {
@@ -56,6 +58,7 @@ export async function runLevels(opts: RunOptions): Promise<RunOutcome> {
                 repoRoot: opts.repoRoot,
                 log,
                 continueOnFailure,
+                passthroughArgs: opts.passthroughArgs ?? [],
             });
         } catch (err) {
             result = {

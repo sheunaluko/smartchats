@@ -26,8 +26,9 @@ export const e2eLevel: Level = {
         if (!existsSync(specPath)) {
             return { status: 'SKIP', note: 'no simi.spec.ts found in apps/smartchats/tests/e2e/' };
         }
-        ctx.log.info(`Running Playwright: ${specPath}`);
-        const result = await runCmd('npx', ['playwright', 'test', 'simi.spec.ts'], {
+        const passthrough = ctx.passthroughArgs ?? [];
+        ctx.log.info(`Running Playwright: ${specPath}${passthrough.length ? ` (extra args: ${passthrough.join(' ')})` : ''}`);
+        const result = await runCmd('npx', ['playwright', 'test', 'simi.spec.ts', ...passthrough], {
             cwd: appDir,
         });
         if (result.code === 0) {

@@ -35,6 +35,11 @@ export interface LevelContext {
     log: Logger;
     /** Whether to continue iterating after errors within a level. */
     continueOnFailure: boolean;
+    /**
+     * Args after `--` on the CLI, forwarded verbatim into the level's
+     * underlying tool (e.g. Playwright). Empty when nothing was passed.
+     */
+    passthroughArgs: string[];
 }
 
 export interface LevelResult {

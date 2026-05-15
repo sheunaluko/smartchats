@@ -27,6 +27,8 @@ interface ParsedArgs {
     continueOnFailure: boolean;
     list: boolean;
     help: boolean;
+    /** Args after `--` on the command line; forwarded to each level's tool. */
+    passthrough: string[];
 }
 
 function parseArgs(argv: string[]): ParsedArgs {
@@ -36,8 +38,15 @@ function parseArgs(argv: string[]): ParsedArgs {
         continueOnFailure: false,
         list: false,
         help: false,
+        passthrough: [],
     };
-    for (const a of argv) {
+    // Everything after `--` is forwarded verbatim to the level's underlying
+    // tool (e.g. `smartchats-test e2e -- --grep time_shift_metric_flow` ->
+    // playwright gets --grep time_shift_metric_flow).
+    const sepIdx = argv.indexOf('--');
+    const before = sepIdx === -1 ? argv : argv.slice(0, sepIdx);
+    out.passthrough = sepIdx === -1 ? [] : argv.slice(sepIdx + 1);
+    for (const a of before) {
         if (a === '--help' || a === '-h') out.help = true;
         else if (a === '--list') out.list = true;
         else if (a === '--include-infra') out.includeInfra = true;
@@ -69,6 +78,11 @@ Options:
   --continue-on-failure   Don't bail on first FAIL — run every selected level
   --list                  List available levels and exit
   -h, --help              Show this help
+
+Pass-through args:
+  Anything after \`--\` is forwarded verbatim to each level's underlying tool.
+  Example: \`npx smartchats-test e2e -- --grep time_shift_metric_flow\`
+  → Playwright receives \`--grep time_shift_metric_flow\`.
 
 Exit code: 0 on PASS, 1 on FAIL (no levels failed = pass).
 `;
@@ -121,6 +135,7 @@ async function main(): Promise<void> {
         levels: selected,
         continueOnFailure: args.continueOnFailure,
         skipInfra,
+        passthroughArgs: args.passthrough,
     });
 
     printSummary(outcome);
