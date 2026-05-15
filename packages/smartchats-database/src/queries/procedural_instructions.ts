@@ -12,7 +12,11 @@ const TYPE_FILTER = "type = 'procedural_instruction'";
 
 /**
  * Fetch all procedural instructions, optionally filtered by category.
- * Sort by `created_at ASC` so the agent sees them in registration order.
+ *
+ * Sort by `lts ASC` so the agent sees them in registration order — and
+ * that order survives bundle export/import (matches the dual-timestamp
+ * invariant). `lts` is app-stamped at insert time; `created_at` resets
+ * when rows are re-inserted into a new database.
  */
 export function getProceduralInstructions(args: { category?: string } = {}): QuerySpec {
     const variables: Record<string, unknown> = {};
@@ -22,7 +26,7 @@ export function getProceduralInstructions(args: { category?: string } = {}): Que
         variables.category = args.category;
     }
     return {
-        query: `SELECT id, content, category, created_at, updated_at FROM cortex ${where} ORDER BY created_at ASC`,
+        query: `SELECT id, content, category, created_at, updated_at, lts FROM cortex ${where} ORDER BY lts ASC`,
         variables,
     };
 }

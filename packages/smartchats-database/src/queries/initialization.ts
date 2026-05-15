@@ -11,11 +11,16 @@ import type { QuerySpec } from '../types.js';
 const TYPE_FILTER = "type = 'init'";
 
 /**
- * Fetch all init instructions in registration order (`created_at ASC`).
+ * Fetch all init instructions in registration order (`lts ASC`).
+ *
+ * Sort by `lts` not `created_at` so the order survives bundle export/import
+ * (matches the dual-timestamp invariant). `lts` is set by the app at insert
+ * time and preserved across data movement; `created_at` is DB-stamped and
+ * resets when rows are re-inserted into a new database.
  */
 export function getInitInstructions(): QuerySpec {
     return {
-        query: `SELECT id, content, category, created_at FROM cortex WHERE ${TYPE_FILTER} ORDER BY created_at ASC`,
+        query: `SELECT id, content, category, created_at, lts FROM cortex WHERE ${TYPE_FILTER} ORDER BY lts ASC`,
         variables: {},
     };
 }

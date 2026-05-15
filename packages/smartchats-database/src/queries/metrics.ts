@@ -84,14 +84,21 @@ export function getMetricsSummary(): QuerySpec {
 }
 
 /**
- * 10 most recently created metric entries, full row. Pairs with
- * `getMetricsSummary` to give an LLM consumer both the structure and
- * fresh examples in one round trip. Also used by the in-app metrics-context
- * prefetch — same query, same payload.
+ * Recent metric entries, full row. Pairs with `getMetricsSummary` to give
+ * an LLM consumer both the structure and fresh examples in one round trip.
+ * Also used by the in-app metrics-context prefetch.
+ *
+ * Sort is `lts DESC` (logical timestamp, app-stamped, survives bundle
+ * export/import — matches the dual-timestamp invariant).
+ *
+ * `limit`: omit to fetch all rows; pass a number to cap. The MCP tool and
+ * the in-app prefetch currently omit it (full visualization needs every
+ * data point); LLM-facing callers should set it to keep context bounded.
  */
-export function getRecentMetrics(): QuerySpec {
+export function getRecentMetrics(opts: { limit?: number } = {}): QuerySpec {
+    const limitClause = opts.limit !== undefined ? ` LIMIT ${Math.max(1, Math.floor(opts.limit))}` : '';
     return {
-        query: `SELECT * FROM metrics ORDER BY created_at DESC LIMIT 10`,
+        query: `SELECT * FROM metrics ORDER BY lts DESC${limitClause}`,
         variables: {},
     };
 }
