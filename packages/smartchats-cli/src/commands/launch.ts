@@ -17,7 +17,7 @@ import * as path from 'node:path';
 import { confirm, input, password } from '@inquirer/prompts';
 import consola from 'consola';
 
-import { detectContext, requireRepo } from '../lib/context.js';
+import { ensureRepoRoot } from '../lib/clone.js';
 import { updateConfig } from '../lib/config.js';
 import { runDoctor } from './doctor.js';
 
@@ -122,14 +122,6 @@ function writeDotenv(file: string, values: Record<string, string>): void {
     fs.writeFileSync(file, lines.join('\n') + '\n');
 }
 
-/**
- * @deprecated Use `detectContext()` + `requireRepo()` from `lib/context.ts`.
- * Kept as a thin wrapper for callers we haven't migrated yet.
- */
-export function findRepoRoot(start: string): string {
-    return requireRepo(detectContext(start));
-}
-
 function checkDocker(): boolean {
     return spawnSync('docker', ['version'], { stdio: 'ignore' }).status === 0;
 }
@@ -152,6 +144,7 @@ export interface LaunchArgs {
     dataDir: string;
     imageTag: string;
     test: boolean;
+    repoPath?: string;
 }
 
 export function parseLaunchArgs(rest: string[]): LaunchArgs {
@@ -173,6 +166,7 @@ export function parseLaunchArgs(rest: string[]): LaunchArgs {
         else if (a === '--data-dir') args.dataDir = rest[++i];
         else if (a === '--tag') args.imageTag = rest[++i];
         else if (a === '--test') args.test = true;
+        else if (a === '--repo-path') args.repoPath = rest[++i];
         else if (a === '--help' || a === '-h') {
             console.log(launchHelp());
             process.exit(0);
@@ -204,6 +198,9 @@ Options:
   --test             Launch detached, wait until the stack is ready, run
                      \`smartchats doctor\`, exit with doctor's exit code.
                      Implies --no-prompt and --detached.
+  --repo-path <path> Override the repo location (default: \$XDG_DATA_HOME/smartchats/repo
+                     or ~/.smartchats/repo). On fresh installs the CLI clones the
+                     repo to this path on first run.
   -h, --help         Show this help.
 `;
 }
@@ -238,11 +235,8 @@ export async function runLaunch(args: LaunchArgs): Promise<void> {
         process.exit(1);
     }
 
-    const ctx = detectContext(process.cwd());
-    const repoRoot = requireRepo(ctx);
-    if (ctx.mode === 'explicit') {
-        consola.info(`Using $SMARTCHATS_HOME=${repoRoot}`);
-    }
+    const repoRoot = await ensureRepoRoot({ repoPath: args.repoPath });
+    consola.info(`Repo: ${repoRoot}`);
     process.chdir(repoRoot);
 
     const dotenvPath = path.join(repoRoot, '.env');

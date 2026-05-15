@@ -51,10 +51,16 @@ After `launch`, open <http://localhost:3000>.
 
 The CLI never asks for credentials twice — it reads from your environment first, then `.env`, then prompts.
 
+## How it works on a fresh machine
+
+On first run, `smartchats launch` auto-clones the smartchats repo into `~/.smartchats/repo/` (or `$XDG_DATA_HOME/smartchats/repo/`), which has the `Dockerfile.aio` needed to build the AIO image. Subsequent runs reuse the clone.
+
+To use your own clone instead, pass `--repo-path /path/to/clone` or set `$SMARTCHATS_HOME`.
+
 ## Status
 
-Phase 1 — published as `smartchats-ai` on npm; currently **requires a clone of the smartchats repo** to find `Dockerfile.aio` (set via `SMARTCHATS_HOME` or run from within the clone). Future phases will:
+Phase 1 — published as `smartchats-ai` on npm. Auto-clones the source repo on first run; future phases will ship pre-built Docker images so no clone is needed at all.
 
-- Ship pre-built Docker images so no clone is needed
+- Ship pre-built Docker images on Docker Hub so first-run skips the local build
 - Add `--mode byo-db` for bringing your own SurrealDB instance
 - Add `--mode dev` to subsume hot-reload development flows
