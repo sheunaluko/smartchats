@@ -43,7 +43,15 @@ export const e2eLevel: Level = {
                 return { status: 'SKIP', note: 'cancelled at interactive prompt' };
             }
             if (choices.grep) extraArgs.push('--grep', choices.grep);
-            if (choices.headed) extraArgs.push('--headed');
+            // simi.spec.ts builds its own chromium context — Playwright's
+            // `--headed` flag affects only Playwright's managed browser and
+            // is consumed before the spec worker reads `process.argv`. The
+            // spec also accepts `HEADED=1` env, which DOES reach the worker.
+            // Set both so external callers that read --headed also work.
+            if (choices.headed) {
+                extraArgs.push('--headed');
+                extraEnv.HEADED = '1';
+            }
             if (choices.reuseBrowser) extraEnv.SIMI_REUSE_BROWSER = '1';
         }
 
