@@ -20,6 +20,9 @@ apps/smartchats/public/_site/
 .turbo
 **/.turbo
 
+# Dev logs (bin/devserve writes per-process logs here)
+data/logs/
+
 # Env files — keep all .env-style files out by default; check in .env.example
 # explicitly when sample config is useful.
 .env
