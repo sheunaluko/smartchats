@@ -115,6 +115,7 @@ Use display_metrics() when the user wants to SEE their data — trends, charts, 
 - Prefer summary for quick "what's my latest weight?" style questions
 - Prefer calendar for monthly habit views or daily heatmaps (e.g. "show my meditation this month", "steps calendar")
 - Use daily_latest aggregation for metrics like weight where only the last reading per day matters
+- Use daily_sum for additive metrics (exercise reps, food intake, miles run) where same-day entries should be totaled — without it, raw mode merges same-day entries by summing automatically, but daily_sum makes the intent explicit and produces cleaner chart labels
 - Use daily_avg or weekly_avg for high-frequency metrics like steps or calories
 
 ### Time Mode (Sparse vs Dense)
@@ -245,12 +246,24 @@ function groupByMetric(rows: any[]): Record<string, any[]> {
     return byMetric
 }
 
-/** Fill date gaps with null values for dense time mode */
+/**
+ * Fill date gaps with 0 for dense time_mode.
+ *
+ * Sparse mode passes through unchanged — each row keeps its own x slot.
+ *
+ * Dense mode produces exactly one row per day across the requested range:
+ *   - For aggregated SQL queries (`daily_sum`, `daily_avg`, etc.) each day
+ *     already has at most one row — the merge logic below is a no-op.
+ *   - For raw mode, multiple same-day rows are merged. Numeric metrics
+ *     sum (matches the additive mental model: "2 swims today = total laps");
+ *     boolean metrics take the max ("any 'done' marks the day done").
+ *     If you want a different reduction (avg, latest), pass an explicit
+ *     `aggregation` (e.g. `daily_avg`, `daily_latest`).
+ */
 function fillDateGaps(rows: any[], spec: MetricsQuerySpec): any[] {
     if (spec.time_mode !== 'dense') return rows
-    const agg = spec.aggregation || 'raw'
-    if (agg === 'raw') return rows // raw has no bucket concept
     if (rows.length === 0) return rows
+    const agg = spec.aggregation || 'raw'
 
     const isWeekly = agg.startsWith('weekly_')
     const unit = rows[0]?.unit || ''
@@ -301,8 +314,23 @@ function fillDateGaps(rows: any[], spec: MetricsQuerySpec): any[] {
         startStr = endStr = spec.date
     }
 
+    // Merge same-day rows. For aggregated SQL paths (daily_sum etc.) the SQL
+    // already guarantees one row per day so this is a no-op. For raw mode it
+    // sums numerics / OR-s booleans (see fillDateGaps docstring).
     const existing = new Map<string, any>()
-    for (const r of sorted) existing.set(getBucket(r).slice(0, 10), r)
+    for (const r of sorted) {
+        const dayKey = getBucket(r).slice(0, 10)
+        const prev = existing.get(dayKey)
+        if (prev === undefined) {
+            existing.set(dayKey, r)
+        } else {
+            const isBool = r.metric_type === 'boolean' || prev.metric_type === 'boolean'
+            const prevVal = Number(prev.value) || 0
+            const curVal = Number(r.value) || 0
+            const mergedValue = isBool ? Math.max(prevVal, curVal) : prevVal + curVal
+            existing.set(dayKey, { ...prev, value: mergedValue })
+        }
+    }
 
     const result: any[] = []
     const cur = new Date(startStr + 'T00:00:00Z')
