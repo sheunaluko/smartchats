@@ -16,6 +16,12 @@ const nextConfig = {
   trailingSlash: true,
   // Static export can't optimize images at request time.
   images: { unoptimized: true },
+  // CRITICAL for embedded mode: emit asset URLs prefixed with /_site so the
+  // host (apps/smartchats) doesn't intercept /_next/* with its own bundle.
+  // The static export lives at public/_site/, so its CSS/JS get served from
+  // /_site/_next/static/...  basePath stays unset — internal docs links use
+  // root-relative URLs (/docs/foo/) that the host's rewrites handle.
+  assetPrefix: '/_site',
 };
 
 module.exports = withNextra(nextConfig);
