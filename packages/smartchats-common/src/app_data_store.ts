@@ -164,7 +164,7 @@ export class SurrealBackend implements StorageBackend {
       const metadataStr = metadata ? JSON.stringify(metadata) : null;
 
       await this.queryFn({
-        query: `UPSERT type::thing('app_data', $rid) SET app_id=$app_id, data_key=$data_key, content=$content, metadata=$metadata, updated_at=time::now()`,
+        query: `UPSERT type::record('app_data', $rid) SET app_id=$app_id, data_key=$data_key, content=$content, metadata=$metadata, updated_at=time::now()`,
         variables: {
           rid,
           app_id,

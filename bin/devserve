@@ -120,7 +120,10 @@ start_surreal_if_needed() {
   else
     info "Creating SurrealDB container ($SURREAL_IMAGE)..."
     mkdir -p "$SURREAL_DATA_DIR"
+    # --user matches host UID/GID so SurrealDB (which runs as uid 65532 in
+    # the v3 image) can write to the host-owned bind mount.
     docker run -d --name "$SURREAL_CONTAINER" \
+      --user "$(id -u):$(id -g)" \
       -p 8000:8000 \
       -v "$SURREAL_DATA_DIR:/data" \
       "$SURREAL_IMAGE" \

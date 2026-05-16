@@ -31,6 +31,7 @@ COPY packages/simi ./packages/simi
 COPY packages/graph-viz ./packages/graph-viz
 COPY packages/smartchats-common ./packages/smartchats-common
 COPY packages/smartchats-backend ./packages/smartchats-backend
+COPY packages/smartchats-cloud-client ./packages/smartchats-cloud-client
 COPY packages/smartchats-database ./packages/smartchats-database
 COPY packages/smartchats-backend-local ./packages/smartchats-backend-local
 COPY packages/llm-service ./packages/llm-service
@@ -53,18 +54,21 @@ ENV ONNXRUNTIME_NODE_INSTALL_CUDA=skip
 RUN npm install --include=optional --onnxruntime-node-install-cuda=skip
 
 # Build workspace deps in correct dependency order.
-#   simi              → (no workspace deps)
-#   smartchats-common → simi
-#   smartchats-backend → (no workspace deps)
-#   graph-viz         → (no workspace deps)
-#   cortex            → smartchats-common
-#   tivi              → smartchats-common
-#   llm-service       → cortex
+#   simi                     → (no workspace deps)
+#   smartchats-common        → simi
+#   smartchats-backend       → (no workspace deps)
+#   smartchats-cloud-client  → (no workspace deps)
+#   smartchats-database      → smartchats-backend, smartchats-cloud-client
+#   graph-viz                → (no workspace deps)
+#   cortex                   → smartchats-common
+#   tivi                     → smartchats-common
+#   llm-service              → cortex
 #   smartchats-backend-local → smartchats-backend
-#   smartchats-local-server → smartchats-backend, cortex, llm-service
+#   smartchats-local-server  → smartchats-backend, smartchats-database, cortex, llm-service
 RUN npm run build --workspace=simi \
     && npm run build --workspace=smartchats-common \
     && npm run build --workspace=smartchats-backend \
+    && npm run build --workspace=smartchats-cloud-client \
     && npm run build --workspace=smartchats-database \
     && npm run build --workspace=graph-viz \
     && npm run build --workspace=cortex \
@@ -82,6 +86,8 @@ RUN node scripts/fix-esm-extensions.mjs \
     packages/simi/dist \
     packages/smartchats-common/dist \
     packages/smartchats-backend/dist \
+    packages/smartchats-cloud-client/dist \
+    packages/smartchats-database/dist \
     packages/graph-viz/dist \
     packages/cortex/dist \
     packages/tivi/dist \
