@@ -36,16 +36,13 @@ COPY packages/smartchats-backend-local ./packages/smartchats-backend-local
 COPY packages/llm-service ./packages/llm-service
 COPY packages/smartchats-local-server ./packages/smartchats-local-server
 
-# The Next.js prebuild needs the silero VAD model — only this single asset
-# from ts_next_app, no app source.
-COPY apps/ts_next_app/public/onnx/silero_vad_v5.onnx \
-     ./apps/ts_next_app/public/onnx/silero_vad_v5.onnx
-
 # apps/site: built as a static export, copied into apps/smartchats/public/_site
 # by apps/smartchats's prebuild:site script (which runs during apps/smartchats
 # `npm run build` below).
 COPY apps/site ./apps/site
 
+# Silero VAD model already lives at apps/smartchats/public/onnx/silero_vad_v5.onnx
+# — comes in via the apps/smartchats COPY below; no separate copy needed.
 COPY apps/smartchats ./apps/smartchats
 COPY scripts/fix-esm-extensions.mjs ./scripts/fix-esm-extensions.mjs
 
