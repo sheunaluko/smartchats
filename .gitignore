@@ -31,3 +31,6 @@ data/logs/
 
 # OS
 .DS_Store
+
+# Editor backup files (Emacs, vim, etc.)
+*~
