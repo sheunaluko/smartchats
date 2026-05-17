@@ -1,0 +1,140 @@
+#!/usr/bin/env bash
+# bin/triage-local — end-to-end local-error triage.
+#
+# 1. find-sessions --has-error --since <window>     (local AIO DB, root creds)
+# 2. Skip session_ids whose bundle is already on disk (--force re-pulls)
+# 3. save-session for each missing id → ~/.smartchats/session_bundles/
+# 4. triage:errors over the bundle dir
+# 5. Print the triage report path so you can open it
+#
+# Usage: bin/triage-local [OPTIONS]
+#   --since <window>     Recency window passed to find-sessions (default: 30d)
+#   --limit <n>          Cap on sessions pulled per run (default: 200)
+#   --force              Re-pull even if a bundle for that session_id exists
+#   --no-triage          Stop after pulling; skip the triage:errors step
+#   --bundles <dir>      Bundle dir (default: ~/.smartchats/session_bundles)
+#   --help / -h
+#
+# Requires:
+#   - jq               for reading session_id from existing bundles
+#   - local SurrealDB reachable (AIO running, or bin/devserve --target=surreal)
+
+set -uo pipefail
+source "$(dirname "$0")/_lib.sh"
+
+SINCE=30d
+LIMIT=200
+FORCE=false
+RUN_TRIAGE=true
+BUNDLES_DIR="$HOME/.smartchats/session_bundles"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --since)      SINCE="$2"; shift 2 ;;
+    --since=*)    SINCE="${1#*=}"; shift ;;
+    --limit)      LIMIT="$2"; shift 2 ;;
+    --limit=*)    LIMIT="${1#*=}"; shift ;;
+    --force)      FORCE=true; shift ;;
+    --no-triage)  RUN_TRIAGE=false; shift ;;
+    --bundles)    BUNDLES_DIR="$2"; shift 2 ;;
+    --bundles=*)  BUNDLES_DIR="${1#*=}"; shift ;;
+    --help|-h)
+      sed -n '2,/^$/p' "$0" | sed 's/^# \?//'
+      exit 0
+      ;;
+    *)  err "Unknown option: $1"; exit 1 ;;
+  esac
+done
+
+check_command jq || exit 1
+
+SESSIONS_PKG="$REPO_ROOT/packages/smartchats-sessions"
+
+# ── 1. Find error session IDs in local DB ───────────────────────────
+header "Finding local error sessions (--since $SINCE --limit $LIMIT)..."
+ids_raw=$(cd "$SESSIONS_PKG" && \
+  npm run --silent find-sessions -- \
+    --has-error --since "$SINCE" --limit "$LIMIT" --format=ids 2>&1) || {
+  err "find-sessions failed:"
+  printf '%s\n' "$ids_raw" >&2
+  exit 1
+}
+mapfile -t ids < <(printf '%s\n' "$ids_raw" | grep -E '^ses_[A-Za-z0-9_]+$' || true)
+count=${#ids[@]}
+info "Found $count error session(s) in window."
+if [[ $count -eq 0 ]]; then
+  ok "Nothing to triage."
+  exit 0
+fi
+
+# ── 2. Index existing bundles by session_id ─────────────────────────
+mkdir -p "$BUNDLES_DIR"
+declare -A pulled=()
+if [[ "$FORCE" == false ]]; then
+  shopt -s nullglob
+  for f in "$BUNDLES_DIR"/*.json; do
+    sid=$(jq -r '.session_id // empty' "$f" 2>/dev/null) || continue
+    [[ -n "$sid" ]] && pulled["$sid"]=1
+  done
+  shopt -u nullglob
+  info "  $(printf '%d' "${#pulled[@]}") bundle(s) already on disk; --force to re-pull."
+fi
+
+# ── 3. Pull missing ─────────────────────────────────────────────────
+to_pull=()
+for sid in "${ids[@]}"; do
+  if [[ -n "${pulled[$sid]:-}" ]]; then
+    continue
+  fi
+  to_pull+=("$sid")
+done
+
+if [[ ${#to_pull[@]} -eq 0 ]]; then
+  ok "All $count session(s) already pulled."
+else
+  header "Pulling ${#to_pull[@]} new session(s) → $BUNDLES_DIR"
+  fail_count=0
+  for sid in "${to_pull[@]}"; do
+    info "  pulling $sid"
+    if ! (cd "$SESSIONS_PKG" && \
+          npm run --silent save-session -- \
+            --session-id "$sid" --output-dir "$BUNDLES_DIR" >/dev/null); then
+      warn "    pull failed for $sid"
+      fail_count=$((fail_count + 1))
+    fi
+  done
+  if [[ $fail_count -gt 0 ]]; then
+    warn "$fail_count pull(s) failed; triage will only see what succeeded."
+  fi
+fi
+
+# ── 4. Triage ───────────────────────────────────────────────────────
+if [[ "$RUN_TRIAGE" == false ]]; then
+  ok "Done (--no-triage). Bundles in: $BUNDLES_DIR"
+  exit 0
+fi
+
+header "Running cross-session triage..."
+# triage:errors writes the run-dir path to stdout (single line) and a
+# human summary to stderr. Capture stdout only; let stderr show through.
+# The path is relative to the sessions package cwd, so resolve to absolute.
+report_rel=$(cd "$SESSIONS_PKG" && \
+  npm run --silent triage:errors -- --bundles "$BUNDLES_DIR" | tail -n 1)
+if [[ "$report_rel" = /* ]]; then
+  report="$report_rel"
+else
+  report="$SESSIONS_PKG/$report_rel"
+fi
+
+if [[ -d "$report" ]]; then
+  ok "Triage complete."
+  info "Report dir:"
+  echo "  $report"
+  info "Read the index:"
+  echo "  cat \"$report/README.md\""
+else
+  warn "triage:errors didn't print an expected run dir on its last line:"
+  echo "  $report"
+  err "Re-run manually: cd $SESSIONS_PKG && npm run triage:errors -- --bundles $BUNDLES_DIR"
+  exit 1
+fi
