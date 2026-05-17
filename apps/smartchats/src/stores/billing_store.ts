@@ -13,6 +13,19 @@ interface BYOKeys {
   google: string | null;
 }
 
+interface TierSummary {
+  tier: Tier;
+  name: string;
+  priceUsd: number;
+  monthlyCredits: number;
+}
+
+interface CreditPackSummary {
+  id: string;
+  priceUsd: number;
+  credits: number;
+}
+
 interface BillingState {
   // Balance
   tier: Tier;
@@ -24,6 +37,10 @@ interface BillingState {
   periodStart: string | null;
   periodEnd: string | null;
   discountPercent: number;
+  /** All available tiers (name/price/monthlyCredits). Source of truth — UI reads from here. */
+  tiers: TierSummary[];
+  /** All available credit packs. Source of truth — UI reads from here. */
+  creditPacks: CreditPackSummary[];
 
   // BYO keys (masked previews)
   byoKeys: BYOKeys;
@@ -106,6 +123,8 @@ export const useBillingStore = createInsightStore<BillingState>({
     periodStart: null,
     periodEnd: null,
     discountPercent: 0,
+    tiers: [],
+    creditPacks: [],
 
     // BYO keys defaults
     byoKeys: { openai: null, anthropic: null, google: null },
@@ -151,6 +170,8 @@ export const useBillingStore = createInsightStore<BillingState>({
             periodStart: data.periodStart,
             periodEnd: data.periodEnd,
             discountPercent: data.discountPercent ?? 0,
+            tiers: data.tiers ?? [],
+            creditPacks: data.creditPacks ?? [],
             byoKeys: data.byoKeys,
           };
           set({ ...balance, isLoading: false });

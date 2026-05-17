@@ -1,17 +1,12 @@
 'use client';
 
 import React, { useState } from 'react';
+import { useBillingStore } from '@/stores/billing_store';
 import { getBackend } from '@/lib/backend';
 import { SurfacePanel } from '../../ui/recipes';
 
-const PACKS = [
-  { id: 'pack_5', priceUsd: 5, credits: 2500 },
-  { id: 'pack_10', priceUsd: 10, credits: 5000 },
-  { id: 'pack_20', priceUsd: 20, credits: 10000 },
-  { id: 'pack_50', priceUsd: 50, credits: 25000 },
-];
-
 export default function CreditPacks() {
+  const { creditPacks } = useBillingStore();
   const [loadingPack, setLoadingPack] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -28,6 +23,13 @@ export default function CreditPacks() {
     }
   };
 
+  // Server is source of truth — render nothing while creditPacks haven't
+  // loaded (initial render before getBalance returns). Billing page already
+  // shows its own loading state.
+  if (!creditPacks || creditPacks.length === 0) {
+    return null;
+  }
+
   return (
     <div>
       {error && (
@@ -37,7 +39,7 @@ export default function CreditPacks() {
         </div>
       )}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {PACKS.map((pack) => (
+        {creditPacks.map((pack) => (
           <SurfacePanel key={pack.id} variant="secondary" className="p-6 text-center">
             <p className="text-2xl font-bold text-[var(--sc-accent)]">
               {pack.credits.toLocaleString()}

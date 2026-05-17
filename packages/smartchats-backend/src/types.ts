@@ -377,6 +377,26 @@ export interface KeysAPI {
 
 export type Tier = 'free' | 'intro' | 'basic' | 'pro' | 'max';
 
+/**
+ * Per-tier marketing/pricing info returned by getBalance so the UI doesn't
+ * have to hardcode (and silently drift from) what the server actually
+ * provisions. Intentionally narrow — excludes server-side fields like
+ * `lookupKey` and `marginPercent` which the UI doesn't need.
+ */
+export interface TierSummary {
+  tier: Tier;
+  name: string;
+  priceUsd: number;
+  monthlyCredits: number;
+}
+
+/** Credit pack summary for the UI. Mirrors TierSummary — drops server-only lookupKey. */
+export interface CreditPackSummary {
+  id: string;
+  priceUsd: number;
+  credits: number;
+}
+
 export interface BillingBalance {
   tier: Tier;
   tierName: string;
@@ -387,6 +407,10 @@ export interface BillingBalance {
   periodStart: string;
   periodEnd: string;
   discountPercent: number;
+  /** All available tiers with marketing info. UI reads from here to avoid drift. */
+  tiers: TierSummary[];
+  /** All available credit packs (one-time purchases). UI reads from here to avoid drift. */
+  creditPacks: CreditPackSummary[];
   byoKeys: BYOKeyPreviews;
 }
 

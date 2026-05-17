@@ -7,16 +7,23 @@ import { getBackend } from '@/lib/backend';
 import type { Tier } from 'smartchats-backend';
 import { SurfacePanel } from '../../ui/recipes';
 
-const TIERS = [
-  { tier: 'free', name: 'Free', priceUsd: 0, monthlyCredits: 1000, features: ['1,000 credits/month', 'All AI models', 'Voice chat'] },
-  { tier: 'intro', name: 'Intro', priceUsd: 10, monthlyCredits: 7500, features: ['7,500 credits/month', 'All AI models', 'Voice chat', 'Priority support'] },
-  { tier: 'basic', name: 'Basic', priceUsd: 20, monthlyCredits: 16000, features: ['16,000 credits/month', 'All AI models', 'Voice chat', 'Priority support', '20% better rates'] },
-  { tier: 'pro', name: 'Pro', priceUsd: 50, monthlyCredits: 42500, features: ['42,500 credits/month', 'All AI models', 'Voice chat', 'Priority support', '40% better rates'] },
-  { tier: 'max', name: 'Max', priceUsd: 100, monthlyCredits: 90000, features: ['90,000 credits/month', 'All AI models', 'Voice chat', 'Priority support', '60% better rates'] },
-];
+// Marketing copy per tier — stays client-side since it's not pricing data
+// the server controls. Tier identity, price, and credits come from the server
+// via useBillingStore().tiers (single source of truth, no drift).
+const TIER_EXTRAS: Record<string, { extraFeatures: string[] }> = {
+  free:  { extraFeatures: ['All AI models', 'Voice chat'] },
+  intro: { extraFeatures: ['All AI models', 'Voice chat'] },
+  basic: { extraFeatures: ['All AI models', 'Voice chat'] },
+  pro:   { extraFeatures: ['All AI models', 'Voice chat'] },
+  max:   { extraFeatures: ['All AI models', 'Voice chat'] },
+};
+
+function formatCredits(n: number): string {
+  return n.toLocaleString();
+}
 
 export default function TierCards() {
-  const { tier: currentTier } = useBillingStore();
+  const { tier: currentTier, tiers } = useBillingStore();
   const [loadingTier, setLoadingTier] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -46,6 +53,20 @@ export default function TierCards() {
   const tierOrder = ['free', 'intro', 'basic', 'pro', 'max'];
   const currentTierIndex = tierOrder.indexOf(currentTier);
 
+  // Server is source of truth. While tiers haven't loaded (initial render
+  // before getBalance returns), render nothing — billing page already shows
+  // a loading state above.
+  if (!tiers || tiers.length === 0) {
+    return null;
+  }
+
+  // Build display rows from server tiers + local marketing extras.
+  const displayTiers = tiers.map((t) => {
+    const extras = TIER_EXTRAS[t.tier]?.extraFeatures ?? [];
+    const features = [`${formatCredits(t.monthlyCredits)} credits/month`, ...extras];
+    return { ...t, features };
+  });
+
   return (
     <div>
       {error && (
@@ -55,7 +76,7 @@ export default function TierCards() {
         </div>
       )}
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-        {TIERS.map((t) => {
+        {displayTiers.map((t) => {
           const isCurrent = t.tier === currentTier;
           const tierIndex = tierOrder.indexOf(t.tier);
           const isDowngrade = tierIndex < currentTierIndex;
