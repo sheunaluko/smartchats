@@ -6,6 +6,7 @@
 
 'use client';
 
+import type { TTSStreamResult } from 'smartchats-backend';
 import { getBackend } from './backend';
 
 // ─── Helpers ──────────────────────────────────────────────────────
@@ -34,25 +35,56 @@ export async function backendTtsStreamFn(
         text: text.slice(0, 80), text_length: text.length, voice, transport: 'http', ts: startTs,
     }).catch(() => {});
 
-    const result = await getBackend().tts.stream({ text, voice, speed });
+    // Errors at any of three points (request, iteration, done-promise) emit
+    // `tts_stream_error` so the session bundle records the failure. Without
+    // this, calibration/ack-sound paths crash invisibly — UI shows the
+    // exception but triage sees a clean session (the gap that hid the
+    // tts-1-vs-marin 400 from us).
+    const emitError = (stage: 'request' | 'stream' | 'done', err: unknown) => {
+        const e = err as { message?: string; code?: string; status?: number };
+        insights?.addEvent?.('tts_stream_error', {
+            text: text.slice(0, 80),
+            voice,
+            stage,
+            latency_ms: Date.now() - startTs,
+            error_message: e?.message ?? String(err),
+            error_code: e?.code,
+            error_status: e?.status,
+            transport: 'http',
+        }).catch(() => {});
+    };
+
+    let result: TTSStreamResult;
+    try {
+        result = await getBackend().tts.stream({ text, voice, speed });
+    } catch (err) {
+        emitError('request', err);
+        throw err;
+    }
+
     let firstChunkEmitted = false;
     let chunkCount = 0;
 
     const stream: AsyncIterable<Float32Array> = {
         async *[Symbol.asyncIterator]() {
-            for await (const chunk of result.stream) {
-                chunkCount++;
-                const float32 = pcmToFloat32(chunk.pcm);
-                if (!firstChunkEmitted) {
-                    firstChunkEmitted = true;
-                    insights?.addEvent?.('tts_stream_first_chunk', {
-                        text: text.slice(0, 80),
-                        latency_ms: Date.now() - startTs,
-                        chunk_samples: float32.length,
-                        transport: 'http',
-                    }).catch(() => {});
+            try {
+                for await (const chunk of result.stream) {
+                    chunkCount++;
+                    const float32 = pcmToFloat32(chunk.pcm);
+                    if (!firstChunkEmitted) {
+                        firstChunkEmitted = true;
+                        insights?.addEvent?.('tts_stream_first_chunk', {
+                            text: text.slice(0, 80),
+                            latency_ms: Date.now() - startTs,
+                            chunk_samples: float32.length,
+                            transport: 'http',
+                        }).catch(() => {});
+                    }
+                    yield float32;
                 }
-                yield float32;
+            } catch (err) {
+                emitError('stream', err);
+                throw err;
             }
         },
     };
@@ -68,6 +100,9 @@ export async function backendTtsStreamFn(
         if (info.billing && typeof window !== 'undefined') {
             window.dispatchEvent(new CustomEvent('smartchats:billing_update', { detail: info.billing }));
         }
+    }, (err) => {
+        emitError('done', err);
+        throw err;
     });
 
     return { stream, done };
