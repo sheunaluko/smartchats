@@ -148,6 +148,9 @@ const Component: NextPage = (props: any) => {
         if (typeof window !== 'undefined') {
             const saved = localStorage.getItem('smartchats-shell');
             if (saved && saved in SHELLS) return saved as ShellId;
+            const isMobile = window.matchMedia?.('(max-width: 768px)').matches
+                || /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+            if (isMobile) return 'claude-mobile-v2';
         }
         return 'desktop-default';
     });

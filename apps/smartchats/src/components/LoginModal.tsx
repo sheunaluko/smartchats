@@ -66,9 +66,6 @@ export default function LoginModal() {
   const handleGoogleSignIn = () => {
     signIn('google').catch((error) => loginError((error as Error).message));
   };
-  const handleAnonymousSignIn = () => {
-    signIn('anonymous').catch((error) => loginError((error as Error).message));
-  };
   const handleEmailSignIn = () => {
     signIn('email', { email, password }).catch((error) => loginError((error as Error).message));
   };
@@ -88,7 +85,6 @@ export default function LoginModal() {
       onPasswordChange={setPassword}
       // Only surface affordances the provider advertises.
       onGoogleSignIn={capabilities.methods.includes('google') ? handleGoogleSignIn : undefined}
-      onAnonymousSignIn={capabilities.methods.includes('anonymous') ? handleAnonymousSignIn : undefined}
       onEmailSignIn={capabilities.methods.includes('email') ? handleEmailSignIn : undefined}
       onEmailSignUp={capabilities.methods.includes('email') ? handleEmailSignUp : undefined}
     />

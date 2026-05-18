@@ -28,7 +28,7 @@ const MODE_STORAGE_KEY = 'smartchats-theme-preference';
 
 export function DesignPackProvider({ children }: { children: React.ReactNode }) {
   const [packId, setPackId] = useState('default');
-  const [mode, setModeState] = useState<'dark' | 'light'>('dark');
+  const [mode, setModeState] = useState<'dark' | 'light'>('light');
 
   // Load persisted preferences
   useEffect(() => {

@@ -956,7 +956,7 @@ export function ClaudeMobileShellV2({ voice, ui, auth, settings, widgetConfig, w
       {!hasActivated && !auth.isAuthenticated && (
         <div
           className="pointer-events-auto absolute inset-x-0 flex flex-col items-center gap-4"
-          style={{ top: 'calc(50% + 170px)', zIndex: 15, animation: 'fab-fade-in 1.2s ease-out' }}
+          style={{ top: 'calc(50% + 170px)', zIndex: 25, animation: 'fab-fade-in 1.2s ease-out' }}
         >
           <p className="max-w-[26ch] text-center text-[0.9rem] leading-relaxed text-sc-text-muted">
             Sign in to experience the future
