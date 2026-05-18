@@ -36,6 +36,10 @@ const nextConfig = {
       { source: '/docs', destination: '/_site/docs/index.html' },
       { source: '/docs/:slug', destination: '/_site/docs/:slug/index.html' },
       { source: '/docs/:slug/', destination: '/_site/docs/:slug/index.html' },
+      { source: '/privacy-policy', destination: '/_site/privacy-policy/index.html' },
+      { source: '/privacy-policy/', destination: '/_site/privacy-policy/index.html' },
+      { source: '/terms-of-service', destination: '/_site/terms-of-service/index.html' },
+      { source: '/terms-of-service/', destination: '/_site/terms-of-service/index.html' },
     );
 
     return rules;

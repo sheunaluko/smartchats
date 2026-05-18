@@ -961,14 +961,15 @@ export default function LandingPage() {
               <a href="#roadmap" className="hover:text-white transition-colors">Roadmap</a>
               <a href="#why" className="hover:text-white transition-colors">Why now</a>
               <a href="#founder" className="hover:text-white transition-colors">Founder</a>
+              <a href="/docs" className="hover:text-white transition-colors">Docs</a>
             </div>
 
             <div className="flex items-center gap-3">
               <a
-                href="/docs"
+                href="/app"
                 className="cta-light inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-md bg-white text-[13px] font-medium hover:bg-blue-100 transition-colors"
               >
-                Docs
+                App
                 <ArrowRight className="w-3.5 h-3.5" />
               </a>
             </div>
@@ -1028,7 +1029,7 @@ export default function LandingPage() {
               href="/app"
               className="hero-cta cta-light group inline-flex items-center gap-2 px-6 py-3 rounded-md bg-white text-sm font-medium hover:bg-blue-100 transition-all"
             >
-              Try the app
+              Open App
               <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-0.5" />
             </a>
             <a
@@ -1355,7 +1356,7 @@ export default function LandingPage() {
                   className="inline-flex items-center gap-2 text-white/80 hover:text-white transition-colors"
                 >
                   <ExternalLink className="w-4 h-4" />
-                  Try the app
+                  Open App
                 </a>
               </div>
             </div>
@@ -1384,7 +1385,7 @@ export default function LandingPage() {
                 className="cta-light group inline-flex items-center gap-2 px-7 py-3.5 rounded-md bg-white text-sm font-medium hover:bg-blue-100 transition-all"
               >
                 <Sparkles className="w-4 h-4" />
-                Try the app
+                Open App
                 <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-0.5" />
               </a>
               <a
