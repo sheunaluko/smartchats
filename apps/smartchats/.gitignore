@@ -29,10 +29,9 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# generated ONNX runtime assets (copied by prebuild from node_modules/onnxruntime-web)
+# generated ONNX runtime assets — all sourced from node_modules at prebuild time
+# (ort wasm/mjs from onnxruntime-web; silero VAD model from @ricky0123/vad-web)
 /public/onnx/
-# Exception: silero_vad_v5.onnx is the VAD model — vendored as a tracked asset
-!/public/onnx/silero_vad_v5.onnx
 
 # playwright
 /.auth/

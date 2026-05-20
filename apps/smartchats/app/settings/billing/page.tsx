@@ -27,7 +27,7 @@ export default function BillingPage() {
   // Nothing on this page applies in that mode — BYO key management lives under
   // /settings directly.
   useEffect(() => {
-    if (!caps.billing) router.replace('/');
+    if (!caps.billing) router.replace('/app');
   }, [caps.billing, router]);
 
   // Handle return from Stripe
@@ -90,7 +90,7 @@ export default function BillingPage() {
     <div className="max-w-[1000px] mx-auto p-6 pb-16">
       {/* Header */}
       <div className="flex items-center gap-4 mb-8">
-        <Link href="/" className="no-underline">
+        <Link href="/app" className="no-underline">
           <button className="flex items-center gap-1 text-sm text-[var(--sc-accent)] hover:opacity-80 transition-opacity duration-sc-fast">
             <ArrowLeft size={16} />
             Back
