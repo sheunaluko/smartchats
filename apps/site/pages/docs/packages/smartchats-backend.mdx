@@ -1,0 +1,146 @@
+import { Callout } from 'nextra/components'
+
+# smartchats-backend
+
+The **HTTP transport contract** for SmartChats. Defines what
+"talk to a SmartChats backend" means in TypeScript types, ships the
+shared HTTP helpers (`BackendError`, `post_stream`, `readNdjson`), and
+exposes an auth-provider interface that both cloud and local backends
+implement.
+
+Two concrete backends consume this package:
+
+- `smartchats-backend-firebase` (closed-source) — wires the contract
+  to Firebase Functions (production cloud path)
+- `smartchats-backend-local` — wires the contract to a local Express
+  server (used by the AIO container)
+
+The app never imports either directly. It imports `smartchats-backend`
+for types, and a tiny `bootstrap_wrapper.ts` decides which concrete
+backend to construct at runtime.
+
+## What's in the package
+
+| Module | Purpose |
+|---|---|
+| `types.ts` | The full backend contract: capabilities, `DataAPI`, `LLMService`, `TtsService`, `BillingAPI`, `InsightsClient`, types like `TierSummary`, `CreditPackSummary`, `BillingBalance` |
+| `auth_provider.ts` | `AuthProvider` interface — what an auth implementation has to offer (`getCurrentUser`, `signIn`, `signOut`, `capabilities`) |
+| `http/errors.ts` | `BackendError` — structured error with `code`, `status`, `retryable` flag |
+| `http/post_stream.ts` | `postStream(url, body, opts)` — POST a JSON body, get back an NDJSON stream, with retry + signal-aware abort detection |
+| `http/ndjson.ts` | `readNdjson(stream)` — async-iterable parser for line-delimited JSON |
+| `http/stream_results.ts` | Stream-result envelope helpers |
+| `http/to_server_args.ts` | Serializes client args → server args (`QuerySpec` → wire format) |
+
+## The contract
+
+A backend is a bundle of capabilities + service implementations:
+
+```ts
+interface SmartChatsBackend {
+  capabilities: {
+    billing: boolean;        // does this backend implement billing?
+    auth: {
+      required: boolean;
+      methods: ('google' | 'email' | 'anonymous')[];
+    };
+    // ...
+  };
+  data: DataAPI;             // query() + healthCheck()
+  llm: LLMService;           // chat completion
+  tts: TtsService;           // text-to-speech
+  billing?: BillingAPI;      // optional: tier, credits, subscribe
+  insights: InsightsClient;  // event ingestion
+  auth: AuthProvider;
+}
+```
+
+The app calls into these uniformly. The cloud backend authenticates
+every request with a Firebase ID token; the local backend uses an
+OAAK (Owner-Anointed API Key) stored in localStorage. The contract
+hides the difference.
+
+## `BackendError` — structured failures
+
+Every transport error wraps in `BackendError`:
+
+```ts
+class BackendError extends Error {
+  code: string;            // 'unauthenticated', 'rate_limited', 'internal', etc.
+  status?: number;         // HTTP status if applicable
+  retryable: boolean;      // safe to retry?
+  cause?: unknown;         // underlying cause
+}
+```
+
+The `retryable` flag is wired through `post_stream.ts` to the retry
+loop. Adding a new retryable code propagates automatically — no
+parallel state to update.
+
+<Callout type="info">
+  **Until 2026-05-13, `retryable` was set but unread.** The retry loop
+  now lives in `http/post_stream.ts` with a 2-retry exponential backoff
+  on retryable errors. If you add a new retryable error code, the
+  loop respects it immediately.
+</Callout>
+
+## `post_stream.ts` — the streaming POST helper
+
+Used by streaming LLM calls, TTS streaming, anywhere the response is
+NDJSON over HTTP. Handles:
+
+- POST with JSON body + auth header injection
+- NDJSON line splitting via `readNdjson`
+- Signal-aware abort detection (Safari emits `TypeError: Load failed`
+  instead of `AbortError` on aborted fetch — the catch checks both)
+- 2-retry exponential backoff on `retryable` `BackendError`s
+
+```ts
+import { postStream } from 'smartchats-backend';
+
+for await (const chunk of postStream(url, body, { signal, getAuthToken })) {
+  // each chunk is a parsed NDJSON object
+}
+```
+
+<Callout type="warning">
+  **Safari aborts emit `TypeError: Load failed`, not `AbortError`.**
+  If you copy the post-stream pattern elsewhere, your catch must
+  check both `signal?.aborted` AND `err.name === 'AbortError'` to
+  classify aborts correctly. Otherwise Safari users see false
+  "network failed" errors when they cancel.
+</Callout>
+
+## Authentication
+
+`AuthProvider` is the interface every auth backend implements:
+
+```ts
+interface AuthProvider {
+  getCurrentUser(): User | null;
+  onAuthStateChange(cb: (user: User | null) => void): () => void;
+  signIn(method: 'google' | 'email' | 'anonymous', args?: any): Promise<User>;
+  signOut(): Promise<void>;
+  capabilities: { required: boolean; methods: AuthMethod[] };
+}
+```
+
+The cloud backend wraps Firebase Auth; the local backend uses a
+trusted-mode auth (`capabilities.required: false`) that returns a
+single hard-coded user.
+
+## When to use this package directly
+
+- Building a new backend implementation? Implement these interfaces.
+- Writing a tool that talks to a SmartChats backend from Node? Import
+  the types, build a `BackendError`-aware client.
+- Adding a new streaming endpoint? Use `postStream` instead of raw
+  `fetch` so you inherit the retry + abort behavior.
+
+## Source
+
+- Package: `packages/smartchats-backend/`
+- Entry: `packages/smartchats-backend/src/index.ts`
+- Types: `packages/smartchats-backend/src/types.ts`
+- HTTP helpers: `packages/smartchats-backend/src/http/`
+- Concrete impls (other packages): `smartchats-backend-firebase`,
+  `smartchats-backend-local`

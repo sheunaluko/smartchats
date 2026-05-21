@@ -36,8 +36,8 @@ export type TiviSettingsKey = keyof TiviSettings;
 // ─── Defaults ──────────────────────────────────────────────────────
 
 export const TIVI_DEFAULTS: Readonly<TiviSettings> = {
-  positiveSpeechThreshold: 0.8,
-  negativeSpeechThreshold: 0.6,
+  positiveSpeechThreshold: 0.5,
+  negativeSpeechThreshold: 0.35,
   minSpeechStartMs: 150,
   powerThreshold: 0.01,
   mode: 'responsive',

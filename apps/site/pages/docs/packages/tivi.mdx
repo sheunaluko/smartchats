@@ -1,0 +1,255 @@
+import { Callout } from 'nextra/components'
+
+# tivi — Voice Interface
+
+**`tivi`** is the voice layer of SmartChats: a single React hook
+(`useTivi`) that gives you push-to-talk, hands-free continuous
+listening, interruption-aware TTS, and mic calibration in one package.
+It runs Silero VAD v5 in ONNX directly in the browser — no server
+round-trip for "is the user talking?"
+
+The package is self-contained. You can drop `useTivi` into any React
+app and get voice working without adopting the rest of SmartChats.
+
+## What's in the box
+
+| Piece | What it does |
+|---|---|
+| `useTivi` | React hook — the main API |
+| Silero VAD v5 | Voice activity detection (ONNX, browser-side) |
+| Speech Recognition | Browser `webkitSpeechRecognition` / `SpeechRecognition` wrapper |
+| TTS playback queue | Buffered text-to-speech with mid-sentence interruption |
+| `CalibrationPanel` | Two-phase mic calibration UI |
+| `VoiceSelector` | TTS voice picker |
+| `TIVI_DEFAULTS` + `useTiviSettings` | Persistent device-local settings |
+
+## Quick start
+
+```tsx
+import { useTivi } from 'tivi';
+
+function Mic() {
+  const tivi = useTivi({
+    onTranscription: (text) => console.log('user said:', text),
+    onInterrupt: () => console.log('user interrupted TTS'),
+  });
+
+  return (
+    <button onClick={tivi.isListening ? tivi.stopListening : tivi.startListening}>
+      {tivi.isListening ? 'Stop' : 'Start'} listening
+    </button>
+  );
+}
+```
+
+That's a working voice interface. The hook handles mic permission, VAD
+inference, transcription, and audio cleanup on unmount.
+
+To make the agent **speak back**:
+
+```tsx
+await tivi.speak('Hello — I heard you say that.');
+```
+
+If the user starts talking while TTS is playing, the VAD detects it,
+TTS pauses immediately, and your `onInterrupt` callback fires.
+
+## The three subsystems
+
+### 1. Voice Activity Detection (VAD)
+
+Silero VAD v5 runs as an ONNX model in the browser via
+`onnxruntime-web`. For each 32 ms audio frame, the model emits a
+**speech probability** in `[0, 1]`. Two thresholds turn that into a
+binary "is speaking" signal:
+
+| Setting | Default | What it controls |
+|---|---|---|
+| `positiveSpeechThreshold` | **0.5** | Probability needed to *start* a speech segment |
+| `negativeSpeechThreshold` | **0.35** | Probability below which speech is considered *ended* |
+| `minSpeechStartMs` | 150 ms | How long the signal must sustain before declaring "speaking" |
+| `redemptionMs` | 1400 ms | Grace window before declaring speech over (smooths over pauses) |
+
+The asymmetry between the two thresholds (start higher, end lower) is
+deliberate hysteresis — prevents the VAD from rapidly toggling on
+borderline frames.
+
+<Callout type="info">
+  **Updated defaults (2026-05-19):** thresholds were lowered from
+  0.8 / 0.6 to 0.5 / 0.35 based on field testing. Lower thresholds
+  catch quieter speech and start sentences earlier, at the cost of
+  occasional false-positives from sharp background noise.
+</Callout>
+
+### 2. Speech Recognition
+
+Browser-native `SpeechRecognition` (Web Speech API). Tivi wraps it to:
+
+- Restart automatically when the API stops on its own (the API ends
+  itself after silence; for continuous listening we need to restart it)
+- Emit `interim` results during partial transcription
+- Emit `final` results once the engine commits
+
+You get both via `onTranscription` (final) and `interimResult` (live).
+
+### 3. TTS playback queue
+
+When you call `tivi.speak("...")` the text gets pushed onto a queue
+that:
+
+- Plays utterances in order
+- Pauses immediately when the VAD detects a speech-start (interruption)
+- Coalesces back-to-back `speak()` calls into a single playback session
+- Reports queue state via `onQueueStateChange` (useful for status UI)
+
+TTS backend is configurable per `TiviSettings.ttsProvider`:
+`browser` (default — uses local `SpeechSynthesis`) or `openai` (calls
+`tivi.openai.com`-style cloud TTS via a passed-in callable).
+
+## Calibration
+
+The single biggest factor in voice quality is the **mic + room +
+voice** combination. Default VAD thresholds work for most setups, but
+a quiet talker on a laptop mic in a noisy room will need different
+thresholds than a loud talker on a headset.
+
+`CalibrationPanel` runs a **two-phase guided calibration**:
+
+### Phase 1 — Speech sample
+
+1. User clicks "Calibrate" → 5-second countdown
+2. User speaks naturally for ~10 seconds
+3. Tivi records VAD probabilities for every frame
+4. Computes `positiveSpeechThreshold` as the **30th percentile** of
+   frames the user was actually talking through (so 70% of real-speech
+   frames will trigger detection)
+5. Computes `negativeSpeechThreshold` as **65% of the positive threshold**
+   (preserves the hysteresis ratio)
+
+### Phase 2 — Silence sample
+
+1. User stays quiet for ~5 seconds
+2. Tivi confirms the new thresholds don't trip on background noise
+3. If they do, raises both thresholds proportionally until quiet =
+   silent
+
+User can accept the result or revert.
+
+```tsx
+import { CalibrationPanel } from 'tivi';
+
+<CalibrationPanel
+  showTrigger={true}      // render the "Calibrate" button itself
+  // or showTrigger={false} and call ref.startCalibration() externally
+/>
+```
+
+The panel is a `forwardRef` component — pass a ref to call
+`startCalibration()` from a parent. Useful when the trigger button
+lives elsewhere in your layout.
+
+### When to recommend calibration
+
+- New user, first-run experience (most common)
+- User switches mics (laptop → headset → AirPods)
+- User reports "it's not hearing me" or "it's cutting me off"
+- User changes environment (quiet room → coffee shop)
+
+### Programmatic calibration
+
+`useCalibration()` exposes the phase machine directly if you want a
+custom UI:
+
+```ts
+const calibration = useCalibration({ tivi });
+
+calibration.start();        // begin phase 1
+// ...wait for phase1Complete event
+calibration.next();         // begin phase 2
+calibration.apply();        // commit thresholds to TIVI settings
+calibration.cancel();       // discard and restore
+```
+
+## Settings — `TIVI_DEFAULTS` and `useTiviSettings`
+
+Settings are device-local (localStorage), keyed per browser profile.
+The shape:
+
+```ts
+type TiviSettings = {
+  // VAD
+  positiveSpeechThreshold: number;  // 0.5
+  negativeSpeechThreshold: number;  // 0.35
+  minSpeechStartMs: number;         // 150
+  powerThreshold: number;           // 0.01 — RMS gate (drops near-zero noise)
+
+  // Behavior
+  mode: 'responsive' | 'deliberate';    // tuning preset
+  enableInterruption: boolean;           // VAD pauses TTS mid-utterance
+  verbose: boolean;                      // debug logging
+
+  // TTS
+  playbackRate: number;             // 1.5 (faster than realtime)
+  defaultVoiceURI: string | null;
+  language: string;                 // 'en-US'
+  ttsProvider: 'browser' | 'openai';
+  ttsBackend: 'firebase' | 'local';
+  openaiVoice: string;              // 'marin'
+  openaiModel: string;              // 'gpt-4o-mini-tts'
+};
+```
+
+Read/update from anywhere:
+
+```ts
+import { getTiviSettings, updateTiviSettings, TIVI_DEFAULTS, useTiviSettings } from 'tivi';
+
+const current = getTiviSettings();        // imperative read
+updateTiviSettings({ playbackRate: 2.0 }); // partial update
+
+// or as a hook:
+const { settings, updateSettings } = useTiviSettings();
+```
+
+## Common pitfalls
+
+<Callout type="warning">
+  **The mic stays on after unmount.** `useTivi` registers a stream;
+  always call `tivi.stopListening()` before your component unmounts,
+  not just rely on the cleanup. Otherwise the browser tab icon stays
+  in "recording" state.
+</Callout>
+
+<Callout type="warning">
+  **`speechProbRef` doesn't reset on pause.** It's a `useRef`, not
+  state. When VAD pauses, the last probability sticks. If your UI
+  binds to it for a meter, manually set it to 0 on
+  `stopListening` / `pauseProcessing`.
+</Callout>
+
+<Callout type="warning">
+  **Silero VAD model file (`silero_vad_v5.onnx`) must be at
+  `/public/onnx/silero_vad_v5.onnx`.** The SmartChats prebuild script
+  copies it from `node_modules/@ricky0123/vad-web/dist/`. If you embed
+  tivi in another project, make sure to copy this 2.3 MB file into
+  your `public/` at build time.
+</Callout>
+
+<Callout type="warning">
+  **iOS Safari needs a user-gesture to start audio.** Initialize the
+  hook on a button click, not on mount. Mounting and then expecting
+  audio to flow will fail silently on iOS.
+</Callout>
+
+## Source
+
+- Package: `packages/tivi/`
+- Entry: `packages/tivi/src/index.ts`
+- VAD core: `packages/tivi/src/lib/ts_vad/`
+- ONNX loader: `packages/tivi/src/lib/onnx.ts`
+- Calibration: `packages/tivi/src/lib/useCalibration.ts`,
+  `packages/tivi/src/CalibrationPanel.tsx`,
+  `packages/tivi/src/CalibrationViz.tsx`
+
+See also: [`useTivi` reference in source](https://github.com/sheunaluko/smartchats/blob/master/packages/tivi/src/lib/useTivi.ts) for the
+full options + returned-state shape.

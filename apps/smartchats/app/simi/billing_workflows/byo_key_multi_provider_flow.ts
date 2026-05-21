@@ -9,7 +9,7 @@ export const byoKeyMultiProviderFlow = defineWorkflow({
     { action: 'fetchBalance', args: [], timeout: 15000, wait: 500 },
 
     // Save keys for two providers at once
-    { action: 'saveBYOKeys', args: [{ anthropic: 'sk-ant-test-00000000', google: 'test-google-key-00000000' }], timeout: 15000, wait: 500 },
+    { action: 'saveBYOKeys', args: [{ anthropic: 'TEST_ANTHROPIC_KEY_PLACEHOLDER', google: 'TEST_GOOGLE_KEY_PLACEHOLDER' }], timeout: 15000, wait: 500 },
 
     // Assert both keys are now set
     { assert: 'state.byoKeys.anthropic !== null', message: 'anthropic key should be non-null after save' },

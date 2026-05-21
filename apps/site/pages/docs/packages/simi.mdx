@@ -1,0 +1,150 @@
+import { Callout } from 'nextra/components'
+
+# simi — Workflow Tests
+
+**`simi`** (Simulation Interface) is a declarative framework for
+in-browser E2E tests. A simi workflow is a JS object that lists
+actions (dispatch store methods), assertions (check state/insights),
+and wait-fors (wait for a condition) — and an engine that runs them
+in order with timing + telemetry.
+
+Simi workflows tag their sessions automatically with `simi`, so test
+runs flow into the same insights / triage pipeline as real user
+sessions. That means a regression caught by a simi workflow shows
+up in `triage:errors` like any other production failure.
+
+## What's in the package
+
+| Module | Purpose |
+|---|---|
+| `types.ts` | `SimiWorkflow`, `WorkflowStep` union (`ActionStep` / `AssertStep` / `WaitForStep`), `Resolver` union, `RunResult` |
+| `runner.ts` | `executeWorkflow(workflow, opts)` — the execution engine |
+| `resolvers.ts` | `resolveArgs` — resolves `$resolve` references in step args (state path, previous result, eval, find-in-array) |
+| `index.ts` | Re-exports + `defineWorkflow` identity helper for type inference |
+
+## A minimal workflow
+
+```ts
+import { defineWorkflow } from 'simi';
+
+export const greetingWorkflow = defineWorkflow({
+  id: 'greeting',
+  app: 'smartchats',
+  tags: ['smoke'],
+  steps: [
+    { action: 'startSession' },
+    { action: 'submitUserMessage', args: ['Hello!'] },
+    { waitFor: 'state.isResponding === false', timeout: 30000 },
+    { assert: 'state.chatHistory.length >= 2' },
+    { assert: 'state.lastError === null' },
+  ],
+});
+```
+
+Each step is one of three shapes:
+
+- `ActionStep` — dispatch a registered action (Zustand store method,
+  workflow primitive, etc.) with optional args and an optional
+  per-step timeout
+- `AssertStep` — evaluate an expression against state + previous
+  results; fail the workflow if it returns falsy
+- `WaitForStep` — block until the expression returns truthy, or
+  timeout
+
+## Step args — `$resolve` references
+
+Action args can be plain values OR `$resolve` objects that pull from
+runtime state:
+
+```ts
+{ action: 'editChatMessage', args: [
+  { $resolve: 'state', path: 'chatHistory.0.id' },   // reads state.chatHistory[0].id
+  'edited content',
+] }
+
+{ action: 'deleteSession', args: [
+  { $resolve: 'find', path: 'sessions', match: { title: 'Untitled' } },
+] }
+
+{ action: 'apply', args: [
+  { $resolve: 'result', step: 'compute_args' },      // result of an earlier step labeled compute_args
+] }
+```
+
+Four resolvers ship:
+
+| Resolver | What it reads |
+|---|---|
+| `state` | A dotted path against the store state at step time |
+| `find` | An item in an array (by match-criteria or index) |
+| `result` | The return value of a prior `ActionStep` (by `id` label) |
+| `eval` | A callback that gets `(state, prevResults)` and returns anything |
+
+## Setup workflows
+
+Most tests share preconditions (post-onboarding, authenticated state,
+etc.). Instead of repeating those steps in every workflow, declare a
+setup:
+
+```ts
+defineWorkflow({
+  id: 'authenticated_test',
+  app: 'smartchats',
+  setupWorkflows: ['finish_onboarding', 'sign_in_test_user'],
+  steps: [
+    // ... real test starts here, with preconditions guaranteed
+  ],
+});
+```
+
+Setup workflows run before `steps`. They must live in the same
+registry and **must be idempotent** — running them twice in a session
+should be a no-op the second time.
+
+## Running workflows
+
+In the SmartChats browser console:
+
+```js
+await window.__smartchats__.simi.workflows.greetingWorkflow();
+// or run all workflows tagged smoke:
+await window.__smartchats__.simi.runByTag('smoke');
+```
+
+(For the older laboratory app, the global is `window.__rai__.simi`.)
+
+The runner emits insights events as it goes (`workflow_started`,
+`step_start`, `step_complete`, `workflow_completed`,
+`workflow_failed`), so the session bundle has a full trace. Pair
+with `bin/save_session smartchats --tag simi --last 5` to pull recent
+simi runs.
+
+## Why declarative?
+
+Three reasons:
+
+1. **Replayable.** A workflow is just data. You can serialize it,
+   send it across systems, generate one from a recorded interaction.
+2. **Inspectable.** "What did this test actually do?" is a property
+   of the data, not the source code. The runner emits events for
+   every step, so the trace is built into how it runs.
+3. **No browser-driver overhead.** Simi runs *inside* the app, not
+   through Selenium / Playwright. That means test setup is just
+   "import the store"; no separate fixture infrastructure.
+
+## When to use simi
+
+- Smoke-testing the app end-to-end (does typing a message and
+  waiting for response work?)
+- Reproducing a session-triage bug (workflow that mimics the user's
+  steps; rerun gives a clean repro)
+- Regression guards on flows you keep breaking
+
+## Source
+
+- Package: `packages/simi/`
+- Types: `packages/simi/src/types.ts`
+- Engine: `packages/simi/src/runner.ts`
+- Resolvers: `packages/simi/src/resolvers.ts`
+- Workflows themselves live in the app: `apps/smartchats/src/simi/workflows/`
+  (each workflow is a `defineWorkflow(...)` export)

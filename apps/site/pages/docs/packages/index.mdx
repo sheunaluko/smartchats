@@ -1,0 +1,69 @@
+import { Callout } from 'nextra/components'
+
+# Packages
+
+SmartChats is a monorepo of focused packages. This section documents what
+each one does, when you'd use it directly, and how it fits with the
+others.
+
+The right mental model: the **app** in `apps/smartchats` is a thin shell.
+Almost everything load-bearing — the voice pipeline, the agent loop,
+session analysis, the data contract — lives in `packages/*`. That means:
+
+- You can build a different shell (a CLI, a Discord bot, a mobile native
+  app) on top of these packages without forking the agent.
+- You can adopt one package without the others (`tivi` alone gives you a
+  drop-in browser voice UI; `cortex` alone gives you a function-calling
+  agent runtime).
+- The MCP server (`smartchats-mcp`) and CLI (`smartchats-cli`) are both
+  surface skins over the same `operations` + `queries` layers.
+
+## By role
+
+**Voice + interface (browser):**
+
+- [`tivi`](/docs/packages/tivi) — voice activity detection (Silero ONNX),
+  speech recognition, TTS playback queue, mic calibration
+- [`smartchats-backend`](/docs/packages/smartchats-backend) — the HTTP
+  contract: streaming envelopes, `BackendError`, retry loop
+- `smartchats-backend-local` — wires the contract to a local Express
+  server (used by the AIO container)
+
+**Agent runtime:**
+
+- [`cortex`](/docs/packages/cortex) — LLM loop, function dispatch,
+  sandbox executor, runners (synchronous vs streaming), process manager,
+  System Context Manager (module-based prompt composition)
+- [`llm-service`](/docs/packages/llm-service) — provider-agnostic LLM
+  client (Anthropic, OpenAI, Google, etc.)
+
+**Data + ops:**
+
+- [`smartchats-database`](/docs/packages/smartchats-database) — pure
+  SurrealQL `QuerySpec` builders + `Client` interface (no I/O at this
+  layer), operations layer for multi-step composition, schema (cloud +
+  local variants)
+- [`smartchats-sessions`](/docs/packages/smartchats-sessions) — session
+  export, per-session analyzers, cross-session triage (`triage:errors`)
+
+**Testing + tooling:**
+
+- [`simi`](/docs/packages/simi) — workflow framework for in-browser E2E
+  tests; workflows drive store actions and assert on insights events
+
+## When to use a package directly
+
+The cleanest signal: you want to **embed** voice or agent behavior into
+a project that isn't SmartChats.
+
+- Want voice input in a different React app? Use `tivi` directly.
+- Want a browser-based function-calling agent loop without our UI?
+  Use `cortex` (Node support is planned, not shipped).
+- Want to read SmartChats session data from a script? Use
+  `smartchats-sessions` programmatically (every analyzer exports an
+  `analyzeX` pure function).
+- Want to talk to a SmartChats database (cloud or local) from your own
+  code? Use `smartchats-database` + a `Client` from your backend.
+
+If you're just running the SmartChats agent as a user, you don't need
+to learn the packages individually — the app composes them for you.

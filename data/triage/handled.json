@@ -7,7 +7,7 @@
       "fixed_at": "2026-05-13T14:15:07.582Z",
       "notes": "queries/logs.ts uses type::is_string(content) to skip non-string rows instead of crashing the whole query",
       "marked_at": "2026-05-13T14:15:07.582Z",
-      "marked_by": "alukosheun@gmail.com"
+      "marked_by": "sheunaluko"
     },
     "262e5958c3c3a861": {
       "signature_preview": "Sandbox execution timeout after 300000ms",
@@ -15,7 +15,7 @@
       "fixed_at": "2026-05-13T14:36:27.772Z",
       "notes": "packages/cortex/src/process_manager.ts now uses DEFAULT_SANDBOX_TIMEOUT (1h) for execute-mode processes, matching the rest of cortex",
       "marked_at": "2026-05-13T14:36:27.772Z",
-      "marked_by": "alukosheun@gmail.com"
+      "marked_by": "sheunaluko"
     },
     "e929ba924582ff49": {
       "signature_preview": "stream network error: Load failed",
@@ -23,7 +23,7 @@
       "fixed_at": "2026-05-13T16:41:36.492Z",
       "notes": "post_stream: signal-aware abort detection (Safari emits TypeError:Load failed instead of AbortError on aborted fetch). Was misclassifying cancel-supersede as infrastructure failure.",
       "marked_at": "2026-05-13T16:41:36.492Z",
-      "marked_by": "alukosheun@gmail.com"
+      "marked_by": "sheunaluko"
     },
     "4707771c13e89115": {
       "signature_preview": "stream failed: 404",
@@ -31,7 +31,7 @@
       "fixed_at": "2026-05-13T16:41:36.916Z",
       "notes": "post_stream: 2-retry exponential-backoff loop on err.retryable. 404 still non-retryable, but root-cause 503 cascade addressed.",
       "marked_at": "2026-05-13T16:41:36.916Z",
-      "marked_by": "alukosheun@gmail.com"
+      "marked_by": "sheunaluko"
     },
     "b5240afcb102fab1": {
       "signature_preview": "stream failed: 503",
@@ -39,7 +39,7 @@
       "fixed_at": "2026-05-13T16:41:37.356Z",
       "notes": "post_stream: 2-retry exponential-backoff loop on err.retryable. ≤1s added latency for genuine 5xx; transient upstreams recover transparently.",
       "marked_at": "2026-05-13T16:41:37.356Z",
-      "marked_by": "alukosheun@gmail.com"
+      "marked_by": "sheunaluko"
     }
   }
 }

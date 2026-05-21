@@ -1,0 +1,244 @@
+import { Callout } from 'nextra/components'
+
+# cortex — Agent Runtime
+
+**`cortex`** is the heart of SmartChats: the function-calling agent
+loop. It runs an LLM with tools, dispatches function calls, executes
+generated code in a sandbox, and streams the result back to a UI.
+
+Today cortex runs in the **browser** — that's where the production
+SmartChats agent lives. The architecture is platform-agnostic by
+design (no DOM/window references in the core; sandbox is injected),
+and a Node execution path is on the roadmap (it would let the CLI and
+MCP server host agent runs directly). But the current shipping
+target is browser-only.
+
+If you're building an agent on top of SmartChats — or you want a
+production-grade function-calling loop with swappable LLM clients,
+runners, and sandboxes — this is the package.
+
+## What's load-bearing
+
+```
+                ┌─────────────────────────────┐
+                │         Cortex              │  ← the orchestrator
+                │   (run loop, msg history)   │
+                └──────┬──────────────────────┘
+                       │
+        ┌──────────────┼────────────────┐
+        ▼              ▼                ▼
+   ┌─────────┐  ┌──────────────┐  ┌───────────────┐
+   │ Runner  │  │ SystemContext│  │ ProcessManager│
+   │ (LLM    │  │   Manager    │  │  (background  │
+   │  call + │  │  (prompt     │  │   processes,  │
+   │  parse) │  │   modules)   │  │   fork/exec)  │
+   └─────────┘  └──────────────┘  └───────────────┘
+        │
+        ▼
+   ┌──────────────┐
+   │  Sandbox     │  ← runs generated code (browser worker or Node child)
+   │  Executor    │
+   └──────────────┘
+```
+
+Each box is a swap point. You can use a different sandbox, swap the
+runner, plug in a custom set of context modules — without forking
+`Cortex` itself.
+
+## Quick orientation
+
+```ts
+import { Cortex, SynchronousRunner, SystemContextManager } from 'cortex';
+
+const cortex = new Cortex({
+  // Dependency-injected: a sandbox that knows how to run code
+  sandbox: mySandboxExecutor,
+  // LLM client (any provider)
+  llmService: myLLMClient,
+  // Prompt composition
+  contextManager: new SystemContextManager([...modules]),
+  // Runner: how the LLM call + parse is structured
+  runner: new SynchronousRunner(),
+});
+
+cortex.on('thoughts', (msg) => console.log(msg));
+cortex.on('code', (msg) => console.log(msg));
+cortex.on('function_call', (fc) => console.log(fc));
+
+await cortex.run({ userInput: 'add 2 + 2' });
+```
+
+## The pieces
+
+### `Cortex` — the orchestrator
+
+The agent loop:
+
+1. Take user input + current message history
+2. Build the system prompt via `SystemContextManager`
+3. Hand off to the `Runner` to make the LLM call
+4. Parse the response into `{ thoughts, code }`
+5. Execute code in the `SandboxExecutor`
+6. Append result to history; loop if more work needed
+
+`Cortex` is event-driven — subscribe to lifecycle events
+(`thoughts`, `code`, `function_call`, `execution_result`, `error`,
+`done`) instead of waiting on the full run.
+
+### Runners — how the LLM call is structured
+
+A **Runner** owns the LLM call and parses the response into the
+`{ thoughts, code }` shape Cortex needs. The production agent uses two
+runners — one for the parent loop, one for child processes spawned via
+ProcessManager:
+
+| Runner | Output format | Used by |
+|---|---|---|
+| **`StreamingRunnerV3`** | JSON streaming, parsed incrementally by `JsonStreamParser` | Parent agent (the main conversation) |
+| **`SynchronousRunnerV2`** | Single LLM call, response uses bracketed sections (`RESPONSE`, `CODE`, `THOUGHTS`) | Child agent processes (forked sub-agents) |
+
+The headline win is **`StreamingRunnerV3`**: incremental JSON parsing
+means as soon as the `response` field starts streaming, the TTS layer
+can begin speaking. By the time the model finishes writing code, the
+user has already heard the agent's first sentence — first-audio
+latency drops from ~1500 ms (synchronous) to ~150 ms.
+
+The runner is swappable at runtime:
+
+```ts
+cortex.setRunner(new StreamingRunnerV3({ streamingLlmCallFn }));
+// or
+cortex.setRunner(new SynchronousRunnerV2());
+```
+
+`setRunner()` automatically rebuilds the system prompt — different
+runners need different output-format instructions.
+
+### SystemContextManager — module-based prompt composition
+
+The system prompt isn't a single string; it's composed from
+**context modules**. Each module declares its position, system message,
+function declarations, and output instructions:
+
+```ts
+import {
+  SystemContextManager,
+  createIntroModule,
+  createCodeGenModule,
+  createKnowledgeGraphModule,
+} from 'cortex';
+
+const scm = new SystemContextManager([
+  createIntroModule({ agent_name: 'SmartChats' }),
+  createCodeGenModule(),
+  createKnowledgeGraphModule({ kg_data: liveKGSummary }),
+  // Custom module — your own functions + instructions
+  {
+    id: 'my_tools',
+    name: 'My Custom Tools',
+    position: 50,
+    system_msg: 'You have access to these custom tools…',
+    functions: [/* function declarations */],
+  },
+]);
+
+const { system_prompt, functions, output_structure } = scm.build();
+```
+
+Modules sort by `position`, then concatenate. The output is a single
+system prompt + the function set + a structured-output schema (for
+JSON-mode LLMs).
+
+Why modules? Because the prompt is **the most refactor-resistant code
+in your project** if you don't structure it. Pulling concerns into
+named modules means a new feature ships as a *new module*, not a
+diff to a 400-line string.
+
+### Sandbox Executor
+
+`SandboxExecutor` is an interface, not a class. You provide an
+implementation:
+
+```ts
+interface SandboxExecutor {
+  execute(code: string, opts: { timeout: number }): Promise<SandboxResult>;
+  // ... other lifecycle methods
+}
+```
+
+SmartChats ships two implementations (both outside this package):
+
+- **Browser worker** — runs generated code in a `Worker` with a
+  shimmed function dictionary
+- **Node child process** — runs generated code in a forked Node
+  process (used by the CLI + MCP server)
+
+Both produce the same `SandboxResult` shape, so `Cortex` doesn't care
+which is running. Plug in your own if you want a different
+isolation model (vm2, isolated-vm, gVisor, etc.).
+
+### ProcessManager
+
+Cortex's tools can spawn long-running **processes** that outlive a
+single LLM turn — think `npm install`, a database query, a polling
+loop. `ProcessManager` tracks these:
+
+- Fork a process (`fork_process`) — runs in a new sandbox instance
+- Monitor it (`get_process_output`) — streamable stdout/stderr
+- Send input (`send_process_input`) — for interactive processes
+- Kill it (`kill_process`)
+
+The agent can interact with running processes across turns, which
+unlocks "run this background task and check on it later" workflows.
+
+## Model registry
+
+`cortex` ships a model registry covering Anthropic, OpenAI, Google
+Gemini, etc. — model IDs, context windows, pricing per million tokens,
+cache discount.
+
+```ts
+import { getModelInfo, calculateCost } from 'cortex';
+
+const info = getModelInfo('claude-opus-4-7');
+// { provider, contextWindow, inputPricePerMTok, outputPricePerMTok, ... }
+
+const cost = calculateCost('claude-opus-4-7', { inputTokens: 1000, outputTokens: 500 });
+```
+
+Used by the billing layer to project per-call cost from token counts.
+
+## Two parallel implementations — `packages/cortex` and `ts_common`
+
+<Callout type="warning">
+  There are two parallel-maintained copies of cortex in the monorepo:
+  `packages/cortex/` and `packages/ts_common/src/apis/cortex/`. They
+  share most logic but diverge in imports + which runners they expose.
+  **Editing one does not update the other.**
+
+  - SmartChats (`apps/smartchats`) uses `packages/cortex`
+  - Older laboratory apps (`rai`, `cortex_0`) use the `ts_common` copy
+
+  If you're building on cortex, use `packages/cortex` — it's the
+  canonical version going forward.
+</Callout>
+
+## When to use cortex directly
+
+- You're building a different browser agent on top of the SmartChats
+  stack (alternative UI, different tool set, different persona)
+- You want to inject a custom sandbox (e.g., a tighter isolation model
+  than the default iframe executor)
+- You're prototyping a new context module before adding it to the
+  main agent
+- You want to experiment with a different runner protocol
+
+## Source
+
+- Package: `packages/cortex/`
+- Entry: `packages/cortex/src/index.ts`
+- Main class: `packages/cortex/src/cortex.ts`
+- Runners: `packages/cortex/src/runner/`
+- Prompt composition: `packages/cortex/src/system_context_manager.ts`
+- Default modules: `packages/cortex/src/default_modules.ts`
+- Model registry + pricing: `packages/cortex/src/model_registry.ts`

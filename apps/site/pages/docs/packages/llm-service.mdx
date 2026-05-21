@@ -1,0 +1,131 @@
+import { Callout } from 'nextra/components'
+
+# llm-service
+
+The **provider-agnostic LLM client** used by SmartChats Cloud Functions
+to talk to Anthropic, OpenAI, and Google Gemini through a single
+interface. It handles both synchronous (request → response) and
+streaming (NDJSON chunks over time) modes.
+
+If you're writing a Firebase Function that needs to call an LLM,
+this is the package to import. The smartchats agent ultimately routes
+all its LLM calls through here.
+
+## What's in the package
+
+| Module | Purpose |
+|---|---|
+| `types.ts` | `LLMRequest`, `LLMResponse`, `LLMStreamRequest`, `LLMStreamResponse`, `Message`, `Provider` |
+| `providers/index.ts` | Provider routing — picks the right handler based on model name |
+| `providers/anthropic.ts` + `anthropic_stream.ts` | Anthropic Claude integration |
+| `providers/openai.ts` + `openai_stream*.ts` | OpenAI integration (chat + responses API) |
+| `providers/gemini.ts` + `gemini_stream.ts` | Google Gemini integration |
+| `tts_tokens.ts` | Token counting helpers for TTS pricing (`countGpt4oMiniTtsInputTokens`) |
+| `streaming/` | Streaming infrastructure (NDJSON envelope shape, backpressure) |
+
+## Quick start
+
+```ts
+import { dispatchLLMRequest } from 'llm-service';
+
+const response = await dispatchLLMRequest({
+  model: 'claude-opus-4-7',
+  messages: [
+    { role: 'user', content: 'Hello.' },
+  ],
+  maxTokens: 1024,
+  temperature: 0.7,
+});
+
+// response.content, response.usage (input/output tokens, cache hits)
+```
+
+The dispatcher looks up the model in `cortex`'s model registry,
+picks the right provider, and routes the call. You don't have to
+know whether `claude-opus-4-7` is Anthropic or Anthropic-via-Bedrock —
+the registry handles that.
+
+## Streaming
+
+```ts
+import { dispatchLLMStreamRequest } from 'llm-service';
+
+const stream = await dispatchLLMStreamRequest({
+  model: 'claude-opus-4-7',
+  messages: [...],
+  maxTokens: 2048,
+});
+
+for await (const chunk of stream) {
+  // chunk is shaped per LLMStreamResponse — usually { delta: string, ... }
+  process.stdout.write(chunk.delta ?? '');
+}
+```
+
+Behind the scenes:
+- Anthropic streams via their native SSE protocol
+- OpenAI streams via the Responses API (preferred) or Chat Completions
+- Gemini streams via `generateContentStream`
+
+The package normalizes these to a single async-iterable interface so
+callers don't branch on provider.
+
+## Why this exists
+
+Three providers, three SDKs, three streaming protocols. Without a
+shared interface, every consumer that wants to "call an LLM" picks
+one and hard-codes it, leading to:
+
+- Three retry implementations (one per provider) with different bugs
+- Provider switches becoming a multi-file refactor
+- Telemetry that can't be unified ("how much are we spending?" needs
+  to fan out per provider)
+
+With this package, the model name picks the provider, the provider
+is an implementation detail, and pricing/usage rolls up through one
+`LLMUsage` shape regardless of vendor.
+
+## Provider auth
+
+API keys come from environment variables on the Functions side
+(`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_API_KEY`). The
+package doesn't manage credential storage — it expects them to be
+present in `process.env`.
+
+For BYO-key (bring-your-own-key) flows, the user's key is passed
+through the request envelope and overrides the default:
+
+```ts
+dispatchLLMRequest({
+  model: 'gpt-4o',
+  messages: [...],
+  byoKey: userProvidedKey,  // overrides OPENAI_API_KEY for this call
+});
+```
+
+## TTS token counting
+
+OpenAI's gpt-4o-mini-tts model bills by INPUT tokens, not characters
+or seconds. `countGpt4oMiniTtsInputTokens` gives you that count
+client-side so billing can pre-check balance before a TTS call:
+
+```ts
+import { countGpt4oMiniTtsInputTokens } from 'llm-service';
+
+const tokens = countGpt4oMiniTtsInputTokens(text, voiceInstructions);
+const estimatedCost = tokens * GPT4O_MINI_TTS_PRICING.inputPricePerMTok / 1_000_000;
+```
+
+## When to use this package directly
+
+- You're writing a Cloud Function that calls an LLM
+- You're building a non-SmartChats service that wants the same
+  multi-provider routing
+- You're prototyping a new agent that needs unified streaming
+
+## Source
+
+- Package: `packages/llm-service/`
+- Entry: `packages/llm-service/src/index.ts`
+- Provider router: `packages/llm-service/src/providers/index.ts`
+- Model registry (which provider for which model): `cortex` package, `model_registry.ts`

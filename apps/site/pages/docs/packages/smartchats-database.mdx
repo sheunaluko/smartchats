@@ -1,0 +1,151 @@
+import { Callout } from 'nextra/components'
+
+# smartchats-database
+
+The **data layer** for SmartChats. Pure SurrealQL query builders, a
+client abstraction, and a multi-step operations layer — all without
+any I/O at the lowest layer.
+
+The principle: **separate query construction from query execution**.
+Builders return `QuerySpec` values (a query string + variables); the
+runtime hands those specs to a `Client` that knows how to talk to a
+real SurrealDB instance. This lets the same query code run in the
+browser (cloud-side, via auth), in Node (CLI/MCP, direct SDK), or in
+tests (mocked client).
+
+## Layered model
+
+```
+your code  →  operations.X(args)      ← multi-step (e.g. importBundle)
+                       │
+                       ▼
+              queries.Y(args)         ← pure: args → { query, variables }
+                       │
+                       ▼
+              client.query(spec)      ← I/O happens here
+                  ╱              ╲
+        Cloud client         Local SDK client
+        (firebase auth        (createClient — direct
+         + Functions          SurrealDB connection)
+         relay)
+```
+
+## What's in the package
+
+| Module | Purpose |
+|---|---|
+| `queries/*` | Pure `QuerySpec` builders — one file per domain (sessions, logs, knowledge_graph, todos, byo_keys, etc.) |
+| `operations/*` | Multi-step ops that compose queries: `exportBundle`, `importBundle`, etc. |
+| `schema/*` | Canonical SurrealQL schema for cloud + local variants |
+| `client.ts` | `createClient`, `createLazyClient`, `createUserClient` — direct-to-SurrealDB connection factories |
+| `data_api.ts` | Backend-flavored factories (`makeCloudDataAPI`, `makeLocalDataAPI`) for use with `smartchats-backend` |
+| `types.ts` | `QuerySpec`, `AuditFields` |
+
+## Quick start
+
+### Building a query
+
+```ts
+import { queries } from 'smartchats-database';
+
+const spec = queries.listSessions({
+  app: 'smartchats',
+  since: Date.now() - 7 * 86400_000,
+  limit: 50,
+});
+
+// spec is { query: "SELECT ... FROM session WHERE ...", variables: {...} }
+```
+
+The builder has zero side effects. You can log it, snapshot-test it,
+inspect what would run — without touching a database.
+
+### Running a query (Node — direct SurrealDB)
+
+```ts
+import { createClient, queries } from 'smartchats-database';
+
+const client = await createClient({
+  url: 'ws://localhost:8001',
+  ns: 'smartchats',
+  db: 'smartchats',
+  user: 'root',
+  password: 'root',
+});
+
+const sessions = await client.query(queries.listSessions({ limit: 10 }));
+```
+
+### Running a query (browser — through `DataAPI`)
+
+The browser app doesn't talk to SurrealDB directly. It goes through
+the backend contract:
+
+```ts
+import { getBackend } from '@/lib/backend';
+import { queries } from 'smartchats-database';
+
+const backend = getBackend();
+const sessions = await backend.data.query(queries.listSessions({ limit: 10 }));
+```
+
+Same `QuerySpec`. The cloud backend wraps it in a Firebase callable
+that relays to SurrealDB; the local backend talks to SurrealDB directly.
+Your call site doesn't change.
+
+## Operations — multi-step composition
+
+Some workflows need several queries + ordering + error handling.
+Those live in `operations/`:
+
+```ts
+import { operations } from 'smartchats-database';
+
+const bundle = await operations.exportBundle(client, {
+  app: 'smartchats',
+  sessionId: 'ses_xxx',
+});
+
+// bundle has events + logs + KG snapshot, ready to feed importBundle elsewhere
+```
+
+`exportBundle` and `importBundle` are the bridge for "move my data
+from cloud to local" — same shape on both sides.
+
+## Schema
+
+Canonical schema lives at `packages/smartchats-database/src/schema/`.
+Two variants exist (cloud + local) for fields that differ between
+the two environments. The schema file is what gets applied when you
+run `bin/cloud_test_db` or initialize a fresh local instance.
+
+<Callout type="info">
+  **SurrealDB v3.** SmartChats moved to v3.0.5 in 2026-Q2.
+  Notable v3 differences:
+  - `type::record` replaces `type::thing` for record constructors
+  - `type::is_string(x)` (not `type::is::string(x)`) for type predicates
+  - The `logs` table is SCHEMALESS — `content` can be NONE, a string,
+    or a record link; query builders that pattern-match on
+    `content` must guard with `type::is_string(content)`
+</Callout>
+
+## Why no I/O at the query layer?
+
+Three reasons that compound:
+
+1. **Tests.** Snapshot tests on `QuerySpec` outputs catch query
+   regressions without spinning up a database. The bug-detection
+   reach of "the query string changed" is huge.
+2. **Reuse.** The exact same query runs in the browser (cloud
+   relay), in Node (direct SDK), and in tests (mocked client).
+   One implementation, three deploys.
+3. **Cloud vs local symmetry.** Both backends accept `QuerySpec`.
+   Adding a new query means writing one builder, not two.
+
+## Source
+
+- Package: `packages/smartchats-database/`
+- Entry: `packages/smartchats-database/src/index.ts`
+- Query builders: `packages/smartchats-database/src/queries/`
+- Operations: `packages/smartchats-database/src/operations/`
+- Schema: `packages/smartchats-database/src/schema/`

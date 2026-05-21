@@ -1,0 +1,165 @@
+import { Callout } from 'nextra/components'
+
+# smartchats-sessions
+
+The **session forensics toolkit**: pull a session from your local or
+cloud SmartChats instance, drop it through analyzers (errors,
+transcript, traces, performance), and de-duplicate failures across
+many sessions for triage. This package is what powers the
+"what's actually broken right now?" debug loop the team runs daily.
+
+It's a pure-TypeScript package — no I/O at the analyzer layer. Every
+analyzer is a pure function over a `SessionBundle`, paired with a
+formatter for human-readable output. That means you can run analyzers
+programmatically (in CI, in a custom script, in another tool) as
+easily as from the CLI.
+
+## What's in the package
+
+| Module | Purpose |
+|---|---|
+| `export.ts` | Build a `SessionBundle` from a database client + session id |
+| `analysis/transcript.ts` | User/agent transcript reconstruction, optionally with thoughts + code |
+| `analysis/errors.ts` | Error extraction + per-session signature grouping |
+| `analysis/performance.ts` | LLM/exec/voice latency stats, cache hit rate, turn pacing |
+| `analysis/traces.ts` | Causality trees built from `trace_id` / `parent_event_id` |
+| `analysis/executions.ts` | Per-execution detail (code, function calls, result) |
+| `analysis/inspect.ts` | Drill into a specific event or trace |
+| `analysis/triage_errors.ts` | Cross-session signature merge + handled-state, the autonomous debug-loop driver |
+| `queries.ts` | `SessionBundle`-shape query specs |
+| `cli/` | Argv parsers + orchestrators for the npm scripts |
+
+## Quick start — CLI
+
+```bash
+# Pull a bundle from the local AIO instance
+bin/save_session smartchats                       # latest session
+bin/save_session smartchats --tag simi --last 5   # filter + multi-export
+
+cd packages/smartchats-sessions
+
+# Single-session deep dive
+npm run analyze:summary      -- <bundle.json>
+npm run analyze:transcript   -- <bundle.json>     # --with-code, --markdown
+npm run analyze:errors       -- <bundle.json>
+npm run analyze:performance  -- <bundle.json>
+npm run analyze:traces       -- <bundle.json>
+npm run analyze:inspect      -- <bundle.json> --event=<id>
+```
+
+## Quick start — programmatic
+
+```ts
+import {
+  analyzeErrors, formatErrors,
+  analyzeTranscript, formatTranscript,
+  buildTraceTrees, formatTraces,
+} from 'smartchats-sessions';
+import fs from 'node:fs';
+
+const bundle = JSON.parse(fs.readFileSync('bundle.json', 'utf8'));
+
+// Pure analysis — returns structured data
+const errors = analyzeErrors(bundle);
+console.log(errors);  // { errorRecords: [...], byType: {...}, ... }
+
+// Formatter renders it for humans
+console.log(formatErrors(errors));
+```
+
+Every analyzer follows the same shape: `analyzeX(bundle)` returns a
+typed result, `formatX(result)` returns a string. Composable. Easy
+to test.
+
+## Cross-session error triage
+
+The most-used workflow: across the last week of sessions, what's
+broken, **deduped** by signature, hiding what we already fixed?
+
+```bash
+cd packages/smartchats-sessions
+
+npm run triage:errors                              # ~/.smartchats/session_bundles → ./triage/<ts>/
+npm run triage:errors -- --since 7d --min-count 2
+npm run triage:errors -- --dry-run                 # preview without writing
+
+# Once you ship a fix:
+npm run triage:mark -- <report-slug> --status fixed --commit <sha>
+
+# View handled-state:
+npm run triage:mark -- --list
+```
+
+**State file**: `data/triage/handled.json` — force-tracked in git
+despite `data/` being gitignored, so the team shares a "we already
+fixed this" record. Override path via `--state` or
+`SMARTCHATS_TRIAGE_STATE_FILE`.
+
+**Regression rule**: signatures marked `fixed` re-surface as
+`REGRESSION:` reports when a session whose `end_time > fixed_at` hits
+the same signature. Catches stale fixes that didn't reach production.
+`wontfix` entries land in `wontfix_summary.md` so they're not silently
+invisible.
+
+## Discovering sessions to pull
+
+Before you pull a bundle, you usually want to find candidates:
+
+```bash
+# Open (local AIO only, never cloud)
+cd packages/smartchats-sessions
+npm run find-sessions -- --has-error --since 7d
+
+# Filter flags:
+#   --app, --tag, --has-error, --has-event-tag, --has-event-type,
+#   --missing-event-type, --min-events, --max-events, --min-duration,
+#   --max-duration, --since, --until, --limit
+# Formats:
+#   --format=table | json | ids   (pipe ids → save-session)
+```
+
+Pair with `bin/save_session`:
+
+```bash
+npm run find-sessions -- --has-error --since 7d --format=ids \
+  | xargs -I{} bin/save_session smartchats --session-id {}
+```
+
+## Adding a new analyzer
+
+The pattern is documented in `packages/smartchats-sessions/src/analysis/README.md`.
+Briefly:
+
+1. Write `analyzeX(bundle: SessionBundle): XResult` — pure function,
+   typed input + output.
+2. Write `formatX(result: XResult, opts?): string` — pure formatter.
+3. Add a CLI in `cli/` if you want an `npm run analyze:x` script.
+4. Re-export from `index.ts`.
+
+The analyzers don't share state. They don't need to be ordered. Each
+one is independently testable with a fixture bundle.
+
+## Open vs closed boundary
+
+This package is **open-source**. It never imports cloud credentials.
+The closed-source `smartchats-cloud` package has its own
+`save-session` admin CLI for cross-user cloud session triage —
+that lives in the closed repo because it uses root admin creds. Both
+sides share `findCandidateSessions` and `buildSessionBundle` from this
+package.
+
+## When to use this package directly
+
+- You want to write a custom analyzer (latency distribution, KG-write
+  patterns, anything not in the default set)
+- You're building a dashboard that reads SmartChats session data
+- You're automating triage (CI job that pulls fresh failures and
+  posts to Slack)
+
+## Source
+
+- Package: `packages/smartchats-sessions/`
+- Entry: `packages/smartchats-sessions/src/index.ts`
+- Analyzers: `packages/smartchats-sessions/src/analysis/`
+- CLI orchestrators: `packages/smartchats-sessions/src/cli/`
+- Analyzer conventions: `packages/smartchats-sessions/src/analysis/README.md`
