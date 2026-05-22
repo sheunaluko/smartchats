@@ -163,9 +163,16 @@ export class SynchronousRunnerV2 implements Runner {
         const prompt_tokens = usage.prompt_tokens ?? usage.input_tokens ?? 0
         const completion_tokens = usage.completion_tokens ?? usage.output_tokens ?? 0
         const cached_input_tokens = usage.cached_input_tokens ?? 0
+        // Cache-creation (write) tokens — Anthropic only. Billed at 1.25× base.
+        const cache_creation_input_tokens = usage.cache_creation_input_tokens ?? 0
 
         if (prompt_tokens && completion_tokens) {
-            ctx.updateUsage(prompt_tokens, completion_tokens, cached_input_tokens)
+            ctx.updateUsage({
+                input_tokens: prompt_tokens,
+                output_tokens: completion_tokens,
+                cached_input_tokens,
+                cache_creation_input_tokens,
+            })
         }
 
         // Store as CodeOutput-compatible format in message history
@@ -196,6 +203,7 @@ export class SynchronousRunnerV2 implements Runner {
                     messages_count: ctx.messages.length,
                     output,
                     cached_input_tokens,
+                    cache_creation_input_tokens,
                     timing: { client_round_trip_ms: llmLatency },
                 },
             }).catch((err: any) => {

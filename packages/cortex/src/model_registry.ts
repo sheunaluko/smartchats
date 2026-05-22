@@ -6,6 +6,17 @@
 
 import { Provider } from './types.js'
 
+/**
+ * Structural shape we accept for cost calculation. Mirrors llm-service's
+ * LLMUsage but defined locally to avoid adding cortex → llm-service dep.
+ */
+export interface UsageForCost {
+  input_tokens: number
+  output_tokens: number
+  cached_input_tokens?: number
+  cache_creation_input_tokens?: number
+}
+
 export interface ModelInfo {
   id: string
   provider: Provider
@@ -14,6 +25,8 @@ export interface ModelInfo {
   inputPricePer1M: number
   outputPricePer1M: number
   cachedInputPricePer1M?: number  // Defaults to inputPricePer1M / 10
+  cacheWritePricePer1M?: number   // Defaults to inputPricePer1M (no surcharge).
+                                  // For Anthropic 5-min ephemeral cache: 1.25× base.
   description?: string
   tiktokenEncoding?: string  // e.g., 'cl100k_base', 'o200k_base'
 }
@@ -26,6 +39,20 @@ export function getCachedInputPrice(info: ModelInfo): number {
   return info.cachedInputPricePer1M ?? info.inputPricePer1M / 10
 }
 
+/**
+ * Get the cache-WRITE price (tokens billed when a new cache entry is created).
+ * Anthropic ephemeral 5-min cache writes at 1.25× base input; Anthropic 1-hour
+ * cache writes at 2× (we deliberately do not enable that path — see
+ * smartchats-cloud/profitability_considerations.txt).
+ *
+ * Defensive fallback: when unset, returns inputPricePer1M (= the pre-fix
+ * behavior). Better than 0 (silent zero-billing) for any future Claude model
+ * added without the explicit cacheWritePricePer1M field.
+ */
+export function getCacheWritePrice(info: ModelInfo): number {
+  return info.cacheWritePricePer1M ?? info.inputPricePer1M
+}
+
 export const MODEL_REGISTRY: Record<string, ModelInfo> = {
   // ============================================
   // ANTHROPIC MODELS
@@ -35,6 +62,7 @@ export const MODEL_REGISTRY: Record<string, ModelInfo> = {
     provider: "anthropic",
     inputPricePer1M: 5,
     outputPricePer1M: 25,
+    cacheWritePricePer1M: 6.25,   // 1.25× base — Anthropic 5m ephemeral
     contextWindow: 200000,
     maxOutputTokens: 64000,
     description: "Premium model combining maximum intelligence with practical performance",
@@ -45,6 +73,7 @@ export const MODEL_REGISTRY: Record<string, ModelInfo> = {
     provider: "anthropic",
     inputPricePer1M: 3,
     outputPricePer1M: 15,
+    cacheWritePricePer1M: 3.75,   // 1.25× base — Anthropic 5m ephemeral
     contextWindow: 200000,  // 1M tokens available in beta
     maxOutputTokens: 64000,
     description: "Smart model for complex agents and coding",
@@ -55,9 +84,43 @@ export const MODEL_REGISTRY: Record<string, ModelInfo> = {
     provider: "anthropic",
     inputPricePer1M: 1,
     outputPricePer1M: 5,
+    cacheWritePricePer1M: 1.25,   // 1.25× base — Anthropic 5m ephemeral
     contextWindow: 200000,
     maxOutputTokens: 64000,
     description: "Fastest model with near-frontier intelligence",
+    tiktokenEncoding: "cl100k_base",
+  },
+  "claude-opus-4-6": {
+    id: "claude-opus-4-6",
+    provider: "anthropic",
+    inputPricePer1M: 5,           // same as opus 4.5
+    outputPricePer1M: 25,
+    cacheWritePricePer1M: 6.25,   // 1.25× base — Anthropic 5m ephemeral
+    contextWindow: 1000000,       // 1M GA starting in 4.6 (was 200K in 4.5)
+    maxOutputTokens: 128000,      // grew from 64K in 4.5
+    description: "Opus 4.6 — 1M context window",
+    tiktokenEncoding: "cl100k_base",
+  },
+  "claude-opus-4-7": {
+    id: "claude-opus-4-7",
+    provider: "anthropic",
+    inputPricePer1M: 5,           // same as opus 4.5
+    outputPricePer1M: 25,
+    cacheWritePricePer1M: 6.25,   // 1.25× base — Anthropic 5m ephemeral
+    contextWindow: 1000000,
+    maxOutputTokens: 128000,
+    description: "Most intelligent Claude — 1M context, 128K output",
+    tiktokenEncoding: "cl100k_base",
+  },
+  "claude-sonnet-4-6": {
+    id: "claude-sonnet-4-6",
+    provider: "anthropic",
+    inputPricePer1M: 3,           // same as sonnet 4.5
+    outputPricePer1M: 15,
+    cacheWritePricePer1M: 3.75,   // 1.25× base — Anthropic 5m ephemeral
+    contextWindow: 1000000,       // 1M GA in 4.6
+    maxOutputTokens: 64000,
+    description: "Sonnet 4.6 — agentic coding with 1M context",
     tiktokenEncoding: "cl100k_base",
   },
 
@@ -92,6 +155,39 @@ export const MODEL_REGISTRY: Record<string, ModelInfo> = {
     contextWindow: 65000,
     maxOutputTokens: 32000,
     description: "Highest quality image generation model",
+    tiktokenEncoding: "cl100k_base",
+  },
+  "gemini-3.1-pro-preview": {
+    id: "gemini-3.1-pro-preview",
+    provider: "gemini",
+    inputPricePer1M: 2,           // $4/MTok for prompts >200k tokens
+    outputPricePer1M: 12,         // $18/MTok for prompts >200k tokens
+    cachedInputPricePer1M: 0.2,   // not officially listed; mirrors 3-pro convention (input/10)
+    contextWindow: 1048576,
+    maxOutputTokens: 65536,
+    description: "Improved multimodal + agentic reasoning preview",
+    tiktokenEncoding: "cl100k_base",
+  },
+  "gemini-3.5-flash": {
+    id: "gemini-3.5-flash",
+    provider: "gemini",
+    inputPricePer1M: 1.5,
+    outputPricePer1M: 9,          // includes thinking tokens
+    cachedInputPricePer1M: 0.15,  // context caching price (paid tier)
+    contextWindow: 1048576,
+    maxOutputTokens: 65536,
+    description: "Frontier intelligence at Flash speed; built for search + grounding",
+    tiktokenEncoding: "cl100k_base",
+  },
+  "gemini-3.1-flash-lite": {
+    id: "gemini-3.1-flash-lite",
+    provider: "gemini",
+    inputPricePer1M: 0.25,        // $0.50/MTok for audio input
+    outputPricePer1M: 1.5,        // includes thinking tokens
+    cachedInputPricePer1M: 0.025, // $0.05/MTok for audio
+    contextWindow: 1048576,
+    maxOutputTokens: 65536,
+    description: "Cost-efficient model for high-volume agentic tasks + translation",
     tiktokenEncoding: "cl100k_base",
   },
 
@@ -166,6 +262,39 @@ export const MODEL_REGISTRY: Record<string, ModelInfo> = {
     contextWindow: 400000,
     maxOutputTokens: 128000,
     description: "Most intelligent coding model for long-horizon agentic tasks",
+    tiktokenEncoding: "o200k_base",
+  },
+  "gpt-5.4": {
+    id: "gpt-5.4",
+    provider: "openai",
+    inputPricePer1M: 2.5,
+    cachedInputPricePer1M: 0.25,
+    outputPricePer1M: 15,
+    contextWindow: 1000000,       // prompts >272K input → 2x input / 1.5x output for the session
+    maxOutputTokens: 128000,
+    description: "GPT-5.4 — 1M context, coding + agentic",
+    tiktokenEncoding: "o200k_base",
+  },
+  "gpt-5.4-mini": {
+    id: "gpt-5.4-mini",
+    provider: "openai",
+    inputPricePer1M: 0.75,
+    cachedInputPricePer1M: 0.075,
+    outputPricePer1M: 4.5,
+    contextWindow: 400000,
+    maxOutputTokens: 128000,
+    description: "Cost-efficient version of GPT-5.4",
+    tiktokenEncoding: "o200k_base",
+  },
+  "gpt-5.5": {
+    id: "gpt-5.5",
+    provider: "openai",
+    inputPricePer1M: 5,
+    cachedInputPricePer1M: 0.5,
+    outputPricePer1M: 30,
+    contextWindow: 1000000,       // prompts >272K input → 2x input / 1.5x output for the session
+    maxOutputTokens: 128000,
+    description: "Most intelligent GPT — 1M context, frontier reasoning",
     tiktokenEncoding: "o200k_base",
   },
   "o4-mini": {
@@ -307,22 +436,32 @@ export function getRegisteredModels(): string[] {
 
 /**
  * Calculate cost for a request in USD.
- * When cachedInputTokens is provided, those tokens are charged at the cached rate
- * instead of the full input rate.
+ *
+ * Accepts the full usage object so each token-class is billed at its correct rate:
+ *   - cache_creation_input_tokens → cacheWritePricePer1M (Anthropic 5m: 1.25× base)
+ *   - cached_input_tokens         → cachedInputPricePer1M (~10% of base)
+ *   - everything else (input_tokens - cached - creation) → inputPricePer1M
+ *   - output_tokens               → outputPricePer1M
+ *
+ * Provider semantic: providers normalize `input_tokens` to be the TOTAL (matches
+ * OpenAI's convention), so the uncached portion is the total minus both cache
+ * sub-counts. See packages/llm-service/src/providers/anthropic.ts:59,89 for the
+ * normalization step.
  */
 export function calculateCost(
   model: string,
-  inputTokens: number,
-  outputTokens: number,
-  provider?: Provider,
-  cachedInputTokens?: number
+  usage: UsageForCost,
+  provider?: Provider
 ): number {
   const info = getModelInfo(model, provider)
-  const uncachedInputTokens = inputTokens - (cachedInputTokens || 0)
-  const inputCost = (uncachedInputTokens / 1_000_000) * info.inputPricePer1M
-  const cachedCost = ((cachedInputTokens || 0) / 1_000_000) * getCachedInputPrice(info)
-  const outputCost = (outputTokens / 1_000_000) * info.outputPricePer1M
-  return inputCost + cachedCost + outputCost
+  const cached = usage.cached_input_tokens ?? 0
+  const creation = usage.cache_creation_input_tokens ?? 0
+  const uncached = usage.input_tokens - cached - creation
+  const inputCost = (uncached / 1_000_000) * info.inputPricePer1M
+  const cachedCost = (cached / 1_000_000) * getCachedInputPrice(info)
+  const creationCost = (creation / 1_000_000) * getCacheWritePrice(info)
+  const outputCost = (usage.output_tokens / 1_000_000) * info.outputPricePer1M
+  return inputCost + cachedCost + creationCost + outputCost
 }
 
 /**

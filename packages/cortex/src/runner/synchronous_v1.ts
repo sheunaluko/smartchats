@@ -175,6 +175,10 @@ export class SynchronousRunner implements Runner {
             ?? usage.prompt_tokens_details?.cached_tokens  // OpenAI Chat API
             ?? usage.input_tokens_details?.cached_tokens   // OpenAI Responses API
             ?? 0
+        // Cache-creation (write) tokens — Anthropic only. Billed at 1.25× base.
+        const cache_creation_input_tokens =
+            usage.cache_creation_input_tokens
+            ?? 0
 
         if (total_tokens) {
             ctx.logEvent(`Token Usage=${total_tokens}`)
@@ -191,7 +195,12 @@ export class SynchronousRunner implements Runner {
 
         // Update usage stats
         if (prompt_tokens && completion_tokens) {
-            ctx.updateUsage(prompt_tokens, completion_tokens, cached_input_tokens)
+            ctx.updateUsage({
+                input_tokens: prompt_tokens,
+                output_tokens: completion_tokens,
+                cached_input_tokens,
+                cache_creation_input_tokens,
+            })
         }
 
         // New Responses API returns output_text instead of choices[0].message.parsed
@@ -228,6 +237,7 @@ export class SynchronousRunner implements Runner {
                     messages_count: ctx.messages.length,
                     output,
                     cached_input_tokens,
+                    cache_creation_input_tokens,
                     timing: timingContext,
                 },
             }).catch((err: any) => {

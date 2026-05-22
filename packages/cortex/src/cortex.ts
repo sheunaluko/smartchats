@@ -51,7 +51,7 @@ import type {
 
 // Import token counting and model registry
 import { getTokenBreakdown, calculateDrift } from './token_counter.js'
-import { getModelInfo, calculateCost } from './model_registry.js'
+import { getModelInfo, calculateCost, type UsageForCost } from './model_registry.js'
 
 const log = logger.get_logger({ id: 'cortex_base' }) 
 
@@ -223,6 +223,7 @@ export class Cortex extends EventEmitter  {
 	promptTokens: 0,
 	completionTokens: 0,
 	cachedInputTokens: 0,
+	cacheCreationInputTokens: 0,
 	totalTokens: 0,
 	costUsd: 0,
 	callCount: 0
@@ -349,28 +350,34 @@ export class Cortex extends EventEmitter  {
     }
 
     /**
-     * Update usage stats after an LLM call
+     * Update usage stats after an LLM call.
+     * Accepts the full usage object so cache-write tokens (Anthropic 5m
+     * ephemeral, 1.25× base) get billed at their correct rate via calculateCost.
      */
-    updateUsage(promptTokens: number, completionTokens: number, cachedInputTokens: number = 0): void {
+    updateUsage(usage: UsageForCost): void {
+	const promptTokens = usage.input_tokens
+	const completionTokens = usage.output_tokens
+	const cachedInputTokens = usage.cached_input_tokens ?? 0
+	const cacheCreationInputTokens = usage.cache_creation_input_tokens ?? 0
+
 	this.usage.promptTokens += promptTokens
 	this.usage.completionTokens += completionTokens
 	this.usage.cachedInputTokens += cachedInputTokens
+	this.usage.cacheCreationInputTokens += cacheCreationInputTokens
 	this.usage.totalTokens += promptTokens + completionTokens
 	this.usage.callCount++
 
-	const callCost = calculateCost(
-	    this.model, promptTokens, completionTokens, this.provider, cachedInputTokens
-	)
+	const callCost = calculateCost(this.model, usage, this.provider)
 	this.usage.costUsd += callCost
 
 	// Emit usage update event
 	this.emit_event({
 	    type: 'usage_update',
-	    call: { promptTokens, completionTokens, cachedInputTokens, costUsd: callCost },
+	    call: { promptTokens, completionTokens, cachedInputTokens, cacheCreationInputTokens, costUsd: callCost },
 	    cumulative: { ...this.usage }
 	})
 
-	this.log(`Usage: +${promptTokens}/${completionTokens} tokens (${cachedInputTokens} cached), +$${callCost.toFixed(6)} | Total: ${this.usage.totalTokens} tokens, $${this.usage.costUsd.toFixed(6)}`)
+	this.log(`Usage: +${promptTokens}/${completionTokens} tokens (${cachedInputTokens} cached, ${cacheCreationInputTokens} written), +$${callCost.toFixed(6)} | Total: ${this.usage.totalTokens} tokens, $${this.usage.costUsd.toFixed(6)}`)
     }
 
     /**
@@ -388,6 +395,7 @@ export class Cortex extends EventEmitter  {
 	    promptTokens: 0,
 	    completionTokens: 0,
 	    cachedInputTokens: 0,
+	    cacheCreationInputTokens: 0,
 	    totalTokens: 0,
 	    costUsd: 0,
 	    callCount: 0
@@ -425,7 +433,7 @@ export class Cortex extends EventEmitter  {
 	    addCortexMessage: (content) => cortex.add_cortex_message(cortex._cortex_msg(content)),
 	    addUserResultInput: (result) => cortex.add_user_data_input(result, 'code_result'),
 	    emitEvent: (evt) => cortex.emit_event(evt),
-	    updateUsage: (p, c, cached) => cortex.updateUsage(p, c, cached),
+	    updateUsage: (usage) => cortex.updateUsage(usage),
 	    logEvent: (msg) => cortex.log_event(msg),
 	    log: cortex.log,
 	}
@@ -570,12 +578,21 @@ export class Cortex extends EventEmitter  {
 	    ?? usage.prompt_tokens_details?.cached_tokens  // OpenAI Chat API
 	    ?? usage.input_tokens_details?.cached_tokens   // OpenAI Responses API
 	    ?? 0
+	// Cache-creation (write) tokens — Anthropic only. Billed at 1.25× base.
+	const cache_creation_input_tokens =
+	    usage.cache_creation_input_tokens        // Claude (raw + normalized share field name)
+	    ?? 0
 
 	if (total_tokens) {
 	    this.log_event(`Structured completion tokens: ${total_tokens}`)
 	}
 	if (prompt_tokens && completion_tokens) {
-	    this.updateUsage(prompt_tokens, completion_tokens, cached_input_tokens)
+	    this.updateUsage({
+		input_tokens: prompt_tokens,
+		output_tokens: completion_tokens,
+		cached_input_tokens,
+		cache_creation_input_tokens,
+	    })
 	}
 
 	// New Responses API returns output_text
@@ -1243,6 +1260,10 @@ The response will be validated against this structure.
 	    ?? usage.prompt_tokens_details?.cached_tokens  // OpenAI Chat API
 	    ?? usage.input_tokens_details?.cached_tokens   // OpenAI Responses API
 	    ?? 0;
+	// Cache-creation (write) tokens — Anthropic only. Billed at 1.25× base.
+	const cache_creation_input_tokens =
+	    usage.cache_creation_input_tokens
+	    ?? 0;
 
 	if (total_tokens) {
 	    this.log_event(`Token Usage=${total_tokens}`) ;
@@ -1259,7 +1280,12 @@ The response will be validated against this structure.
 
 	// Update usage stats
 	if (prompt_tokens && completion_tokens) {
-	    this.updateUsage(prompt_tokens, completion_tokens, cached_input_tokens)
+	    this.updateUsage({
+		input_tokens: prompt_tokens,
+		output_tokens: completion_tokens,
+		cached_input_tokens,
+		cache_creation_input_tokens,
+	    })
 	}
 
 	// New Responses API returns output_text instead of choices[0].message.parsed
@@ -1299,6 +1325,7 @@ The response will be validated against this structure.
 			messages_count: this.messages.length,
 			output,
 			cached_input_tokens,
+			cache_creation_input_tokens,
 			timing: timingContext,
 		    },
 		    usage: this.getUsage()

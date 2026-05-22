@@ -141,13 +141,7 @@ export function llmRoutes(config: ServerConfig): Router {
             return res.end();
         }
 
-        const costUsd = calculateCost(
-            model,
-            aggregated.usage.input_tokens,
-            aggregated.usage.output_tokens,
-            provider,
-            aggregated.usage.cached_input_tokens ?? 0,
-        );
+        const costUsd = calculateCost(model, aggregated.usage, provider);
 
         await writeUsageRecord({
             model,
@@ -314,13 +308,7 @@ export function llmRoutes(config: ServerConfig): Router {
 
         await Promise.allSettled(ttsPromises);
 
-        const llmCostUsd = calculateCost(
-            model,
-            aggregated.usage.input_tokens,
-            aggregated.usage.output_tokens,
-            provider,
-            aggregated.usage.cached_input_tokens ?? 0,
-        );
+        const llmCostUsd = calculateCost(model, aggregated.usage, provider);
         const ttsEstimate = totalTtsInputTokens > 0
             ? estimateGpt4oMiniTtsCost({ inputTokens: totalTtsInputTokens, outputPcmBytes: totalTtsPcmBytes })
             : null;

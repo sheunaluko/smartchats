@@ -14,6 +14,7 @@ import type {
     UsageStats,
     CodeExecutionResult
 } from '../types.js'
+import type { UsageForCost } from '../model_registry.js'
 import type { SectionOverrides } from '../prompt_manager.js'
 import type { ContextModule } from '../system_context_manager.js'
 
@@ -37,7 +38,7 @@ export interface RunnerContext {
     addCortexMessage(content: string): void
     addUserResultInput(result: CodeExecutionResult): void
     emitEvent(evt: any): void
-    updateUsage(promptTokens: number, completionTokens: number, cachedInputTokens?: number): void
+    updateUsage(usage: UsageForCost): void
     logEvent(msg: string): void
     log: (...args: any[]) => void
 

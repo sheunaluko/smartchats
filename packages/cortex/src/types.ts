@@ -116,6 +116,7 @@ export interface UsageStats {
   promptTokens: number
   completionTokens: number
   cachedInputTokens: number
+  cacheCreationInputTokens: number  // Anthropic 5m cache writes (1.25× base)
   totalTokens: number
   costUsd: number
   callCount: number
