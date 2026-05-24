@@ -58,36 +58,14 @@ import { useChatMode } from "./hooks/useChatMode"
 // Import shells
 import { DesktopDefaultShell } from "./shells/DesktopDefaultShell"
 import { DesktopFocusShell } from "./shells/DesktopFocusShell"
-import { MobileShell } from "./shells/MobileShell"
-import { MobileVoiceShell } from "./shells/MobileVoiceShell"
-import { MobileVoiceQuietShell } from "./shells/MobileVoiceQuietShell"
-import { MobileVoiceStreamShell } from "./shells/MobileVoiceStreamShell"
-import { MobileVoiceRibbonShell } from "./shells/MobileVoiceRibbonShell"
-import { MobileVoiceConversationalShell } from "./shells/MobileVoiceConversationalShell"
-import { MobileVoiceCinematicShell } from "./shells/MobileVoiceCinematicShell"
-import { ClaudeMobileShellV1 } from "./shells/ClaudeMobileShellV1"
 import { ClaudeMobileShellV2 } from "./shells/ClaudeMobileShellV2"
-import { ClaudeMobileShellV3 } from "./shells/ClaudeMobileShellV3"
-import { ClaudeMobileShellV4 } from "./shells/ClaudeMobileShellV4"
-import { ClaudeCodexShell } from "./shells/ClaudeCodexShell"
 import type { ShellProps } from "../core/types/shell"
 import type { WidgetRenderProps } from "./components/FullscreenWidget"
 
 const SHELLS = {
   'desktop-default': DesktopDefaultShell,
   'desktop-focus': DesktopFocusShell,
-  'mobile': MobileShell,
-  'mobile-voice': MobileVoiceShell,
-  'mobile-voice-quiet': MobileVoiceQuietShell,
-  'mobile-voice-stream': MobileVoiceStreamShell,
-  'mobile-voice-ribbon': MobileVoiceRibbonShell,
-  'mobile-voice-conversational': MobileVoiceConversationalShell,
-  'mobile-voice-cinematic': MobileVoiceCinematicShell,
-  'claude-mobile-v1': ClaudeMobileShellV1,
   'claude-mobile-v2': ClaudeMobileShellV2,
-  'claude-mobile-v3': ClaudeMobileShellV3,
-  'claude-mobile-v4': ClaudeMobileShellV4,
-  'claude-codex': ClaudeCodexShell,
 } as const;
 
 type ShellId = keyof typeof SHELLS;
@@ -95,18 +73,7 @@ type ShellId = keyof typeof SHELLS;
 const SHELL_OPTIONS: Array<{ id: ShellId; name: string }> = [
   { id: 'desktop-default', name: 'Desktop Default' },
   // { id: 'desktop-focus', name: 'Desktop Focus' },  // detached — not ready for production
-  { id: 'mobile', name: 'Mobile' },
-  { id: 'mobile-voice', name: 'Mobile Voice' },
-  { id: 'claude-mobile-v1', name: 'Claude Mobile V1' },
   { id: 'claude-mobile-v2', name: 'Claude Mobile V2 (Edge Rail)' },
-  { id: 'claude-mobile-v3', name: 'Claude Mobile V3 (Bottom Tray)' },
-  { id: 'claude-mobile-v4', name: 'Claude Mobile V4 (Orbital)' },
-  { id: 'claude-codex', name: 'ClaudeCodexShell' },
-  { id: 'mobile-voice-quiet', name: 'Mobile Voice Quiet' },
-  { id: 'mobile-voice-stream', name: 'Mobile Voice Stream' },
-  { id: 'mobile-voice-ribbon', name: 'Mobile Voice Ribbon' },
-  { id: 'mobile-voice-conversational', name: 'Mobile Voice Conversational' },
-  { id: 'mobile-voice-cinematic', name: 'Mobile Voice Cinematic' },
 ];
 
 declare var window: any;

@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import { useInsights } from '@/context/InsightsContext';
 
 type ToolbarButtonProps = {
   children: React.ReactNode;
@@ -8,6 +9,10 @@ type ToolbarButtonProps = {
   variant?: 'neutral' | 'primary' | 'success' | 'danger';
   size?: 'sm' | 'md';
   className?: string;
+  /** When set, fires a `ui_click` insights event with this name on click. */
+  trackAs?: string;
+  /** Optional surface label for the insights event payload. Defaults to 'toolbar'. */
+  trackSurface?: string;
 } & React.ButtonHTMLAttributes<HTMLButtonElement>;
 
 const variantClasses = {
@@ -24,12 +29,23 @@ export const ToolbarButton = React.forwardRef<HTMLButtonElement, ToolbarButtonPr
   size = 'md',
   className = '',
   type = 'button',
+  trackAs,
+  trackSurface = 'toolbar',
+  onClick,
   ...rest
 }, ref) {
+  const { client } = useInsights();
+  const wrappedOnClick = React.useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
+    if (trackAs) {
+      client?.addEvent?.('ui_click', { name: trackAs, surface: trackSurface }).catch?.(() => {});
+    }
+    onClick?.(e);
+  }, [trackAs, trackSurface, client, onClick]);
   return (
     <button
       ref={ref}
       type={type}
+      onClick={wrappedOnClick}
       className={`status-focused status-disabled inline-flex items-center justify-center gap-2 rounded-[10px] border border-transparent font-medium
         transition-[background-color,color,border-color,transform,box-shadow] duration-sc-fast ease-sc
         active:scale-[0.985]

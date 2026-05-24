@@ -12,6 +12,7 @@ import { Chip } from '../Chip';
 import { ControlGroup } from './ControlGroup';
 import { ToolbarButton } from './ToolbarButton';
 import { useSmartChatsStore } from '../../store/useSmartChatsStore';
+import { useTrackedClick } from '../../hooks/useTrackedClick';
 import { MODEL_REGISTRY } from 'cortex';
 
 
@@ -85,6 +86,9 @@ export function AppHeader({
   streamTextRef,
 }: AppHeaderProps) {
   const initLoading = useSmartChatsStore(s => s.initLoading);
+  // Credits chip is a raw <button> so we wrap its onClick explicitly;
+  // ToolbarButton sites use trackAs= instead.
+  const trackedAccountFromCreditsChip = useTrackedClick(onAccount as (() => void) | undefined, 'header.credits_chip', 'app_header');
   const statusTone = initLoading ? 'text-sc-warning' : voiceStatus === 'listening'
     ? 'text-sc-success'
     : voiceStatus === 'processing'
@@ -203,6 +207,8 @@ export function AppHeader({
               onClick={onStartStop}
               className="min-w-[5.5rem]"
               data-tour="start-stop"
+              trackAs="header.voice_start_stop"
+              trackSurface="app_header"
             >
               {started ? <Square size={15} /> : <Play size={15} />}
               <span>{started ? 'Stop' : 'Start'}</span>
@@ -210,7 +216,13 @@ export function AppHeader({
 
             {isSpeaking && (
               <Tooltip content="Stop voice playback">
-                <ToolbarButton variant="danger" onClick={onCancelSpeech} aria-label="Stop speaking">
+                <ToolbarButton
+                  variant="danger"
+                  onClick={onCancelSpeech}
+                  aria-label="Stop speaking"
+                  trackAs="header.cancel_speech"
+                  trackSurface="app_header"
+                >
                   <Pause size={15} />
                 </ToolbarButton>
               </Tooltip>
@@ -275,7 +287,7 @@ export function AppHeader({
           <div className="shrink-0">
             {user && totalAvailable !== undefined ? (
               onAccount ? (
-                <button onClick={onAccount} className="no-underline bg-transparent border-none p-0 cursor-pointer">
+                <button onClick={trackedAccountFromCreditsChip} className="no-underline bg-transparent border-none p-0 cursor-pointer">
                   {creditsLoading ? (
                     <div className="rounded-full border border-[var(--sc-separator)] bg-[var(--sc-surface-tertiary)] px-3 py-1.5 text-xs text-sc-text-muted shadow-[inset_0_1px_0_rgba(255,255,255,0.12)]">
                       Loading…
@@ -306,7 +318,7 @@ export function AppHeader({
                 </Link>
               )
             ) : !user ? (
-              <ToolbarButton variant="primary" onClick={onLogin}>
+              <ToolbarButton variant="primary" onClick={onLogin} trackAs="header.login" trackSurface="app_header">
                 Log In
               </ToolbarButton>
             ) : null}
@@ -316,18 +328,18 @@ export function AppHeader({
           <ControlGroup>
             {onAccount && (
               <Tooltip content="Account">
-                <ToolbarButton onClick={onAccount} aria-label="Account" data-tour="account">
+                <ToolbarButton onClick={onAccount} aria-label="Account" data-tour="account" trackAs="header.account" trackSurface="app_header">
                   {user ? <UserCheck size={15} /> : <UserIcon size={15} />}
                 </ToolbarButton>
               </Tooltip>
             )}
             <Tooltip content="Browse saved sessions">
-              <ToolbarButton onClick={onOpenSessions} aria-label="Browse saved sessions" data-tour="load-sessions">
+              <ToolbarButton onClick={onOpenSessions} aria-label="Browse saved sessions" data-tour="load-sessions" trackAs="header.open_sessions" trackSurface="app_header">
                 <History size={15} />
               </ToolbarButton>
             </Tooltip>
             <Tooltip content="Open settings">
-              <ToolbarButton onClick={onOpenSettings} aria-label="Open settings" data-tour="settings">
+              <ToolbarButton onClick={onOpenSettings} aria-label="Open settings" data-tour="settings" trackAs="header.open_settings" trackSurface="app_header">
                 <Settings size={15} />
               </ToolbarButton>
             </Tooltip>

@@ -28,6 +28,8 @@ import type { Visualization } from '../visualizations';
 import { HTMLViewer } from '../visualizations/HTMLViewer';
 import { TourOverlay } from '../components/TourOverlay';
 import { useSmartChatsStore } from '../store/useSmartChatsStore';
+import { useInsights } from '@/context/InsightsContext';
+import { useTrackedClick } from '../hooks/useTrackedClick';
 import {
   ensureKeyframes, deriveState, useMomentStream,
   EventPulseRing,
@@ -451,8 +453,10 @@ function FloatingActionMenu({ isSpeaking, canStop, onInterrupt, onStop, onKeyboa
 }) {
   const [open, setOpen] = useState(false);
   const [ripple, setRipple] = useState(false);
+  const { client: insightsClient } = useInsights();
 
   const toggle = useCallback(() => {
+    insightsClient?.addEvent?.('ui_click', { name: 'fab.toggle', surface: 'mobile_v2_fab' }).catch?.(() => {});
     setOpen(v => {
       if (!v) {
         setRipple(true);
@@ -460,9 +464,13 @@ function FloatingActionMenu({ isSpeaking, canStop, onInterrupt, onStop, onKeyboa
       }
       return !v;
     });
-  }, []);
+  }, [insightsClient]);
 
-  const wrap = useCallback((fn: () => void) => () => { fn(); setOpen(false); }, []);
+  const wrap = useCallback((fn: () => void, name: string) => () => {
+    insightsClient?.addEvent?.('ui_click', { name, surface: 'mobile_v2_fab' }).catch?.(() => {});
+    fn();
+    setOpen(false);
+  }, [insightsClient]);
 
   const fabActions: FABAction[] = useMemo(() => chatMode ? [
     {
@@ -470,14 +478,14 @@ function FloatingActionMenu({ isSpeaking, canStop, onInterrupt, onStop, onKeyboa
       icon: Mic,
       label: 'Voice mode',
       variant: 'default' as const,
-      onClick: wrap(onKeyboard),
+      onClick: wrap(onKeyboard, 'fab.mic_from_chat'),
     },
     {
       id: 'settings',
       icon: Settings2,
       label: 'Settings',
       variant: 'default' as const,
-      onClick: wrap(onSettings),
+      onClick: wrap(onSettings, 'fab.settings_from_chat'),
     },
   ] : [
     ...(isSpeaking ? [{
@@ -485,28 +493,28 @@ function FloatingActionMenu({ isSpeaking, canStop, onInterrupt, onStop, onKeyboa
       icon: Pause,
       label: 'Interrupt',
       variant: 'default' as const,
-      onClick: wrap(onInterrupt),
+      onClick: wrap(onInterrupt, 'fab.interrupt'),
     }] : []),
     {
       id: 'keyboard',
       icon: Keyboard,
       label: 'Keyboard',
       variant: 'default' as const,
-      onClick: wrap(onKeyboard),
+      onClick: wrap(onKeyboard, 'fab.keyboard'),
     },
     ...(canStop ? [{
       id: 'stop',
       icon: Square,
       label: 'Stop',
       variant: 'danger' as const,
-      onClick: wrap(onStop),
+      onClick: wrap(onStop, 'fab.stop'),
     }] : []),
     {
       id: 'settings',
       icon: Settings2,
       label: 'Settings',
       variant: 'default' as const,
-      onClick: wrap(onSettings),
+      onClick: wrap(onSettings, 'fab.settings'),
     },
   ], [chatMode, isSpeaking, canStop, wrap, onInterrupt, onStop, onKeyboard, onSettings]);
 
@@ -760,6 +768,15 @@ export function ClaudeMobileShellV2({ voice, ui, auth, settings, widgetConfig, w
     actions.onStartStop();
   }, [actions]);
 
+  // ── Click telemetry wrappers (non-FAB clicks in this shell) ──
+  // FAB clicks are tracked inside FloatingActionMenu's wrap() helper.
+  const trackedHandleToggleChatMode = useTrackedClick(handleToggleChatMode, 'header.title_toggle_chat', 'mobile_v2');
+  const trackedCycleOrbSize = useTrackedClick(cycleOrbSize, 'orb.resize', 'mobile_v2');
+  const trackedRestoreOrbFull = useTrackedClick(restoreOrbFull, 'header.restore_orb', 'mobile_v2');
+  const trackedOrbStartStop = useTrackedClick(actions.onStartStop, 'orb.start_stop', 'mobile_v2');
+  const trackedOrbLogin = useTrackedClick(actions.onLogin, 'orb.login', 'mobile_v2');
+  const trackedWelcomeLogin = useTrackedClick(actions.onLogin, 'welcome.signin_button', 'mobile_v2');
+
   // ── Chat mode: full chat view, orb hidden ──
   if (chatMode) {
     return (
@@ -771,7 +788,7 @@ export function ClaudeMobileShellV2({ voice, ui, auth, settings, widgetConfig, w
           authAction={auth.isAuthenticated ? actions.onOpenSettings : actions.onLogin}
           authIcon={auth.isAuthenticated ? 'authenticated' : 'unauthenticated'}
           brandElement={<MiniOrb state={state} audioLevelRef={voice.audioLevelRef} />}
-          onTitleClick={handleToggleChatMode}
+          onTitleClick={trackedHandleToggleChatMode}
         />
 
         {/* Chat messages — scrollable, full height */}
@@ -895,7 +912,7 @@ export function ClaudeMobileShellV2({ voice, ui, auth, settings, widgetConfig, w
         authAction={auth.isAuthenticated ? () => setAccountOpen(true) : actions.onLogin}
         authIcon={auth.isAuthenticated ? 'authenticated' : 'unauthenticated'}
         brandElement={orbSize === 'icon' ? <MiniOrb state={state} audioLevelRef={voice.audioLevelRef} /> : undefined}
-        onTitleClick={orbSize === 'icon' ? restoreOrbFull : undefined}
+        onTitleClick={orbSize === 'icon' ? trackedRestoreOrbFull : undefined}
       />
 
       {/* Orb — absolute background, fades in centered then repositions after activation */}
@@ -918,7 +935,7 @@ export function ClaudeMobileShellV2({ voice, ui, auth, settings, widgetConfig, w
       >
         <div
           className="pointer-events-auto"
-          onClick={hasActivated && voice.started ? cycleOrbSize : undefined}
+          onClick={hasActivated && voice.started ? trackedCycleOrbSize : undefined}
           role={hasActivated && voice.started ? 'button' : undefined}
           aria-label={hasActivated && voice.started ? 'Resize orb' : undefined}
           style={{
@@ -934,7 +951,7 @@ export function ClaudeMobileShellV2({ voice, ui, auth, settings, widgetConfig, w
               level={level}
               variant="orb"
               audioLevelRef={voice.audioLevelRef}
-              onActivate={showWelcome ? actions.onLogin : actions.onStartStop}
+              onActivate={showWelcome ? trackedOrbLogin : trackedOrbStartStop}
             />
           </EventPulseRing>
         </div>
@@ -962,7 +979,7 @@ export function ClaudeMobileShellV2({ voice, ui, auth, settings, widgetConfig, w
             Sign in to experience the future
           </p>
           <button
-            onClick={actions.onLogin}
+            onClick={trackedWelcomeLogin}
             className="rounded-full px-6 py-2.5 text-sm font-medium text-white shadow-sc-md transition-all duration-200 active:scale-95"
             style={{
               background: 'linear-gradient(180deg, color-mix(in srgb, var(--sc-primary) 90%, white 10%), var(--sc-primary))',

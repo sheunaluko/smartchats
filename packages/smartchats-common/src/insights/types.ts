@@ -48,6 +48,7 @@ export const CommonEventTypes = {
   USER_INPUT: 'user_input',
   USER_INTERACTION: 'user_interaction',
   USER_OUTPUT: 'user_output',
+  UI_CLICK: 'ui_click',
 
   // LLM operations
   LLM_INVOCATION: 'llm_invocation',
