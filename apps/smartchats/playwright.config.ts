@@ -1,12 +1,26 @@
 import { defineConfig } from '@playwright/test';
+import * as os from 'os';
+
+// Worker count: env-tunable, sane defaults.
+// HEADED=1 forces workers=1 (you don't want N Chrome windows fighting for focus).
+// CI defaults to 2; local defaults to min(4, cpus/2).
+function resolveWorkers(): number {
+  if (process.env.PW_WORKERS) return Math.max(1, parseInt(process.env.PW_WORKERS, 10) || 1);
+  if (process.env.HEADED) return 1;
+  if (process.env.CI) return 2;
+  return Math.min(4, Math.max(1, Math.floor(os.cpus().length / 2)));
+}
 
 export default defineConfig({
   testDir: './tests/e2e',
   globalSetup: require.resolve('./tests/e2e/simi_global_setup'),
+  // Parallel/serial granularity is controlled per-describe in simi.spec.ts
+  // (test.describe.configure({ mode: 'parallel' | 'serial' })). Leaving
+  // fullyParallel off so non-simi specs default to serial within a file.
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
-  workers: 1,
+  workers: resolveWorkers(),
   reporter: 'html',
   use: {
     baseURL: 'http://localhost:3000',
