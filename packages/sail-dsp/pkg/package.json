@@ -1,0 +1,17 @@
+{
+  "name": "sail-dsp",
+  "type": "module",
+  "description": "Rust→WASM audio DSP primitives for SmartChats Audio Intelligence Lab (/sail)",
+  "version": "0.1.0",
+  "license": "MIT",
+  "files": [
+    "sail_dsp_bg.wasm",
+    "sail_dsp.js",
+    "sail_dsp.d.ts"
+  ],
+  "main": "sail_dsp.js",
+  "types": "sail_dsp.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}

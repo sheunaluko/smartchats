@@ -42,6 +42,9 @@ export const PARALLEL_SAFE: WorkflowDef[] = [
   { name: 'auto_todo_flow', bridge: '__smartchats__' },
   { name: 'auto_kg_explorer_flow', bridge: '__smartchats__' },
   { name: 'complete_onboarding', bridge: '__smartchats__' },
+  { name: 'scripture_time_flow', bridge: '__smartchats__' },
+  { name: 'web_search_flow', bridge: '__smartchats__' },
+  { name: 'structured_completion_flow', bridge: '__smartchats__' },
 
   // ── Read-only billing fetches ──
   { name: 'usage_fetch_flow', bridge: '__smartchats_billing__' },

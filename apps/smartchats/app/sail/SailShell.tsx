@@ -32,6 +32,7 @@ import { useInsights } from '@/context/InsightsContext';
 import { Spectrogram } from './components/Spectrogram';
 import { EventTracePanel } from './components/EventTracePanel';
 import { AudioContextInspector } from './components/AudioContextInspector';
+import { LabPoc } from './components/LabPoc';
 
 export function SailShell({ voice, actions }: ShellProps) {
     const { client } = useInsights();
@@ -107,12 +108,13 @@ export function SailShell({ voice, actions }: ShellProps) {
                     overflow: 'hidden',
                 }}
             >
-                {/* Left column: spectrogram + ctx inspector */}
+                {/* Left column: spectrogram + ctx inspector + lab POC */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12, overflow: 'hidden' }}>
                     <div style={{ flex: 1, minHeight: 0 }}>
                         <Spectrogram height={300} label="Microphone" />
                     </div>
                     <AudioContextInspector />
+                    <LabPoc />
                 </div>
 
                 {/* Right column: event trace */}

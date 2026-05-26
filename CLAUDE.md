@@ -17,6 +17,7 @@ Public, MIT-licensed open-source voice AI agent. End users clone this repo and r
 | Understand the agent runtime | `packages/cortex/` |
 | Understand the voice pipeline | `packages/tivi/` |
 | Understand the smartchats app | `apps/smartchats/CLAUDE.md` (auto-loads when entering subtree) |
+| Add a new tool the agent can call | `apps/smartchats/app/modules/tool_creation_skill.md` |
 | Understand the CLI | `packages/smartchats-cli/README.md` |
 
 ## Dev workflow

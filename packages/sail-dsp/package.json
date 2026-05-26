@@ -1,0 +1,30 @@
+{
+  "name": "sail-dsp",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Rust→WASM audio DSP primitives for SmartChats Audio Intelligence Lab (/sail)",
+  "license": "MIT",
+  "main": "./pkg/sail_dsp.js",
+  "types": "./pkg/sail_dsp.d.ts",
+  "exports": {
+    ".": {
+      "types": "./pkg/sail_dsp.d.ts",
+      "import": "./pkg/sail_dsp.js"
+    },
+    "./pkg/sail_dsp_bg.wasm": "./pkg/sail_dsp_bg.wasm"
+  },
+  "files": [
+    "pkg/sail_dsp.js",
+    "pkg/sail_dsp.d.ts",
+    "pkg/sail_dsp_bg.wasm",
+    "pkg/sail_dsp_bg.wasm.d.ts",
+    "Cargo.toml",
+    "src",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "echo 'sail-dsp: pkg/ is committed; run `npm run build:rust` to rebuild from .rs sources' && exit 0",
+    "build:rust": "wasm-pack build --target web --release && rm -f pkg/.gitignore",
+    "build:rust:dev": "wasm-pack build --target web --dev && rm -f pkg/.gitignore"
+  }
+}

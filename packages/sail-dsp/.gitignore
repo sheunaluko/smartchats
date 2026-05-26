@@ -1,0 +1,8 @@
+# Cargo build output — large + machine-specific.
+# pkg/ (wasm-pack output) is deliberately NOT ignored: it's the artifact
+# that ships to JS consumers, committed so they don't need rust installed.
+target/
+
+# Rust build cache, IDE noise
+**/*.rs.bk
+Cargo.lock.bak

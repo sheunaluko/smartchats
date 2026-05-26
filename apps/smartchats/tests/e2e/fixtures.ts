@@ -45,6 +45,15 @@ export const test = baseTest.extend<
     const ctx = await chromium.launchPersistentContext(profileDir, {
       headless: !headed,
       viewport: { width: 1280, height: 720 },
+      // Synthetic mic so headless `getUserMedia` doesn't error. Harmless
+      // for /app simi workflows (they inject text via sendMessageAsync, not
+      // real voice) and required for /sail's Spectrogram to mount cleanly
+      // without a permission prompt. Add `--use-file-for-fake-audio-capture=...`
+      // if a test ever needs a real audio clip as the fake input.
+      args: [
+        '--use-fake-ui-for-media-stream',
+        '--use-fake-device-for-media-stream',
+      ],
     });
     await use(ctx);
     await ctx.close();

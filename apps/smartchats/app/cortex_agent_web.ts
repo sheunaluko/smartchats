@@ -32,6 +32,7 @@ import { createDynamicFunctionMgmtModule } from "./modules/dynamic_function_mgmt
 import { createProcessModule } from "./modules/process"
 import { createKnowledgeGraphFunctionsModule } from "./modules/knowledge_graph"
 import { createWebSearchModule } from "./modules/web_search"
+import { createScriptureModule } from "./modules/scripture"
 import { createDisplayModule } from "./modules/display"
 import { createVisualizationModule } from "./modules/visualization"
 import { createCliAgentModule } from "./modules/cli_agent"
@@ -104,6 +105,7 @@ export function get_agent(modelName: string = "gpt-5-mini", insightsClient?: any
     scm.add_module(createProcessModule())
     scm.add_module(createKnowledgeGraphFunctionsModule())
     scm.add_module(createWebSearchModule())
+    scm.add_module(createScriptureModule())
     scm.add_module(createDisplayModule())
     scm.add_module(createVisualizationModule())
     scm.add_module(createMetricsModule())

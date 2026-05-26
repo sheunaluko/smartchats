@@ -32,6 +32,9 @@ import { autoTodoFlow } from './workflows/auto_todo_flow';
 import { autoKgExplorerFlow } from './workflows/auto_kg_explorer_flow';
 import { shellModeCycleFlow } from './workflows/shell_mode_cycle_flow';
 import { completeOnboardingFlow } from './workflows/complete_onboarding';
+import { scriptureTimeFlow } from './workflows/scripture_time_flow';
+import { webSearchFlow } from './workflows/web_search_flow';
+import { structuredCompletionFlow } from './workflows/structured_completion_flow';
 
 export const cortexWorkflows = {
   complete_onboarding: completeOnboardingFlow,
@@ -68,4 +71,7 @@ export const cortexWorkflows = {
   auto_todo_flow: autoTodoFlow,
   auto_kg_explorer_flow: autoKgExplorerFlow,
   shell_mode_cycle_flow: shellModeCycleFlow,
+  scripture_time_flow: scriptureTimeFlow,
+  web_search_flow: webSearchFlow,
+  structured_completion_flow: structuredCompletionFlow,
 };

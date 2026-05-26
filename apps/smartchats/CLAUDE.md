@@ -5,8 +5,9 @@
 - Main component: `app/app3.tsx` — thin UI shell: auth, tivi wiring, widget grid, settings auto-save (432 lines)
 - Store: Zustand store in `app/store/useSmartChatsStore.ts` via `createInsightStore` — key state lives here
 - Billing store: `src/stores/billing_store.ts` via `createInsightStore` — credit balance, tiers, BYO keys
-- Agent config: `app/cortex_agent_web.ts` — function definitions, `get_agent()`, uses `cloudLLMCall`
-- Agent engine: `packages/ts_common/src/apis/cortex/cortex.ts` — LLM loop, function execution, provider routing
+- Agent config: `app/cortex_agent_web.ts` — `get_agent()`, SystemContextManager (SCM) wiring of all module factories from `app/modules/`
+- Agent engine: `packages/cortex/src/cortex.ts` — LLM loop, function execution, provider routing
+- Agent modules (tools + system-prompt fragments): `app/modules/*.ts` — see `app/modules/tool_creation_skill.md` for how to add one
 - Orchestrator: `app/hooks/useOrchestrator.ts` — event dispatch, voice lifecycle, TTS telemetry (515 lines)
 - Hooks: `app/hooks/` — useOrchestrator, useStreamBuffers, usePipelineTelemetry, useChatMode, useCortexAgent, useWidgetConfig
 - Components: `app/components/` — TopBar, SettingsPanel, ChatModeView, FullscreenWidget, DraggableWidgetGrid, SessionBrowser, AudioVisualization, VoiceStatusIndicator
@@ -258,7 +259,7 @@ SmartChats imports from ts_next_app via path aliases configured in `tsconfig.jso
 
 ## Adding Things
 - **New widget**: create in `app/widgets/`, register in `hooks/useWidgetConfig.ts`, add layout in `components/DraggableWidgetGrid.tsx`, render in `components/FullscreenWidget.tsx` (`renderWidget` switch)
-- **New agent function**: define in `app/cortex_agent_web.ts`, add to `functions` array with `enabled: true`
+- **New agent function (tool)**: create or extend a module factory in `app/modules/<feature>.ts`, register it in `app/cortex_agent_web.ts` via `scm.add_module(createMyFeatureModule())`. Full guide: `app/modules/tool_creation_skill.md`
 - **New event**: emit via `ops.util.event()`, add handler in `handleEvent` switch in `hooks/useOrchestrator.ts` and/or store actions in `store/useSmartChatsStore.ts`
 - **New store state**: add to `SmartChatsState` interface and `creator` in `store/useSmartChatsStore.ts`
 - **New hook**: create in `app/hooks/`, import in app3 or useOrchestrator

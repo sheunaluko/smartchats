@@ -154,14 +154,7 @@ export async function nonStreamingBackendLlmCall(args: {
     signal?: AbortSignal;
 }): Promise<any> {
     const schemaArgs = args.schema && args.schema_name
-        ? {
-            text_format: {
-                type: 'json_schema' as const,
-                name: args.schema_name,
-                strict: true,
-                schema: args.schema,
-            },
-        }
+        ? { schema: args.schema, schema_name: args.schema_name }
         : {};
     const { stream, done } = await getBackend().llm.stream({
         model: args.model,
@@ -171,7 +164,7 @@ export async function nonStreamingBackendLlmCall(args: {
         session_id: args.session_id,
         signal: args.signal,
         ...schemaArgs,
-    } as any);
+    });
     // Drain the stream — `done` is only settled inside the stream's async
     // generator (see createLLMStreamResult in smartchats-backend). Awaiting
     // `done` without iterating would hang forever.
