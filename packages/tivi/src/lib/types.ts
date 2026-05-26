@@ -124,6 +124,12 @@ export interface UseTiviOptions {
 
   /** Fired when the TTS queue finishes all entries (drain). cancelled=true if user interrupted. */
   onQueueDrain?: (info: { cancelled: boolean }) => void;
+
+  /** Fired once per streaming utterance with chunk-level scheduling metrics
+   *  (first-chunk slack, snap-forward count, per-chunk arrival/schedule timing).
+   *  Used by the app to emit a `tts_playback_timing` insights event for
+   *  diagnosing first-chunk jitter. Fire-and-forget. */
+  onTtsPlaybackTiming?: (event: import('./tts_queue').TtsPlaybackTimingEvent) => void;
 }
 
 export interface UseTiviReturn {

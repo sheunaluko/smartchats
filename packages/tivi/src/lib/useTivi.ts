@@ -39,6 +39,7 @@ export function useTivi(options: UseTiviOptions): UseTiviReturn {
     onQueueFirstUtterance,
     onQueueEntryComplete,
     onQueueDrain,
+    onTtsPlaybackTiming,
   } = options;
 
   // Auto-resolve ttsCallFn based on settings and props
@@ -91,6 +92,7 @@ export function useTivi(options: UseTiviOptions): UseTiviReturn {
   const onQueueFirstUtteranceRef = useRef(onQueueFirstUtterance);
   const onQueueEntryCompleteRef = useRef(onQueueEntryComplete);
   const onQueueDrainRef = useRef(onQueueDrain);
+  const onTtsPlaybackTimingRef = useRef(onTtsPlaybackTiming);
 
   // Keep refs in sync with props/state
   useEffect(() => {
@@ -120,6 +122,10 @@ export function useTivi(options: UseTiviOptions): UseTiviReturn {
   useEffect(() => {
     onQueueDrainRef.current = onQueueDrain;
   }, [onQueueDrain]);
+
+  useEffect(() => {
+    onTtsPlaybackTimingRef.current = onTtsPlaybackTiming;
+  }, [onTtsPlaybackTiming]);
 
   // TTS queue lifecycle — always create (browser TTS via speakFn when no ttsCallFn)
   useEffect(() => {
@@ -168,6 +174,9 @@ export function useTivi(options: UseTiviOptions): UseTiviReturn {
       },
       onEntryComplete: (info) => {
         onQueueEntryCompleteRef.current?.(info);
+      },
+      onTtsPlaybackTiming: (event) => {
+        onTtsPlaybackTimingRef.current?.(event);
       },
     });
 

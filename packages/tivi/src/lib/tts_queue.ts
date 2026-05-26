@@ -28,6 +28,66 @@ export interface QueueEntryStatus {
   cached?: boolean;
 }
 
+/**
+ * Per-chunk timing sample inside a streaming utterance. `arrival_ms` is
+ * relative to the start of `playStream` (or `playExternalStreamAudio`).
+ * `schedule_slack_ms` is `scheduleTime - ctx.currentTime` at the moment
+ * `source.start()` is called — the lookahead headroom the audio thread
+ * had for this chunk. Negative values mean we'd already missed; the
+ * stream-scheduler snapped forward to `ctx.currentTime + 10ms`.
+ * `snapped_forward` is true when that snap fired for this chunk.
+ */
+export interface TtsChunkSample {
+  index: number;
+  arrival_ms: number;
+  samples: number;
+  duration_ms: number;
+  schedule_slack_ms: number;
+  snapped_forward: boolean;
+}
+
+/**
+ * Aggregated timing event for one streaming TTS utterance. Built inside
+ * `tts_queue.ts` and fired once per utterance via `onTtsPlaybackTiming`
+ * (cancelled or not). Designed to diagnose first-chunk audio glitches:
+ * if `first_chunk.snapped_forward` is true and `first_chunk.schedule_slack_ms`
+ * is near zero, the audio thread had no lookahead when chunk 0 started —
+ * the most likely cause of the audible click/silence at the start of
+ * an utterance.
+ *
+ * `chunks` is capped to keep insights payload bounded.
+ */
+export interface TtsPlaybackTimingEvent {
+  utterance_id: string;
+  text_preview: string;
+  path: 'stream' | 'external_stream';
+  /** AudioContext state observed BEFORE any resume. */
+  ctx_state_before: AudioContextState;
+  /** Time spent in `await ctx.resume()`, null if state was already running. */
+  ctx_resume_ms: number | null;
+  /** AudioContext.baseLatency in ms (browser/OS audio output floor). */
+  ctx_base_latency_ms: number;
+  /** AudioContext.outputLatency in ms if supported, else null. */
+  ctx_output_latency_ms: number | null;
+  /** Time from playStream entry to TTS server returning the first byte (request → response). */
+  connect_ms: number | null;
+  /** Configured lookahead (ms) used to seed scheduleTime. */
+  initial_lookahead_ms: number;
+  /** Total time playStream spent receiving + scheduling chunks. */
+  stream_duration_ms: number;
+  /** Total audible audio scheduled, in ms. */
+  total_audio_ms: number;
+  /** Count of chunks received (not necessarily == chunks.length, which is capped). */
+  total_chunks: number;
+  /** Count of chunks that triggered snap-forward (schedule fell behind ctx.currentTime). */
+  snap_forward_count: number;
+  /** First-chunk metrics, broken out for fast querying. */
+  first_chunk: TtsChunkSample | null;
+  /** Capped sample of chunks (currently first 10). */
+  chunks: TtsChunkSample[];
+  cancelled: boolean;
+}
+
 export interface TTSSpeechQueueConfig {
   /** AudioBuffer-based TTS (OpenAI etc). Optional when speakFn is provided. */
   ttsCallFn?: TTSCallFn;
@@ -51,7 +111,14 @@ export interface TTSSpeechQueueConfig {
   onFirstUtterance?: () => void;
   /** Fired after each entry finishes playing. */
   onEntryComplete?: (info: { id: number; text: string | null; duration_ms: number }) => void;
+  /** Fired once per streaming utterance with chunk-level scheduling metrics.
+   *  Used for first-chunk-jitter diagnosis. Fire-and-forget; emits even
+   *  when the utterance is cancelled (so cancellation patterns are visible). */
+  onTtsPlaybackTiming?: (event: TtsPlaybackTimingEvent) => void;
 }
+
+const INITIAL_LOOKAHEAD_S = 0.15;
+const CHUNK_SAMPLE_CAP = 10;
 
 interface QueueEntry {
   id: number;
@@ -130,6 +197,7 @@ export function createTTSSpeechQueue(config: TTSSpeechQueueConfig) {
     getCachedBuffer,
     onFirstUtterance,
     onEntryComplete,
+    onTtsPlaybackTiming,
   } = config;
 
   let voice = config.voice ?? 'nova';
@@ -352,23 +420,38 @@ export function createTTSSpeechQueue(config: TTSSpeechQueueConfig) {
     isCancelled: () => boolean,
   ): Promise<void> {
     const ctx = getAudioContext();
-    if (ctx.state === 'suspended') await ctx.resume();
+    const ctxStateBefore = ctx.state;
+    let ctxResumeMs: number | null = null;
+    if (ctx.state === 'suspended') {
+      const t0 = performance.now();
+      await ctx.resume();
+      ctxResumeMs = performance.now() - t0;
+    }
 
     const streamStart = performance.now();
     log(`playStream: starting "${text.slice(0, 50)}"`);
 
-    const { stream, done } = await ttsStreamCallFn!(text, voice, model, speed);
-    log(`playStream: connected in ${(performance.now() - streamStart).toFixed(0)}ms`);
+    const utteranceId = `utt_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
+    const chunkSamples: TtsChunkSample[] = [];
+    let snapForwardCount = 0;
+    let totalAudioMs = 0;
+    let connectMs: number | null = null;
+    let cancelledDuringStream = false;
 
-    // Schedule time starts 150ms ahead of "now" to absorb jitter
-    let scheduleTime = ctx.currentTime + 0.15;
+    const { stream, done } = await ttsStreamCallFn!(text, voice, model, speed);
+    connectMs = performance.now() - streamStart;
+    log(`playStream: connected in ${connectMs.toFixed(0)}ms`);
+
+    // Schedule time starts INITIAL_LOOKAHEAD_S ahead of "now" to absorb jitter
+    let scheduleTime = ctx.currentTime + INITIAL_LOOKAHEAD_S;
     let lastSource: AudioBufferSourceNode | null = null;
     let chunkIdx = 0;
     activeStreamSources = [];
 
     for await (const chunk of stream) {
-      if (isCancelled()) break;
+      if (isCancelled()) { cancelledDuringStream = true; break; }
 
+      const arrivalMs = performance.now() - streamStart;
       const buf = ctx.createBuffer(1, chunk.length, 24000);
       buf.getChannelData(0).set(chunk);
 
@@ -380,9 +463,15 @@ export function createTTSSpeechQueue(config: TTSSpeechQueueConfig) {
       totalSourceNodesCreated++;
 
       // If schedule time has fallen behind, snap forward
+      let snappedForward = false;
       if (scheduleTime < ctx.currentTime) {
         scheduleTime = ctx.currentTime + 0.01;
+        snappedForward = true;
+        snapForwardCount++;
       }
+
+      // Slack at the moment we hand the buffer to the audio thread.
+      const scheduleSlackMs = (scheduleTime - ctx.currentTime) * 1000;
 
       source.start(scheduleTime);
       scheduleTime += buf.duration;
@@ -391,10 +480,47 @@ export function createTTSSpeechQueue(config: TTSSpeechQueueConfig) {
       lastSource = source;
       peakConcurrentSources = Math.max(peakConcurrentSources, activeStreamSources.length);
 
-      log(`playStream: chunk ${chunkIdx++} | ${chunk.length} samples (${(buf.duration * 1000).toFixed(0)}ms audio) | T+${(performance.now() - streamStart).toFixed(0)}ms`);
+      totalAudioMs += buf.duration * 1000;
+      if (chunkSamples.length < CHUNK_SAMPLE_CAP) {
+        chunkSamples.push({
+          index: chunkIdx,
+          arrival_ms: arrivalMs,
+          samples: chunk.length,
+          duration_ms: buf.duration * 1000,
+          schedule_slack_ms: scheduleSlackMs,
+          snapped_forward: snappedForward,
+        });
+      }
+
+      log(`playStream: chunk ${chunkIdx++} | ${chunk.length} samples (${(buf.duration * 1000).toFixed(0)}ms audio) | T+${arrivalMs.toFixed(0)}ms`);
     }
 
-    log(`playStream: ${chunkIdx} chunks received in ${(performance.now() - streamStart).toFixed(0)}ms | scheduled audio ends in +${((scheduleTime - ctx.currentTime) * 1000).toFixed(0)}ms`);
+    const streamDurationMs = performance.now() - streamStart;
+    log(`playStream: ${chunkIdx} chunks received in ${streamDurationMs.toFixed(0)}ms | scheduled audio ends in +${((scheduleTime - ctx.currentTime) * 1000).toFixed(0)}ms`);
+
+    // Fire telemetry — fire-and-forget, even on cancellation.
+    try {
+      onTtsPlaybackTiming?.({
+        utterance_id: utteranceId,
+        text_preview: text.slice(0, 80),
+        path: 'stream',
+        ctx_state_before: ctxStateBefore,
+        ctx_resume_ms: ctxResumeMs,
+        ctx_base_latency_ms: (ctx.baseLatency ?? 0) * 1000,
+        ctx_output_latency_ms: typeof (ctx as any).outputLatency === 'number'
+          ? (ctx as any).outputLatency * 1000
+          : null,
+        connect_ms: connectMs,
+        initial_lookahead_ms: INITIAL_LOOKAHEAD_S * 1000,
+        stream_duration_ms: streamDurationMs,
+        total_audio_ms: totalAudioMs,
+        total_chunks: chunkIdx,
+        snap_forward_count: snapForwardCount,
+        first_chunk: chunkSamples[0] ?? null,
+        chunks: chunkSamples,
+        cancelled: cancelledDuringStream || isCancelled(),
+      });
+    } catch { /* swallow telemetry errors */ }
 
     // Wait for billing to settle
     await done.catch(() => {});
@@ -419,20 +545,33 @@ export function createTTSSpeechQueue(config: TTSSpeechQueueConfig) {
     isCancelled: () => boolean,
   ): Promise<void> {
     const ctx = getAudioContext();
-    if (ctx.state === 'suspended') await ctx.resume();
+    const ctxStateBefore = ctx.state;
+    let ctxResumeMs: number | null = null;
+    if (ctx.state === 'suspended') {
+      const t0 = performance.now();
+      await ctx.resume();
+      ctxResumeMs = performance.now() - t0;
+    }
 
     const streamStart = performance.now();
     log(`playExternalStreamAudio: starting`);
 
-    // Schedule time starts 150ms ahead of "now" to absorb jitter
-    let scheduleTime = ctx.currentTime + 0.15;
+    const utteranceId = `utt_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
+    const chunkSamples: TtsChunkSample[] = [];
+    let snapForwardCount = 0;
+    let totalAudioMs = 0;
+    let cancelledDuringStream = false;
+
+    // Schedule time starts INITIAL_LOOKAHEAD_S ahead of "now" to absorb jitter
+    let scheduleTime = ctx.currentTime + INITIAL_LOOKAHEAD_S;
     let lastSource: AudioBufferSourceNode | null = null;
     let chunkIdx = 0;
     activeStreamSources = [];
 
     for await (const chunk of chunks) {
-      if (isCancelled()) break;
+      if (isCancelled()) { cancelledDuringStream = true; break; }
 
+      const arrivalMs = performance.now() - streamStart;
       const buf = ctx.createBuffer(1, chunk.length, 24000);
       buf.getChannelData(0).set(chunk);
 
@@ -444,9 +583,14 @@ export function createTTSSpeechQueue(config: TTSSpeechQueueConfig) {
       totalSourceNodesCreated++;
 
       // If schedule time has fallen behind, snap forward
+      let snappedForward = false;
       if (scheduleTime < ctx.currentTime) {
         scheduleTime = ctx.currentTime + 0.01;
+        snappedForward = true;
+        snapForwardCount++;
       }
+
+      const scheduleSlackMs = (scheduleTime - ctx.currentTime) * 1000;
 
       source.start(scheduleTime);
       scheduleTime += buf.duration;
@@ -455,11 +599,48 @@ export function createTTSSpeechQueue(config: TTSSpeechQueueConfig) {
       lastSource = source;
       peakConcurrentSources = Math.max(peakConcurrentSources, activeStreamSources.length);
 
+      totalAudioMs += buf.duration * 1000;
+      if (chunkSamples.length < CHUNK_SAMPLE_CAP) {
+        chunkSamples.push({
+          index: chunkIdx,
+          arrival_ms: arrivalMs,
+          samples: chunk.length,
+          duration_ms: buf.duration * 1000,
+          schedule_slack_ms: scheduleSlackMs,
+          snapped_forward: snappedForward,
+        });
+      }
+
       chunkIdx++;
-      if (logStreamChunks) log(`playExternalStreamAudio: chunk ${chunkIdx} | ${chunk.length} samples (${(buf.duration * 1000).toFixed(0)}ms audio) | T+${(performance.now() - streamStart).toFixed(0)}ms`);
+      if (logStreamChunks) log(`playExternalStreamAudio: chunk ${chunkIdx} | ${chunk.length} samples (${(buf.duration * 1000).toFixed(0)}ms audio) | T+${arrivalMs.toFixed(0)}ms`);
     }
 
-    log(`playExternalStreamAudio: ${chunkIdx} chunks in ${(performance.now() - streamStart).toFixed(0)}ms | scheduled audio ends in +${((scheduleTime - ctx.currentTime) * 1000).toFixed(0)}ms`);
+    const streamDurationMs = performance.now() - streamStart;
+    log(`playExternalStreamAudio: ${chunkIdx} chunks in ${streamDurationMs.toFixed(0)}ms | scheduled audio ends in +${((scheduleTime - ctx.currentTime) * 1000).toFixed(0)}ms`);
+
+    // Fire telemetry — fire-and-forget, even on cancellation.
+    try {
+      onTtsPlaybackTiming?.({
+        utterance_id: utteranceId,
+        text_preview: '<external_stream>',
+        path: 'external_stream',
+        ctx_state_before: ctxStateBefore,
+        ctx_resume_ms: ctxResumeMs,
+        ctx_base_latency_ms: (ctx.baseLatency ?? 0) * 1000,
+        ctx_output_latency_ms: typeof (ctx as any).outputLatency === 'number'
+          ? (ctx as any).outputLatency * 1000
+          : null,
+        connect_ms: null,
+        initial_lookahead_ms: INITIAL_LOOKAHEAD_S * 1000,
+        stream_duration_ms: streamDurationMs,
+        total_audio_ms: totalAudioMs,
+        total_chunks: chunkIdx,
+        snap_forward_count: snapForwardCount,
+        first_chunk: chunkSamples[0] ?? null,
+        chunks: chunkSamples,
+        cancelled: cancelledDuringStream || isCancelled(),
+      });
+    } catch { /* swallow telemetry errors */ }
 
     // Wait for the last scheduled source to finish playing
     if (lastSource && !isCancelled()) {

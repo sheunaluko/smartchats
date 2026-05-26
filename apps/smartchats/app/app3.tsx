@@ -247,6 +247,7 @@ const Component: NextPage = (props: any) => {
     // ── Tivi TTS telemetry refs ──
     const onQueueFirstUtteranceRef = useRef<() => void>(() => {});
     const onQueueDrainRef = useRef<(info: { cancelled: boolean }) => void>(() => {});
+    const onTtsPlaybackTimingRef = useRef<(event: any) => void>(() => {});
 
     // ── Tivi ──
     const tivi = useTivi({
@@ -266,6 +267,7 @@ const Component: NextPage = (props: any) => {
             log(`TTS entry complete: id=${info.id} text="${(info.text || '').slice(0, 40)}" duration=${info.duration_ms}ms`);
         },
         onQueueDrain: (info) => onQueueDrainRef.current(info),
+        onTtsPlaybackTiming: (event) => onTtsPlaybackTimingRef.current(event),
     });
 
     const tiviRef = useRef(tivi);
@@ -284,7 +286,8 @@ const Component: NextPage = (props: any) => {
     useEffect(() => {
         onQueueFirstUtteranceRef.current = orchestrator.onQueueFirstUtterance;
         onQueueDrainRef.current = orchestrator.onQueueDrain;
-    }, [orchestrator.onQueueFirstUtterance, orchestrator.onQueueDrain]);
+        onTtsPlaybackTimingRef.current = orchestrator.onTtsPlaybackTiming;
+    }, [orchestrator.onQueueFirstUtterance, orchestrator.onQueueDrain, orchestrator.onTtsPlaybackTiming]);
 
     useEffect(() => {
         useSmartChatsStore.getState().registerVoiceActions({

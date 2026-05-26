@@ -29,6 +29,8 @@ export interface OrchestratorActions {
     onQueueFirstUtterance: () => void;
     /** Stamp tts_queue_drain + emit voice_interaction_complete — pass to useTivi's onQueueDrain */
     onQueueDrain: (info: { cancelled: boolean }) => void;
+    /** Emit tts_playback_timing insights event — pass to useTivi's onTtsPlaybackTiming */
+    onTtsPlaybackTiming: (event: any) => void;
     /** Raw stream text ref from useStreamBuffers */
     rawStreamRef: React.MutableRefObject<string>;
 }
@@ -592,6 +594,15 @@ export function useOrchestrator(params: OrchestratorParams): OrchestratorActions
         insightsClient.current?.flushBatch();
     }, [telemetry, insightsClient]);
 
+    // Emit tts_playback_timing insights event for chunk-level scheduling
+    // diagnostics. Tagged 'latency' + 'tts' so triage can filter cleanly.
+    // Phase A of the audio jitter investigation — see STATUS.txt P1.
+    const onTtsPlaybackTiming = useCallback((event: any) => {
+        insightsClient.current?.addEvent?.('tts_playback_timing', event, {
+            tags: ['latency', 'tts'],
+        }).catch(() => {});
+    }, [insightsClient]);
+
     return useMemo(() => ({
         handleStartStop,
         transcriptionCb,
@@ -599,8 +610,9 @@ export function useOrchestrator(params: OrchestratorParams): OrchestratorActions
         handleEvent,
         onQueueFirstUtterance,
         onQueueDrain,
+        onTtsPlaybackTiming,
         rawStreamRef: buffers.rawStreamRef,
-    }), [handleStartStop, transcriptionCb, setTranscribe, handleEvent, onQueueFirstUtterance, onQueueDrain, buffers.rawStreamRef]);
+    }), [handleStartStop, transcriptionCb, setTranscribe, handleEvent, onQueueFirstUtterance, onQueueDrain, onTtsPlaybackTiming, buffers.rawStreamRef]);
 }
 
 // ── Helper: Initialize audio ──
