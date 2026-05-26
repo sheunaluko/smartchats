@@ -489,6 +489,17 @@ export interface InsightEvent {
 
 export interface InsightsAPI {
   emit(events: InsightEvent[]): Promise<{ stored: number; errors?: string[] }>;
+  /**
+   * Fire-and-forget flush for unload/crash paths. MUST be synchronous (no
+   * await) — used inside `pagehide`, `visibilitychange='hidden'`, and the
+   * global `runtime_error` handler, where there's no time to await an
+   * async POST. Backends that have a keepalive transport (e.g. `fetch`
+   * with `keepalive: true` or `navigator.sendBeacon`) should implement
+   * this to survive a tab being killed mid-request. Backends without
+   * one leave it undefined and the client falls back to the regular
+   * async `flushBatch` (best-effort, may be aborted by the browser).
+   */
+  terminalEmit?: (events: InsightEvent[]) => void;
 }
 
 // ============================================================================

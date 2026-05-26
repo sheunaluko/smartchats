@@ -66,6 +66,14 @@ export function InsightsProvider({
         const { stored, errors } = await getBackend().insights.emit(events);
         return { success: true, events_received: events.length, events_stored: stored, errors };
       },
+      // Unload/crash-path emitter: synchronous, fire-and-forget. Routed
+      // through the backend's terminalEmit which uses fetch+keepalive (or
+      // sendBeacon fallback) so the request survives a page death. Backends
+      // without a keepalive transport leave it undefined and the client
+      // falls back to a best-effort async flushBatch.
+      terminalEmit: (events) => {
+        getBackend().insights.terminalEmit?.(events);
+      },
     });
 
     if (typeof window !== 'undefined') {
@@ -104,6 +112,10 @@ export function InsightsProvider({
         // addEvent's sync portion pushes into the batch immediately, so the
         // event is queued by the time the promise resolves. Chain a flush
         // onto it to push the batch out the door before the next crash.
+        // Push the event into the batch and immediately drain via the
+        // keepalive transport. flushTerminal is sync — addEvent's sync
+        // portion has already pushed the event, so by the time the
+        // promise resolves the event is in the batch ready to drain.
         clientRef.current?.addEvent?.('runtime_error', {
           source,
           error_message: message,
@@ -114,7 +126,7 @@ export function InsightsProvider({
           stack: typeof stack === 'string' ? stack.slice(0, 4000) : undefined,
           ...extra,
         })
-          .then(() => clientRef.current?.flushBatch?.())
+          .then(() => clientRef.current?.flushTerminal?.())
           .catch(() => {});
       };
       onWindowError = (ev) => {
@@ -134,11 +146,13 @@ export function InsightsProvider({
       // pagehide fires on tab close, navigation away, and bfcache freeze.
       // visibilitychange='hidden' fires earlier (on tab switch, app
       // backgrounding) — gives us a chance to flush before pagehide on
-      // mobile where the OS may kill the page outright. Both call the
-      // same flushBatch; harmless if called twice in quick succession
+      // mobile where the OS may kill the page outright. Both go through
+      // flushTerminal (sync, uses fetch+keepalive via the backend's
+      // terminalEmit) so the request survives the page being killed
+      // immediately after. Harmless if called twice in quick succession
       // (second pass finds an empty batch).
       onPageHide = () => {
-        clientRef.current?.flushBatch?.().catch(() => {});
+        clientRef.current?.flushTerminal?.();
       };
       onVisibility = () => {
         if (document.visibilityState === 'hidden') onPageHide?.();

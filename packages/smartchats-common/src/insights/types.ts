@@ -128,6 +128,13 @@ export interface InsightsConfig {
    *  path. Lets callers route insights through SmartChatsBackend without
    *  creating a circular import (vendor/insights.ts stays backend-agnostic). */
   emit?: (events: InsightsEvent[]) => Promise<InsightsBatchResponse>;
+  /** Optional synchronous, fire-and-forget emitter for unload/crash paths
+   *  (pagehide, visibilitychange='hidden', global runtime_error). MUST NOT
+   *  await — used when the page is dying and there's no time for a normal
+   *  async POST. Backends should implement with `fetch(..., { keepalive:
+   *  true })` or `navigator.sendBeacon()` so the request survives. If
+   *  undefined, `flushTerminal()` falls back to a best-effort `flushBatch()`. */
+  terminalEmit?: (events: InsightsEvent[]) => void;
   batch_size?: number;
   batch_interval_ms?: number;
   enabled?: boolean;

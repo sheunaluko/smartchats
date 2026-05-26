@@ -105,7 +105,8 @@ function getClientInfo(): { user_agent: string; viewport_size: string; [key: str
  * InsightsClient class - Main client for event tracking
  */
 export class InsightsClient {
-  private config: Required<Omit<InsightsConfig, 'emit'>> & Pick<InsightsConfig, 'emit'>;
+  private config: Required<Omit<InsightsConfig, 'emit' | 'terminalEmit'>>
+    & Pick<InsightsConfig, 'emit' | 'terminalEmit'>;
   private eventBatch: InsightsEvent[] = [];
   private sessionEvents: InsightsEvent[] = [];
   private batchTimer: any = null;
@@ -122,6 +123,7 @@ export class InsightsClient {
       session_id: config.session_id || generateSessionId(),
       endpoint: config.endpoint || "/api/insights/batch",
       emit: config.emit,
+      terminalEmit: config.terminalEmit,
       batch_size: config.batch_size || 50,
       batch_interval_ms: config.batch_interval_ms || 5000,
       enabled: config.enabled !== undefined ? config.enabled : true,
@@ -336,6 +338,33 @@ export class InsightsClient {
       if (this.eventBatch.length < this.config.batch_size * 2) {
         this.eventBatch.unshift(...eventsToSend);
       }
+    }
+  }
+
+  /**
+   * Synchronous terminal flush for unload/crash paths. Drains the in-memory
+   * batch and hands it to the injected `terminalEmit` (typically a fetch
+   * with `keepalive: true` or `navigator.sendBeacon` — survives the page
+   * dying immediately afterward). If no `terminalEmit` is configured, falls
+   * back to fire-and-forget `flushBatch()`, which uses the normal async
+   * emit path and is best-effort — the browser may abort it on hard kill.
+   *
+   * Returns void. Callers MUST NOT await — the whole point is sync drain.
+   */
+  flushTerminal(): void {
+    if (this.eventBatch.length === 0) return;
+    if (!this.config.terminalEmit) {
+      // Fall back to the regular async flush, fire-and-forget.
+      this.flushBatch().catch(() => {});
+      return;
+    }
+    const events = [...this.eventBatch];
+    this.eventBatch = [];
+    try {
+      this.config.terminalEmit(events);
+    } catch {
+      // Last-ditch: put events back in batch so a later normal flush can retry.
+      this.eventBatch.unshift(...events);
     }
   }
 
