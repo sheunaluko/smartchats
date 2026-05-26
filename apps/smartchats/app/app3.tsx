@@ -59,6 +59,7 @@ import { useChatMode } from "./hooks/useChatMode"
 import { DesktopDefaultShell } from "./shells/DesktopDefaultShell"
 import { DesktopFocusShell } from "./shells/DesktopFocusShell"
 import { ClaudeMobileShellV2 } from "./shells/ClaudeMobileShellV2"
+import { SailShell } from "./sail/SailShell"
 import type { ShellProps } from "../core/types/shell"
 import type { WidgetRenderProps } from "./components/FullscreenWidget"
 
@@ -66,6 +67,7 @@ const SHELLS = {
   'desktop-default': DesktopDefaultShell,
   'desktop-focus': DesktopFocusShell,
   'claude-mobile-v2': ClaudeMobileShellV2,
+  'sail': SailShell,
 } as const;
 
 type ShellId = keyof typeof SHELLS;
@@ -74,6 +76,7 @@ const SHELL_OPTIONS: Array<{ id: ShellId; name: string }> = [
   { id: 'desktop-default', name: 'Desktop Default' },
   // { id: 'desktop-focus', name: 'Desktop Focus' },  // detached — not ready for production
   { id: 'claude-mobile-v2', name: 'Claude Mobile V2 (Edge Rail)' },
+  // 'sail' shell is mounted via /sail route only — not user-selectable from chrome
 ];
 
 declare var window: any;
@@ -91,6 +94,10 @@ for (var x of ["html", "toast", "cortex:ChatInputWidget", "cortex:WidgetGrid"]) 
    Computes all state, delegates rendering to the active shell.
    ═══════════════════════════════════════════════════════════════ */
 const Component: NextPage = (props: any) => {
+    // Optional shell override from the hosting page (e.g. /sail/page.tsx
+    // passes forceShell="sail" so the route lands in the Sail shell without
+    // touching the user's saved localStorage preference).
+    const forceShell: ShellId | undefined = props?.forceShell;
     const { pairedPack, mode: colorMode, setDesignPack, toggleMode, setMode } = useDesignPack();
     const { motifId, setMotif: setVizMotif } = useVizMotif();
 
@@ -112,6 +119,9 @@ const Component: NextPage = (props: any) => {
     const [sessionsOpen, setSessionsOpen] = useState(false);
     const [speechQueueState, setSpeechQueueState] = useState<QueueEntryStatus[]>([]);
     const [activeShell, setActiveShell] = useState<ShellId>(() => {
+        // Page-level override wins. Lets /sail mount with shell='sail'
+        // without polluting the user's saved preference for /app.
+        if (forceShell && forceShell in SHELLS) return forceShell;
         if (typeof window !== 'undefined') {
             const saved = localStorage.getItem('smartchats-shell');
             if (saved && saved in SHELLS) return saved as ShellId;
