@@ -82,8 +82,16 @@ export function InsightsProvider({
     // promise rejections via 'unhandledrejection' — and stamp them as
     // `runtime_error` events so triage sees them. They re-throw nothing,
     // observe-only, never block the browser's default handling.
+    //
+    // After emitting, we kick off a flush immediately so the event isn't
+    // stranded in the in-memory batch if the page dies milliseconds later
+    // (the classic crash-after-error pattern that left bundles ending
+    // mid-turn). The flush goes through the same SDK path as normal emits;
+    // best-effort against hard kills, reliable for soft ones.
     let onWindowError: ((ev: ErrorEvent) => void) | null = null;
     let onUnhandledRejection: ((ev: PromiseRejectionEvent) => void) | null = null;
+    let onPageHide: (() => void) | null = null;
+    let onVisibility: (() => void) | null = null;
     if (typeof window !== 'undefined') {
       const emitRuntimeError = (
         source: 'window_error' | 'unhandled_rejection',
@@ -93,6 +101,9 @@ export function InsightsProvider({
         const e = err as { message?: string; name?: string; stack?: string; code?: string; status?: number };
         const message = e?.message ?? (typeof err === 'string' ? err : String(err));
         const stack = e?.stack;
+        // addEvent's sync portion pushes into the batch immediately, so the
+        // event is queued by the time the promise resolves. Chain a flush
+        // onto it to push the batch out the door before the next crash.
         clientRef.current?.addEvent?.('runtime_error', {
           source,
           error_message: message,
@@ -102,7 +113,9 @@ export function InsightsProvider({
           // Stack can be large; cap to keep the bundle reasonable.
           stack: typeof stack === 'string' ? stack.slice(0, 4000) : undefined,
           ...extra,
-        }).catch(() => {});
+        })
+          .then(() => clientRef.current?.flushBatch?.())
+          .catch(() => {});
       };
       onWindowError = (ev) => {
         emitRuntimeError('window_error', ev.error ?? ev.message, {
@@ -116,12 +129,30 @@ export function InsightsProvider({
       };
       window.addEventListener('error', onWindowError);
       window.addEventListener('unhandledrejection', onUnhandledRejection);
+
+      // ── Unload-time flush ──
+      // pagehide fires on tab close, navigation away, and bfcache freeze.
+      // visibilitychange='hidden' fires earlier (on tab switch, app
+      // backgrounding) — gives us a chance to flush before pagehide on
+      // mobile where the OS may kill the page outright. Both call the
+      // same flushBatch; harmless if called twice in quick succession
+      // (second pass finds an empty batch).
+      onPageHide = () => {
+        clientRef.current?.flushBatch?.().catch(() => {});
+      };
+      onVisibility = () => {
+        if (document.visibilityState === 'hidden') onPageHide?.();
+      };
+      window.addEventListener('pagehide', onPageHide);
+      document.addEventListener('visibilitychange', onVisibility);
     }
 
     return () => {
       if (typeof window !== 'undefined') {
         if (onWindowError) window.removeEventListener('error', onWindowError);
         if (onUnhandledRejection) window.removeEventListener('unhandledrejection', onUnhandledRejection);
+        if (onPageHide) window.removeEventListener('pagehide', onPageHide);
+        if (onVisibility) document.removeEventListener('visibilitychange', onVisibility);
       }
       if (clientRef.current) {
         clientRef.current.shutdown?.();
