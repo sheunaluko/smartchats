@@ -29,16 +29,61 @@ interface ExperimentConfig {
     params: Partial<ExperimentParams>;
 }
 
-const DEFAULT_SUITE: ExperimentConfig[] = [
-    { name: 'baseline',           description: 'production defaults (init=300/snap=150) — Phase C',            params: {} },
-    { name: 'no_lookahead',       description: 'pre-Phase-C: init=10/snap=10 — should reproduce glitch',       params: { initial_lookahead_ms: 10,   snap_lookahead_ms: 10 } },
-    { name: 'tiny_lookahead',     description: 'init=50/snap=20 — minimal scheduling margin',                  params: { initial_lookahead_ms: 50,   snap_lookahead_ms: 20 } },
-    { name: 'huge_lookahead',     description: 'init=1000/snap=500 — bulletproof but latent',                  params: { initial_lookahead_ms: 1000, snap_lookahead_ms: 500 } },
-    { name: 'small_first_batch',  description: 'fast chunk 0, normal rest',                                    params: { tts_first_batch_bytes: 1600 } },
-    { name: 'tts1_model',         description: 'tts-1 instead of gpt-4o-mini-tts',                             params: { tts_model_id: 'tts-1' } },
-];
+interface SuiteDef {
+    id: string;
+    label: string;
+    description: string;
+    /** Default replicates when this suite is selected. Sweeps use higher
+     *  counts because per-config noise is what they're measuring through. */
+    defaultReplicates: number;
+    configs: ExperimentConfig[];
+}
 
-const DEFAULT_REPLICATES = 3;
+const SUITES: SuiteDef[] = [
+    {
+        id: 'mixed',
+        label: 'mixed (covers lookahead + server tuning)',
+        description: 'broad sweep across multiple knobs at once — good for first-pass scouting',
+        defaultReplicates: 3,
+        configs: [
+            { name: 'baseline',           description: 'production defaults (init=300/snap=150) — Phase C',            params: {} },
+            { name: 'no_lookahead',       description: 'pre-Phase-C: init=10/snap=10 — should reproduce glitch',       params: { initial_lookahead_ms: 10,   snap_lookahead_ms: 10 } },
+            { name: 'tiny_lookahead',     description: 'init=50/snap=20 — minimal scheduling margin',                  params: { initial_lookahead_ms: 50,   snap_lookahead_ms: 20 } },
+            { name: 'huge_lookahead',     description: 'init=1000/snap=500 — bulletproof but latent',                  params: { initial_lookahead_ms: 1000, snap_lookahead_ms: 500 } },
+            { name: 'small_first_batch',  description: 'fast chunk 0, normal rest',                                    params: { tts_first_batch_bytes: 1600 } },
+            { name: 'tts1_model',         description: 'tts-1 instead of gpt-4o-mini-tts',                             params: { tts_model_id: 'tts-1' } },
+        ],
+    },
+    {
+        id: 'init_sweep',
+        label: 'init sweep (snap held at 150ms)',
+        description: 'isolate initial_lookahead_ms — varies init across 5 values, snap fixed at 150ms (Phase C default). Many replicates per config for chunk-0-snap signal.',
+        defaultReplicates: 5,
+        configs: [
+            { name: 'init_50',   description: 'init=50, snap=150',   params: { initial_lookahead_ms: 50,   snap_lookahead_ms: 150 } },
+            { name: 'init_150',  description: 'init=150, snap=150',  params: { initial_lookahead_ms: 150,  snap_lookahead_ms: 150 } },
+            { name: 'init_300',  description: 'init=300, snap=150 (Phase C default)', params: { initial_lookahead_ms: 300,  snap_lookahead_ms: 150 } },
+            { name: 'init_600',  description: 'init=600, snap=150',  params: { initial_lookahead_ms: 600,  snap_lookahead_ms: 150 } },
+            { name: 'init_1000', description: 'init=1000, snap=150', params: { initial_lookahead_ms: 1000, snap_lookahead_ms: 150 } },
+        ],
+    },
+    {
+        id: 'snap_sweep',
+        label: 'snap sweep (init held at 300ms)',
+        description: 'isolate snap_lookahead_ms — varies snap across 5 values, init fixed at 300ms (Phase C default). Many replicates to characterize chunk-1+ snap-cascade behavior.',
+        defaultReplicates: 5,
+        configs: [
+            { name: 'snap_10',  description: 'init=300, snap=10',  params: { initial_lookahead_ms: 300, snap_lookahead_ms: 10 } },
+            { name: 'snap_50',  description: 'init=300, snap=50',  params: { initial_lookahead_ms: 300, snap_lookahead_ms: 50 } },
+            { name: 'snap_150', description: 'init=300, snap=150 (Phase C default)', params: { initial_lookahead_ms: 300, snap_lookahead_ms: 150 } },
+            { name: 'snap_300', description: 'init=300, snap=300', params: { initial_lookahead_ms: 300, snap_lookahead_ms: 300 } },
+            { name: 'snap_500', description: 'init=300, snap=500', params: { initial_lookahead_ms: 300, snap_lookahead_ms: 500 } },
+        ],
+    },
+];
+type SuiteId = typeof SUITES[number]['id'];
+
+const DEFAULT_SUITE_ID: SuiteId = 'mixed';
 const RESET_BETWEEN_RUNS_MS = 1500; // cool-down so OpenAI encoder doesn't carry state
 
 // Available simi workflows for experiment runs. Add new ones here as they're
@@ -71,7 +116,12 @@ interface ConfigSummary {
     n_success: number;
     n_failed: number;
     first_chunk_arrival_ms: { p50: number; p95: number; min: number; max: number } | null;
-    snap_rate: number | null;
+    /** Chunk-0 snap rate — driven by `initial_lookahead_ms` ALONE (no dependency on snap_lookahead).
+     *  This is the clean metric for isolating initial's effect. */
+    chunk0_snap_rate: number | null;
+    /** Chunk-1+ snap rate — driven jointly by snap_lookahead and prior-chunk durations.
+     *  Compared with chunk0_snap_rate to see snap_lookahead's marginal contribution. */
+    chunk1_snap_rate: number | null;
     chunk0_1_gap_ms: { p50: number; p95: number } | null;
     server_first_byte_ms: { p50: number; p95: number } | null;
 }
@@ -81,11 +131,23 @@ export function ExperimentRunner() {
     const [running, setRunning] = useState(false);
     const [progress, setProgress] = useState<{ config: string; replicate: number; configIdx: number; totalConfigs: number } | null>(null);
     const [samples, setSamples] = useState<RunSample[]>([]);
-    const [replicates, setReplicates] = useState(DEFAULT_REPLICATES);
+    const [suiteId, setSuiteId] = useState<SuiteId>(DEFAULT_SUITE_ID);
+    const selectedSuite = SUITES.find(s => s.id === suiteId) ?? SUITES[0];
+    const [replicates, setReplicates] = useState(selectedSuite.defaultReplicates);
     const [workflowId, setWorkflowId] = useState<WorkflowId>('basic_chat_flow');
     const stopRequestedRef = useRef(false);
 
     const selectedWorkflow = WORKFLOWS.find(w => w.id === workflowId) ?? WORKFLOWS[0];
+    const suiteConfigs = selectedSuite.configs;
+
+    // When the user picks a new suite, reset replicates + clear stale samples
+    // (rows wouldn't line up with the new configs anyway).
+    function changeSuite(newId: SuiteId) {
+        const next = SUITES.find(s => s.id === newId) ?? SUITES[0];
+        setSuiteId(newId);
+        setReplicates(next.defaultReplicates);
+        setSamples([]);
+    }
 
     async function runSuite() {
         setRunning(true);
@@ -93,15 +155,15 @@ export function ExperimentRunner() {
         stopRequestedRef.current = false;
 
         try {
-            for (let i = 0; i < DEFAULT_SUITE.length; i++) {
-                const cfg = DEFAULT_SUITE[i];
+            for (let i = 0; i < suiteConfigs.length; i++) {
+                const cfg = suiteConfigs[i];
                 for (let r = 0; r < replicates; r++) {
                     if (stopRequestedRef.current) return;
-                    setProgress({ config: cfg.name, replicate: r, configIdx: i, totalConfigs: DEFAULT_SUITE.length });
+                    setProgress({ config: cfg.name, replicate: r, configIdx: i, totalConfigs: suiteConfigs.length });
                     const sample = await runOne(cfg, r);
                     setSamples(prev => [...prev, sample]);
                     if (stopRequestedRef.current) return;
-                    if (i < DEFAULT_SUITE.length - 1 || r < replicates - 1) {
+                    if (i < suiteConfigs.length - 1 || r < replicates - 1) {
                         await new Promise(res => setTimeout(res, RESET_BETWEEN_RUNS_MS));
                     }
                 }
@@ -151,7 +213,7 @@ export function ExperimentRunner() {
     }
 
     // Aggregate samples → per-config summary
-    const summaries: ConfigSummary[] = DEFAULT_SUITE.map(cfg => {
+    const summaries: ConfigSummary[] = suiteConfigs.map(cfg => {
         const cfgSamples = samples.filter(s => s.config_name === cfg.name);
         const n_runs = cfgSamples.length;
         const n_success = cfgSamples.filter(s => s.success).length;
@@ -162,8 +224,14 @@ export function ExperimentRunner() {
             .flatMap(s => s.tts_playback_events.map(e => e.payload?.first_chunk?.arrival_ms))
             .filter((v): v is number => typeof v === 'number');
 
-        const snappedFlags = cfgSamples
+        // Chunk-0 snap — depends on initial_lookahead only (see tts_queue.ts:489-516).
+        const chunk0Flags = cfgSamples
             .flatMap(s => s.tts_playback_events.map(e => e.payload?.first_chunk?.snapped_forward))
+            .filter(v => v !== undefined);
+
+        // Chunk-1 snap — depends on snap_lookahead (when chunk 0 snapped) + chunk 0 duration.
+        const chunk1Flags = cfgSamples
+            .flatMap(s => s.tts_playback_events.map(e => e.payload?.chunks?.[1]?.snapped_forward))
             .filter(v => v !== undefined);
 
         // chunk0 → chunk1 gaps
@@ -189,7 +257,8 @@ export function ExperimentRunner() {
             n_success,
             n_failed,
             first_chunk_arrival_ms: firstChunkArrivals.length > 0 ? percentiles(firstChunkArrivals) : null,
-            snap_rate: snappedFlags.length > 0 ? snappedFlags.filter(Boolean).length / snappedFlags.length : null,
+            chunk0_snap_rate: chunk0Flags.length > 0 ? chunk0Flags.filter(Boolean).length / chunk0Flags.length : null,
+            chunk1_snap_rate: chunk1Flags.length > 0 ? chunk1Flags.filter(Boolean).length / chunk1Flags.length : null,
             chunk0_1_gap_ms: chunk01Gaps.length > 0 ? percentiles(chunk01Gaps) : null,
             server_first_byte_ms: serverFirstByte.length > 0 ? percentiles(serverFirstByte) : null,
         };
@@ -203,9 +272,18 @@ export function ExperimentRunner() {
                 borderRadius: 8, padding: '10px 12px',
             }}
         >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 6 }}>
                 <span style={{ color: '#a0a0c0' }}>experiment runner</span>
-                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <select
+                        value={suiteId}
+                        onChange={e => changeSuite(e.target.value as SuiteId)}
+                        disabled={running}
+                        style={inputStyle as any}
+                        title={selectedSuite.description}
+                    >
+                        {SUITES.map(s => <option key={s.id} value={s.id} title={s.description}>{s.label}</option>)}
+                    </select>
                     <select
                         value={workflowId}
                         onChange={e => setWorkflowId(e.target.value as WorkflowId)}
@@ -224,24 +302,31 @@ export function ExperimentRunner() {
                         onChange={e => setReplicates(Math.max(1, parseInt(e.target.value, 10) || 1))}
                         disabled={running}
                         style={{ ...inputStyle, width: 50 }}
+                        title="replicates per config (more = better statistical signal, less noise)"
                     />
                     {running ? (
                         <button onClick={() => { stopRequestedRef.current = true; }} style={dangerBtn}>stop suite</button>
                     ) : (
-                        <button onClick={runSuite} style={primaryBtn}>run suite ({DEFAULT_SUITE.length}×{replicates})</button>
+                        <button
+                            onClick={runSuite}
+                            style={primaryBtn}
+                            title={`${suiteConfigs.length} configs × ${replicates} replicates each = ${suiteConfigs.length * replicates} total runs`}
+                        >
+                            run suite ({suiteConfigs.length}×{replicates} = {suiteConfigs.length * replicates} runs)
+                        </button>
                     )}
                 </div>
             </div>
 
             <div style={{ color: '#666', fontSize: 10, marginBottom: 8 }}>
-                requires voice mode active (start above first). each run dispatches the
+                {selectedSuite.description} · requires voice mode active. each run dispatches the
                 selected workflow, waits {(selectedWorkflow.wait_ms / 1000).toFixed(0)}s for TTS to flush, then captures
                 tts_playback_timing + tts_server_timing events.
                 {workflowId === 'long_response_flow' && (
-                    <span style={{ color: '#ffcc66' }}> ⚠ long_response: ~{Math.ceil(DEFAULT_SUITE.length * replicates * (selectedWorkflow.wait_ms / 1000) / 60)} min runtime, ~${(DEFAULT_SUITE.length * replicates * 0.05).toFixed(2)} OpenAI total.</span>
+                    <span style={{ color: '#ffcc66' }}> ⚠ long_response: ~{Math.ceil(suiteConfigs.length * replicates * (selectedWorkflow.wait_ms / 1000) / 60)} min runtime, ~${(suiteConfigs.length * replicates * 0.05).toFixed(2)} OpenAI total.</span>
                 )}
                 {workflowId === 'basic_chat_flow' && (
-                    <span> ~${(DEFAULT_SUITE.length * replicates * 0.008).toFixed(2)} OpenAI total.</span>
+                    <span> ~${(suiteConfigs.length * replicates * 0.008).toFixed(2)} OpenAI total.</span>
                 )}
             </div>
 
@@ -261,7 +346,8 @@ export function ExperimentRunner() {
                                 <th style={cell}>runs</th>
                                 <th style={cell}>first_chunk_arrival (p50/p95)</th>
                                 <th style={cell}>chunk0→1 gap (p50/p95)</th>
-                                <th style={cell}>snap rate</th>
+                                <th style={cell} title="Chunk-0 snap rate — depends on initial_lookahead ONLY">chunk0 snap (init)</th>
+                                <th style={cell} title="Chunk-1 snap rate — depends on snap_lookahead + chunk0 duration">chunk1 snap (snap)</th>
                                 <th style={cell}>server first_byte (p50/p95)</th>
                             </tr>
                         </thead>
@@ -272,7 +358,8 @@ export function ExperimentRunner() {
                                     <td style={cell}>{s.n_success}/{s.n_runs}{s.n_failed > 0 ? ` (${s.n_failed} fail)` : ''}</td>
                                     <td style={cell}>{fmtRange(s.first_chunk_arrival_ms, 'ms')}</td>
                                     <td style={cell}>{fmtRange(s.chunk0_1_gap_ms, 'ms')}</td>
-                                    <td style={{ ...cell, color: snapColor(s.snap_rate) }}>{s.snap_rate !== null ? `${(s.snap_rate * 100).toFixed(0)}%` : '—'}</td>
+                                    <td style={{ ...cell, color: snapColor(s.chunk0_snap_rate) }}>{s.chunk0_snap_rate !== null ? `${(s.chunk0_snap_rate * 100).toFixed(0)}%` : '—'}</td>
+                                    <td style={{ ...cell, color: snapColor(s.chunk1_snap_rate) }}>{s.chunk1_snap_rate !== null ? `${(s.chunk1_snap_rate * 100).toFixed(0)}%` : '—'}</td>
                                     <td style={cell}>{fmtRange(s.server_first_byte_ms, 'ms')}</td>
                                 </tr>
                             ))}

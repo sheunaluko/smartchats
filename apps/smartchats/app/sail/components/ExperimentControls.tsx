@@ -37,8 +37,10 @@ const PRESETS: Array<{ name: string; description: string; params: Partial<Experi
     { name: 'large_batches', description: 'fewer, larger batches', params: { tts_target_bytes: 12800 } },
     { name: 'tts1_model', description: 'use tts-1 instead of mini', params: { tts_model_id: 'tts-1' } },
     { name: 'eager_first_word', description: 'fire TTS after 3 words', params: { first_chunk_word_threshold: 3 } },
-    { name: 'tiny_lookahead',  description: 'pre-Phase-C scheduling (init=50ms, snap=10ms) — reproduces glitch', params: { initial_lookahead_ms: 50,  snap_lookahead_ms: 10 } },
-    { name: 'huge_lookahead',  description: 'init=1000ms, snap=500ms — bulletproof but latent', params: { initial_lookahead_ms: 1000, snap_lookahead_ms: 500 } },
+    { name: 'tiny_lookahead',   description: 'pre-Phase-C scheduling (init=50ms, snap=10ms) — reproduces glitch', params: { initial_lookahead_ms: 50,   snap_lookahead_ms: 10 } },
+    { name: 'huge_lookahead',   description: 'init=1000ms, snap=500ms — bulletproof but latent',                  params: { initial_lookahead_ms: 1000, snap_lookahead_ms: 500 } },
+    { name: 'init_only_high',   description: 'asymmetric: init=1000ms / snap=150ms (default) — isolates init',    params: { initial_lookahead_ms: 1000, snap_lookahead_ms: 150 } },
+    { name: 'snap_only_high',   description: 'asymmetric: init=300ms (default) / snap=500ms — isolates snap',     params: { initial_lookahead_ms: 300,  snap_lookahead_ms: 500 } },
 ];
 
 export function ExperimentControls() {

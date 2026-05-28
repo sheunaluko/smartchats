@@ -73,6 +73,8 @@ export interface TtsPlaybackTimingEvent {
   connect_ms: number | null;
   /** Configured lookahead (ms) used to seed scheduleTime. */
   initial_lookahead_ms: number;
+  /** Configured snap-forward target (ms) used when scheduleTime falls behind. */
+  snap_lookahead_ms: number;
   /** Total time playStream spent receiving + scheduling chunks. */
   stream_duration_ms: number;
   /** Total audible audio scheduled, in ms. */
@@ -557,6 +559,7 @@ export function createTTSSpeechQueue(config: TTSSpeechQueueConfig) {
           : null,
         connect_ms: connectMs,
         initial_lookahead_ms: _initialLookaheadS * 1000,
+        snap_lookahead_ms: _snapLookaheadS * 1000,
         stream_duration_ms: streamDurationMs,
         total_audio_ms: totalAudioMs,
         total_chunks: chunkIdx,
@@ -678,6 +681,7 @@ export function createTTSSpeechQueue(config: TTSSpeechQueueConfig) {
           : null,
         connect_ms: null,
         initial_lookahead_ms: _initialLookaheadS * 1000,
+        snap_lookahead_ms: _snapLookaheadS * 1000,
         stream_duration_ms: streamDurationMs,
         total_audio_ms: totalAudioMs,
         total_chunks: chunkIdx,
