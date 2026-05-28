@@ -113,18 +113,65 @@ export interface LLMStreamResult {
  * one or more `audio` chunks (ordered by `chunk`), then an `audio_end`.
  * Stream-level completion is signaled by the `done` promise resolving —
  * no separate aggregate `audio_end` event. */
+export type TtsServerTimingPhase =
+  | 'tts_request_start'
+  | 'tts_first_byte'
+  | 'tts_batch_yield'
+  | 'tts_request_complete';
+
+/** Server-emitted timing event riding the same NDJSON stream as audio data.
+ *  Fired only when the request includes `experiment_id` (so production calls
+ *  don't pay the telemetry cost). Used by /sail to correlate server-side
+ *  encoder behavior with client-side scheduling. */
+export interface TtsServerTimingEvent {
+  kind: 'server_timing';
+  phase: TtsServerTimingPhase;
+  sentence: number;
+  /** ms since the parent timing reference — meaning depends on phase:
+   *  - tts_request_start: ms since llm request start
+   *  - tts_first_byte / tts_batch_yield: ms since tts_request_start
+   *  - tts_request_complete: ms since tts_request_start (total duration) */
+  ts: number;
+  /** Batch index within the sentence (tts_batch_yield only). */
+  batch?: number;
+  /** Bytes in this batch (tts_batch_yield only). */
+  bytes?: number;
+  /** Cumulative bytes received from OpenAI through this batch (tts_batch_yield only). */
+  openai_bytes_total?: number;
+  /** Total batches yielded for this sentence (tts_request_complete only). */
+  total_batches?: number;
+  /** Wall-clock ms since the last batch_yield (tts_request_complete only) — measures tail-flush latency. */
+  ms_since_first_byte?: number;
+}
+
 export type LLMTTSEvent =
   | { kind: 'text'; delta: string }
   | { kind: 'text_end' }
   | { kind: 'audio_start'; sentence: number; text?: string }
   | { kind: 'audio'; pcm: ArrayBuffer; sentence: number; chunk: number }
-  | { kind: 'audio_end'; sentence: number };
+  | { kind: 'audio_end'; sentence: number }
+  | TtsServerTimingEvent;
 
 export interface LLMTTSExtras {
   voice: string;
   speed?: number;
   /** gpt-4o-mini-tts voice style directive. */
   instructions?: string;
+
+  // ─── Experiment params (optional, set by /sail) ────────────────────
+  // When `experiment_id` is present, the server emits server_timing
+  // events on the same NDJSON stream. Other fields override server-side
+  // hardcoded constants for that single request.
+  /** Unique identifier for this experiment run. Triggers server-timing emission. */
+  experiment_id?: string;
+  /** Override server-side TTS_TARGET_BYTES (default 6400 = 133ms at 24kHz). */
+  tts_target_bytes?: number;
+  /** Override first-batch size for fast chunk 0 (default = tts_target_bytes). */
+  tts_first_batch_bytes?: number;
+  /** Override FIRST_CHUNK_WORD_THRESHOLD — words required before first TTS fires (default 8). */
+  first_chunk_word_threshold?: number;
+  /** Override DEFAULT_TTS_MODEL (gpt-4o-mini-tts | tts-1 | tts-1-hd). */
+  tts_model_id?: string;
 }
 
 export interface LLMTTSDoneInfo {

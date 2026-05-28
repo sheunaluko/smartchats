@@ -31,6 +31,10 @@ export interface OrchestratorActions {
     onQueueDrain: (info: { cancelled: boolean }) => void;
     /** Emit tts_playback_timing insights event — pass to useTivi's onTtsPlaybackTiming */
     onTtsPlaybackTiming: (event: any) => void;
+    /** Emit speech_recognition_error insights event — pass to useTivi's onSpeechRecognitionError */
+    onSpeechRecognitionError: (info: { code: string; message: string }) => void;
+    /** Emit tts_server_timing insights event — register via setTtsServerTimingCallback in llm_caller */
+    onTtsServerTiming: (event: any) => void;
     /** Raw stream text ref from useStreamBuffers */
     rawStreamRef: React.MutableRefObject<string>;
 }
@@ -603,6 +607,30 @@ export function useOrchestrator(params: OrchestratorParams): OrchestratorActions
         }).catch(() => {});
     }, [insightsClient]);
 
+    // Emit speech_recognition_error insights event for SR failures. Closes
+    // the gap where browser SpeechRecognition errors (typically 'network')
+    // were only visible in the dev console and never reached triage. Fires
+    // per error, not throttled — frequency is signal.
+    const onSpeechRecognitionError = useCallback((info: { code: string; message: string }) => {
+        insightsClient.current?.addEvent?.('speech_recognition_error', {
+            error_code: info.code,
+            error_message: info.message,
+        }, {
+            tags: ['error', 'voice', 'speech_recognition'],
+        }).catch(() => {});
+    }, [insightsClient]);
+
+    // Emit tts_server_timing insights event. Only fires when /sail
+    // experiment mode is active (server gates emission on experiment_id).
+    // Each event carries a 'phase' field (tts_request_start | tts_first_byte
+    // | tts_batch_yield | tts_request_complete) so post-hoc analysis can
+    // reconstruct the full server-side encoder timeline per sentence.
+    const onTtsServerTiming = useCallback((event: any) => {
+        insightsClient.current?.addEvent?.('tts_server_timing', event, {
+            tags: ['latency', 'tts', 'experiment'],
+        }).catch(() => {});
+    }, [insightsClient]);
+
     return useMemo(() => ({
         handleStartStop,
         transcriptionCb,
@@ -611,8 +639,10 @@ export function useOrchestrator(params: OrchestratorParams): OrchestratorActions
         onQueueFirstUtterance,
         onQueueDrain,
         onTtsPlaybackTiming,
+        onSpeechRecognitionError,
+        onTtsServerTiming,
         rawStreamRef: buffers.rawStreamRef,
-    }), [handleStartStop, transcriptionCb, setTranscribe, handleEvent, onQueueFirstUtterance, onQueueDrain, onTtsPlaybackTiming, buffers.rawStreamRef]);
+    }), [handleStartStop, transcriptionCb, setTranscribe, handleEvent, onQueueFirstUtterance, onQueueDrain, onTtsPlaybackTiming, onSpeechRecognitionError, onTtsServerTiming, buffers.rawStreamRef]);
 }
 
 // ── Helper: Initialize audio ──

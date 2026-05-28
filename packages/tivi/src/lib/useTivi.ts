@@ -40,6 +40,7 @@ export function useTivi(options: UseTiviOptions): UseTiviReturn {
     onQueueEntryComplete,
     onQueueDrain,
     onTtsPlaybackTiming,
+    onSpeechRecognitionError,
   } = options;
 
   // Auto-resolve ttsCallFn based on settings and props
@@ -93,6 +94,7 @@ export function useTivi(options: UseTiviOptions): UseTiviReturn {
   const onQueueEntryCompleteRef = useRef(onQueueEntryComplete);
   const onQueueDrainRef = useRef(onQueueDrain);
   const onTtsPlaybackTimingRef = useRef(onTtsPlaybackTiming);
+  const onSpeechRecognitionErrorRef = useRef(onSpeechRecognitionError);
 
   // Keep refs in sync with props/state
   useEffect(() => {
@@ -126,6 +128,10 @@ export function useTivi(options: UseTiviOptions): UseTiviReturn {
   useEffect(() => {
     onTtsPlaybackTimingRef.current = onTtsPlaybackTiming;
   }, [onTtsPlaybackTiming]);
+
+  useEffect(() => {
+    onSpeechRecognitionErrorRef.current = onSpeechRecognitionError;
+  }, [onSpeechRecognitionError]);
 
   // TTS queue lifecycle — always create (browser TTS via speakFn when no ttsCallFn)
   useEffect(() => {
@@ -280,6 +286,11 @@ export function useTivi(options: UseTiviOptions): UseTiviReturn {
           log(`Speech recognition error: ${error.message}`);
           setError(error.message);
           onError?.(error);
+        },
+
+        onErrorDetail: ({ code, message }) => {
+          if (!isMountedRef.current) return;
+          onSpeechRecognitionErrorRef.current?.({ code, message });
         },
 
         onStart: () => {

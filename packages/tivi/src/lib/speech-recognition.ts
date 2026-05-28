@@ -10,6 +10,11 @@ export interface SpeechRecognitionConfig {
   verbose?: boolean;
   onResult?: (text: string, isFinal: boolean) => void;
   onError?: (error: Error) => void;
+  /** Structured variant of onError — fires with the raw event.error code
+   *  ('network', 'not-allowed', 'service-not-allowed', etc.) so consumers
+   *  can emit a typed insights event without parsing the wrapped message.
+   *  Fires alongside onError for non-expected errors. */
+  onErrorDetail?: (info: { code: string; message: string }) => void;
   onStart?: () => void;
   onEnd?: () => void;
 }
@@ -76,6 +81,7 @@ export class SpeechRecognitionManager {
     // Only report actual errors
     const error = new Error(`Speech recognition error: ${event.error}`);
     this.config.onError?.(error);
+    this.config.onErrorDetail?.({ code: event.error, message: error.message });
   }
 
   private handleStart(): void {

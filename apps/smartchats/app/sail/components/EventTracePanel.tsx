@@ -24,7 +24,9 @@ type InsightsEvent = {
 
 const AUDIO_EVENT_TYPES = new Set([
     'tts_playback_timing',
+    'tts_server_timing',
     'tts_stream_error',
+    'speech_recognition_error',
     'voice_session_start',
     'voice_session_stop',
     'voice_interaction_complete',
@@ -181,6 +183,19 @@ function summarizeEvent(ev: InsightsEvent): string {
             return `${p.name ?? '?'} · ${p.surface ?? '?'}`;
         case 'tts_stream_error':
             return `${p.stage ?? '?'}: ${p.error_message ?? p.error_name ?? '?'}`;
+        case 'speech_recognition_error':
+            return `${p.error_code ?? '?'} — ${p.error_message ?? ''}`;
+        case 'tts_server_timing': {
+            // Single-line summary for the live panel. Full details on click.
+            const s = p.sentence ?? '?';
+            switch (p.phase) {
+                case 'tts_request_start':   return `s${s} · request_start (t+${p.ts}ms)`;
+                case 'tts_first_byte':      return `s${s} · first_byte (${p.ts}ms after request)`;
+                case 'tts_batch_yield':     return `s${s} · batch ${p.batch} yielded (${p.ts}ms · ${p.bytes}B · cumul ${p.openai_bytes_total}B)`;
+                case 'tts_request_complete': return `s${s} · complete (${p.total_batches} batches · ${p.ts}ms · tail ${p.ms_since_first_byte}ms)`;
+                default:                    return `s${s} · ${p.phase}`;
+            }
+        }
         case 'runtime_error':
             return `${p.source}: ${p.error_message?.slice(0, 100) ?? '?'}`;
         case 'llm_cancel':
@@ -197,6 +212,7 @@ function truncate(s: string, n: number): string {
 function colorForType(t: string): string {
     if (t.includes('error') || t.includes('fail')) return '#ff7070';
     if (t === 'tts_playback_timing') return '#88ccff';
+    if (t === 'tts_server_timing') return '#aaccff';
     if (t.startsWith('voice_')) return '#ffcc66';
     if (t === 'ui_click') return '#88dd88';
     if (t === 'llm_cancel') return '#cc99ff';

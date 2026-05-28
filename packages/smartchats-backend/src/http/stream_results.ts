@@ -94,6 +94,18 @@ type LLMTTSLine =
     | { t: 'audio_start'; s: number; text?: string }
     | { t: 'audio'; s: number; c: number; b64: string }
     | { t: 'audio_end'; s: number }
+    | {
+          // Server-side timing event (only emitted when experiment_id is set).
+          t: 'server_timing';
+          phase: 'tts_request_start' | 'tts_first_byte' | 'tts_batch_yield' | 'tts_request_complete';
+          s: number;
+          ts: number;
+          batch?: number;
+          bytes?: number;
+          openai_bytes_total?: number;
+          total_batches?: number;
+          ms_since_first_byte?: number;
+      }
     | { t: 'llm_done'; data?: LLMCallResult }
     | {
           t: 'done';
@@ -166,6 +178,19 @@ export function createLLMTTSStreamResult(
                             break;
                         case 'audio_end':
                             yield { kind: 'audio_end', sentence: line.s };
+                            break;
+                        case 'server_timing':
+                            yield {
+                                kind: 'server_timing',
+                                phase: line.phase,
+                                sentence: line.s,
+                                ts: line.ts,
+                                ...(line.batch !== undefined && { batch: line.batch }),
+                                ...(line.bytes !== undefined && { bytes: line.bytes }),
+                                ...(line.openai_bytes_total !== undefined && { openai_bytes_total: line.openai_bytes_total }),
+                                ...(line.total_batches !== undefined && { total_batches: line.total_batches }),
+                                ...(line.ms_since_first_byte !== undefined && { ms_since_first_byte: line.ms_since_first_byte }),
+                            };
                             break;
                         case 'llm_done':
                             if (line.data) llmResult = line.data;

@@ -33,6 +33,8 @@ import { Spectrogram } from './components/Spectrogram';
 import { EventTracePanel } from './components/EventTracePanel';
 import { AudioContextInspector } from './components/AudioContextInspector';
 import { LabPoc } from './components/LabPoc';
+import { ExperimentControls } from './components/ExperimentControls';
+import { ExperimentRunner } from './components/ExperimentRunner';
 
 export function SailShell({ voice, actions }: ShellProps) {
     const { client } = useInsights();
@@ -114,6 +116,8 @@ export function SailShell({ voice, actions }: ShellProps) {
                         <Spectrogram height={300} label="Microphone" />
                     </div>
                     <AudioContextInspector />
+                    <ExperimentControls />
+                    <ExperimentRunner />
                     <LabPoc />
                 </div>
 

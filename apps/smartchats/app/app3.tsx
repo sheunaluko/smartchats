@@ -34,7 +34,7 @@ import { listDesignPacks } from '../core/theme-packs';
 
 import { useTivi } from "@lab-components/tivi/lib/index"
 import { backendTtsCallFn, backendTtsStreamFn, warmupBackendTts } from '@/lib/tts_caller';
-import { setTtsQueueRef } from '@/lib/llm_caller';
+import { setTtsQueueRef, setTtsServerTimingCallback } from '@/lib/llm_caller';
 import { getBackend } from '@/lib/backend';
 import { useTiviSettings } from '@lab-components/tivi/lib/useTiviSettings';
 import { getTiviSettings } from '@lab-components/tivi/lib/settings';
@@ -258,6 +258,7 @@ const Component: NextPage = (props: any) => {
     const onQueueFirstUtteranceRef = useRef<() => void>(() => {});
     const onQueueDrainRef = useRef<(info: { cancelled: boolean }) => void>(() => {});
     const onTtsPlaybackTimingRef = useRef<(event: any) => void>(() => {});
+    const onSpeechRecognitionErrorRef = useRef<(info: { code: string; message: string }) => void>(() => {});
 
     // ── Tivi ──
     const tivi = useTivi({
@@ -278,6 +279,7 @@ const Component: NextPage = (props: any) => {
         },
         onQueueDrain: (info) => onQueueDrainRef.current(info),
         onTtsPlaybackTiming: (event) => onTtsPlaybackTimingRef.current(event),
+        onSpeechRecognitionError: (info) => onSpeechRecognitionErrorRef.current(info),
     });
 
     const tiviRef = useRef(tivi);
@@ -297,7 +299,8 @@ const Component: NextPage = (props: any) => {
         onQueueFirstUtteranceRef.current = orchestrator.onQueueFirstUtterance;
         onQueueDrainRef.current = orchestrator.onQueueDrain;
         onTtsPlaybackTimingRef.current = orchestrator.onTtsPlaybackTiming;
-    }, [orchestrator.onQueueFirstUtterance, orchestrator.onQueueDrain, orchestrator.onTtsPlaybackTiming]);
+        onSpeechRecognitionErrorRef.current = orchestrator.onSpeechRecognitionError;
+    }, [orchestrator.onQueueFirstUtterance, orchestrator.onQueueDrain, orchestrator.onTtsPlaybackTiming, orchestrator.onSpeechRecognitionError]);
 
     useEffect(() => {
         useSmartChatsStore.getState().registerVoiceActions({
@@ -330,6 +333,14 @@ const Component: NextPage = (props: any) => {
         log('LLM caller: ttsQueue registered (voice mode available)');
         return () => setTtsQueueRef(null);
     }, [tivi.ttsQueue]);
+
+    // Wire server-timing callback through llm_caller so server-emitted
+    // tts_server_timing NDJSON events become insights events. Only fires
+    // when experiment mode is active server-side (gated on experiment_id).
+    useEffect(() => {
+        setTtsServerTimingCallback(orchestrator.onTtsServerTiming);
+        return () => setTtsServerTimingCallback(null);
+    }, [orchestrator.onTtsServerTiming]);
 
     // ── Keep TTS queue voice/model in sync with tivi settings ──
     // Without this, the queue defaults to 'nova' and accumulate_text

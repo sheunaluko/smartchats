@@ -130,6 +130,13 @@ export interface UseTiviOptions {
    *  Used by the app to emit a `tts_playback_timing` insights event for
    *  diagnosing first-chunk jitter. Fire-and-forget. */
   onTtsPlaybackTiming?: (event: import('./tts_queue').TtsPlaybackTimingEvent) => void;
+
+  /** Fired on non-expected SpeechRecognition errors (excludes the silent
+   *  no-speech / audio-capture / aborted set which auto-recover). Provides
+   *  the raw event.error code ('network', 'not-allowed', etc.) so the app
+   *  can emit a typed insights event. The existing onError callback also
+   *  fires alongside this — onSpeechRecognitionError is the structured form. */
+  onSpeechRecognitionError?: (info: { code: string; message: string }) => void;
 }
 
 export interface UseTiviReturn {

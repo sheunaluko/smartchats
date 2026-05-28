@@ -55,6 +55,54 @@ export function setTtsQueueRef(queue: TtsQueue | null): void {
     _currentTtsQueue = queue;
 }
 
+// ─── Experiment params (/sail) ────────────────────────────────────
+//
+// When set (typically by /sail's ExperimentControls), each LLM+TTS call
+// passes these through as request-body fields. Server-side opts into
+// experiment behavior + emits server_timing events when experiment_id
+// is present.
+
+export interface ExperimentParams {
+    /** Unique identifier for this experiment run — also session-tagged */
+    experiment_id?: string;
+    /** Server-side: TTS batch size in bytes (default 6400 = 133ms) */
+    tts_target_bytes?: number;
+    /** Server-side: first-batch size for fast chunk 0 (default = tts_target_bytes) */
+    tts_first_batch_bytes?: number;
+    /** Server-side: words required before first TTS fires (default 8) */
+    first_chunk_word_threshold?: number;
+    /** Server-side: TTS model override (default gpt-4o-mini-tts) */
+    tts_model_id?: string;
+    /** Server-side: TTS voice override (default alloy) */
+    tts_voice?: string;
+}
+
+let _currentExperimentParams: ExperimentParams | null = null;
+
+/** Set the active experiment params (or null to clear). Applies to all
+ *  subsequent LLM+TTS calls until changed. /sail's ExperimentControls
+ *  panel writes here; production app3 never touches it. */
+export function setExperimentParams(params: ExperimentParams | null): void {
+    _currentExperimentParams = params;
+}
+
+export function getExperimentParams(): ExperimentParams | null {
+    return _currentExperimentParams;
+}
+
+// ─── Server-timing event callback ────────────────────────────────
+//
+// Same module-level-setter pattern as setTtsQueueRef. /sail wires
+// useOrchestrator's onTtsServerTiming through here so server-emitted
+// timing events become insights events.
+
+type TtsServerTimingCallback = (event: any) => void;
+let _ttsServerTimingCallback: TtsServerTimingCallback | null = null;
+
+export function setTtsServerTimingCallback(cb: TtsServerTimingCallback | null): void {
+    _ttsServerTimingCallback = cb;
+}
+
 // ─── Audio telemetry (iOS Safari crash diagnostics) ───────────────
 
 let _cumulativeDecodedBytes = 0;
@@ -211,8 +259,20 @@ export function createBackendLlmCaller(opts: BackendLlmCallerOptions = {}) {
         }
 
         // Voice mode: combined stream. Text deltas → caller; audio events → ttsQueue.
-        const voice = opts.getVoice?.() ?? 'nova';
-        const { stream: eventStream, done } = await getBackend().llm.streamWithTTS({ ...baseArgs, voice });
+        const exp = _currentExperimentParams;
+        const voice = exp?.tts_voice ?? opts.getVoice?.() ?? 'nova';
+        const ttsExtras: Record<string, any> = { voice };
+        if (exp) {
+            // Per-call experiment params — server reads from request body and
+            // overrides its hardcoded constants when present. experiment_id
+            // triggers server-timing emission.
+            if (exp.experiment_id) ttsExtras.experiment_id = exp.experiment_id;
+            if (exp.tts_target_bytes !== undefined) ttsExtras.tts_target_bytes = exp.tts_target_bytes;
+            if (exp.tts_first_batch_bytes !== undefined) ttsExtras.tts_first_batch_bytes = exp.tts_first_batch_bytes;
+            if (exp.first_chunk_word_threshold !== undefined) ttsExtras.first_chunk_word_threshold = exp.first_chunk_word_threshold;
+            if (exp.tts_model_id) ttsExtras.tts_model_id = exp.tts_model_id;
+        }
+        const { stream: eventStream, done } = await getBackend().llm.streamWithTTS({ ...baseArgs, ...ttsExtras } as any);
 
         const activeSentences = new Map<number, PushAsyncIterable<Float32Array>>();
         const ttsQueue = queue!; // non-null guaranteed by wantAudio check above
@@ -253,6 +313,14 @@ export function createBackendLlmCaller(opts: BackendLlmCallerOptions = {}) {
                                 activeSentences.delete(event.sentence);
                                 _activeIterableCount = Math.max(0, _activeIterableCount - 1);
                             }
+                            break;
+                        }
+                        case 'server_timing': {
+                            // Fire-and-forget: route to the active callback (set by /sail
+                            // via useOrchestrator). Callback is responsible for emitting
+                            // the insights event. No-op in production where the callback
+                            // is unset.
+                            try { _ttsServerTimingCallback?.(event); } catch { /* swallow */ }
                             break;
                         }
                     }

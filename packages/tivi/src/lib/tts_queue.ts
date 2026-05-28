@@ -117,7 +117,20 @@ export interface TTSSpeechQueueConfig {
   onTtsPlaybackTiming?: (event: TtsPlaybackTimingEvent) => void;
 }
 
-const INITIAL_LOOKAHEAD_S = 0.15;
+// Initial lookahead before the first chunk is scheduled. With external_stream
+// (combined LLM+TTS), first chunks observed at 640-1236ms in real sessions
+// (2026-05-26 telemetry); 150ms was too aggressive and caused every utterance
+// to snap-forward at chunk 0 with ~10ms of buffering, producing audible
+// glitches on the first word. 300ms covers the fast cases without snap.
+const INITIAL_LOOKAHEAD_S = 0.3;
+// When schedule falls behind ctx.currentTime (late first chunk), we snap
+// forward — but to a *meaningful* lookahead, not to currentTime+10ms.
+// 10ms means zero audio-thread buffering and produces the same glitch we
+// were trying to avoid with INITIAL_LOOKAHEAD_S in the first place. 150ms
+// gives the audio thread real headroom even on late snaps. The cost is
+// ~140ms of extra perceived latency on a snap (one-time per utterance),
+// in exchange for clean playback.
+const SNAP_LOOKAHEAD_S = 0.15;
 const CHUNK_SAMPLE_CAP = 10;
 
 interface QueueEntry {
@@ -465,7 +478,7 @@ export function createTTSSpeechQueue(config: TTSSpeechQueueConfig) {
       // If schedule time has fallen behind, snap forward
       let snappedForward = false;
       if (scheduleTime < ctx.currentTime) {
-        scheduleTime = ctx.currentTime + 0.01;
+        scheduleTime = ctx.currentTime + SNAP_LOOKAHEAD_S;
         snappedForward = true;
         snapForwardCount++;
       }
@@ -585,7 +598,7 @@ export function createTTSSpeechQueue(config: TTSSpeechQueueConfig) {
       // If schedule time has fallen behind, snap forward
       let snappedForward = false;
       if (scheduleTime < ctx.currentTime) {
-        scheduleTime = ctx.currentTime + 0.01;
+        scheduleTime = ctx.currentTime + SNAP_LOOKAHEAD_S;
         snappedForward = true;
         snapForwardCount++;
       }
