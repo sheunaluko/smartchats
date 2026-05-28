@@ -126,13 +126,15 @@ export interface TTSSpeechQueueConfig {
 // glitches on the first word. 300ms covers the fast cases without snap.
 const DEFAULT_INITIAL_LOOKAHEAD_S = 0.3;
 // When schedule falls behind ctx.currentTime (late first chunk), we snap
-// forward — but to a *meaningful* lookahead, not to currentTime+10ms.
-// 10ms means zero audio-thread buffering and produces the same glitch we
-// were trying to avoid with INITIAL_LOOKAHEAD_S in the first place. 150ms
-// gives the audio thread real headroom even on late snaps. The cost is
-// ~140ms of extra perceived latency on a snap (one-time per utterance),
-// in exchange for clean playback.
-const DEFAULT_SNAP_LOOKAHEAD_S = 0.15;
+// forward to currentTime + this value. The previous 150ms was too tight:
+// 2026-05-28 sail experiment (snap_sweep with init=300 fixed) showed
+// chunk-1+ snap rates of 100% at snap=10/50, 75% at snap=150, and 0%
+// at snap=300/500 — i.e. snap≥300ms is what actually kills the audible
+// "cutoff-and-resume" mid-utterance glitch. Chunk-0 snap is barely
+// perceptible ("audio starts 300ms late"); chunk-1+ snaps cut the audio
+// thread mid-stream and are the real bug. 333ms is "300 with margin"
+// to cover variance in chunk durations across voices/models.
+const DEFAULT_SNAP_LOOKAHEAD_S = 0.333;
 const CHUNK_SAMPLE_CAP = 10;
 
 // Mutable per-process lookahead config. /sail's ExperimentControls can
