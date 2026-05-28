@@ -12,6 +12,7 @@
 'use client';
 
 import type { LLMMessage } from 'smartchats-backend';
+import { setLookaheadConfig } from '@lab-components/tivi/lib';
 import { getBackend } from './backend';
 
 // ─── Types matching the existing cortex call-fn signature ─────────
@@ -75,15 +76,32 @@ export interface ExperimentParams {
     tts_model_id?: string;
     /** Server-side: TTS voice override (default alloy) */
     tts_voice?: string;
+    /** Client-side: initial scheduling lookahead in ms (default 300).
+     *  How far ahead of ctx.currentTime to schedule the first audio chunk.
+     *  Higher = more glitch resistance but more first-word latency. */
+    initial_lookahead_ms?: number;
+    /** Client-side: snap-forward lookahead in ms (default 150).
+     *  When a chunk arrives after its scheduled time, we snap-forward to
+     *  ctx.currentTime + this value. Higher = cleaner audio when scheduling
+     *  falls behind, at cost of ~delta ms latency per snap. */
+    snap_lookahead_ms?: number;
 }
 
 let _currentExperimentParams: ExperimentParams | null = null;
 
 /** Set the active experiment params (or null to clear). Applies to all
  *  subsequent LLM+TTS calls until changed. /sail's ExperimentControls
- *  panel writes here; production app3 never touches it. */
+ *  panel writes here; production app3 never touches it. Also applies
+ *  client-side lookahead settings to the TTS queue immediately so the
+ *  next utterance picks them up. */
 export function setExperimentParams(params: ExperimentParams | null): void {
     _currentExperimentParams = params;
+    // Mirror client-side audio params into tts_queue's mutable state.
+    // Null params clears everything back to defaults.
+    setLookaheadConfig({
+        initialMs: params?.initial_lookahead_ms,
+        snapMs: params?.snap_lookahead_ms,
+    });
 }
 
 export function getExperimentParams(): ExperimentParams | null {

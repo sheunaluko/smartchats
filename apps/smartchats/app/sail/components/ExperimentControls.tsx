@@ -37,6 +37,8 @@ const PRESETS: Array<{ name: string; description: string; params: Partial<Experi
     { name: 'large_batches', description: 'fewer, larger batches', params: { tts_target_bytes: 12800 } },
     { name: 'tts1_model', description: 'use tts-1 instead of mini', params: { tts_model_id: 'tts-1' } },
     { name: 'eager_first_word', description: 'fire TTS after 3 words', params: { first_chunk_word_threshold: 3 } },
+    { name: 'tiny_lookahead',  description: 'pre-Phase-C scheduling (init=50ms, snap=10ms) — reproduces glitch', params: { initial_lookahead_ms: 50,  snap_lookahead_ms: 10 } },
+    { name: 'huge_lookahead',  description: 'init=1000ms, snap=500ms — bulletproof but latent', params: { initial_lookahead_ms: 1000, snap_lookahead_ms: 500 } },
 ];
 
 export function ExperimentControls() {
@@ -47,6 +49,8 @@ export function ExperimentControls() {
     const [firstBatchBytes, setFirstBatchBytes] = useState<string>('');
     const [firstChunkWords, setFirstChunkWords] = useState<string>('');
     const [ttsModel, setTtsModel] = useState<string>('');
+    const [initialLookaheadMs, setInitialLookaheadMs] = useState<string>('');
+    const [snapLookaheadMs, setSnapLookaheadMs] = useState<string>('');
 
     // Sync the module-level state with the form state. When enabled is true,
     // any LLM+TTS call picks up these params. When false, params are cleared.
@@ -62,12 +66,14 @@ export function ExperimentControls() {
         if (firstBatchBytes.trim()) params.tts_first_batch_bytes = parseInt(firstBatchBytes, 10);
         if (firstChunkWords.trim()) params.first_chunk_word_threshold = parseInt(firstChunkWords, 10);
         if (ttsModel.trim()) params.tts_model_id = ttsModel;
+        if (initialLookaheadMs.trim()) params.initial_lookahead_ms = parseInt(initialLookaheadMs, 10);
+        if (snapLookaheadMs.trim()) params.snap_lookahead_ms = parseInt(snapLookaheadMs, 10);
         setExperimentParams(params);
         // Also tag the session so bin/find-sessions --tag <name> isolates it.
         try {
             insightsClient?.addSessionTags?.([params.experiment_id!]);
         } catch { /* tagging is best-effort */ }
-    }, [enabled, experimentName, targetBytes, firstBatchBytes, firstChunkWords, ttsModel, insightsClient]);
+    }, [enabled, experimentName, targetBytes, firstBatchBytes, firstChunkWords, ttsModel, initialLookaheadMs, snapLookaheadMs, insightsClient]);
 
     // Clear on unmount.
     useEffect(() => () => setExperimentParams(null), []);
@@ -80,6 +86,8 @@ export function ExperimentControls() {
         setFirstBatchBytes(preset.params.tts_first_batch_bytes?.toString() ?? '');
         setFirstChunkWords(preset.params.first_chunk_word_threshold?.toString() ?? '');
         setTtsModel(preset.params.tts_model_id ?? '');
+        setInitialLookaheadMs(preset.params.initial_lookahead_ms?.toString() ?? '');
+        setSnapLookaheadMs(preset.params.snap_lookahead_ms?.toString() ?? '');
     };
 
     return (
@@ -134,6 +142,10 @@ export function ExperimentControls() {
                             <option value="">default (gpt-4o-mini-tts)</option>
                             {TTS_MODELS.map((m) => <option key={m} value={m}>{m}</option>)}
                         </select>
+                        <span style={{ color: '#666' }}>initial_lookahead_ms</span>
+                        <input type="text" placeholder="300 (default)" value={initialLookaheadMs} onChange={(e) => setInitialLookaheadMs(e.target.value)} style={inputStyle} />
+                        <span style={{ color: '#666' }}>snap_lookahead_ms</span>
+                        <input type="text" placeholder="150 (default)" value={snapLookaheadMs} onChange={(e) => setSnapLookaheadMs(e.target.value)} style={inputStyle} />
                     </div>
 
                     {currentParams && (

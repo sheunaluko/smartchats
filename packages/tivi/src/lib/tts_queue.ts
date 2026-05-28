@@ -122,7 +122,7 @@ export interface TTSSpeechQueueConfig {
 // (2026-05-26 telemetry); 150ms was too aggressive and caused every utterance
 // to snap-forward at chunk 0 with ~10ms of buffering, producing audible
 // glitches on the first word. 300ms covers the fast cases without snap.
-const INITIAL_LOOKAHEAD_S = 0.3;
+const DEFAULT_INITIAL_LOOKAHEAD_S = 0.3;
 // When schedule falls behind ctx.currentTime (late first chunk), we snap
 // forward — but to a *meaningful* lookahead, not to currentTime+10ms.
 // 10ms means zero audio-thread buffering and produces the same glitch we
@@ -130,8 +130,39 @@ const INITIAL_LOOKAHEAD_S = 0.3;
 // gives the audio thread real headroom even on late snaps. The cost is
 // ~140ms of extra perceived latency on a snap (one-time per utterance),
 // in exchange for clean playback.
-const SNAP_LOOKAHEAD_S = 0.15;
+const DEFAULT_SNAP_LOOKAHEAD_S = 0.15;
 const CHUNK_SAMPLE_CAP = 10;
+
+// Mutable per-process lookahead config. /sail's ExperimentControls can
+// override these via setLookaheadConfig() to A/B-test scheduling behavior
+// in production without redeploying. Reads happen at the top of each
+// playStream / playExternalStreamAudio call so a change applies to the
+// next utterance, not retroactively to one in flight.
+let _initialLookaheadS = DEFAULT_INITIAL_LOOKAHEAD_S;
+let _snapLookaheadS = DEFAULT_SNAP_LOOKAHEAD_S;
+
+export interface LookaheadConfig {
+    initialMs?: number;
+    snapMs?: number;
+}
+
+/** Override the audio scheduling lookahead values. Pass undefined values to
+ *  reset to defaults. Affects every subsequent TTS playback in this process. */
+export function setLookaheadConfig(opts: LookaheadConfig): void {
+    if (opts.initialMs !== undefined) _initialLookaheadS = Math.max(0, opts.initialMs) / 1000;
+    else _initialLookaheadS = DEFAULT_INITIAL_LOOKAHEAD_S;
+    if (opts.snapMs !== undefined) _snapLookaheadS = Math.max(0, opts.snapMs) / 1000;
+    else _snapLookaheadS = DEFAULT_SNAP_LOOKAHEAD_S;
+}
+
+export function getLookaheadConfig(): { initialMs: number; snapMs: number; initialMsDefault: number; snapMsDefault: number } {
+    return {
+        initialMs: _initialLookaheadS * 1000,
+        snapMs: _snapLookaheadS * 1000,
+        initialMsDefault: DEFAULT_INITIAL_LOOKAHEAD_S * 1000,
+        snapMsDefault: DEFAULT_SNAP_LOOKAHEAD_S * 1000,
+    };
+}
 
 interface QueueEntry {
   id: number;
@@ -455,8 +486,9 @@ export function createTTSSpeechQueue(config: TTSSpeechQueueConfig) {
     connectMs = performance.now() - streamStart;
     log(`playStream: connected in ${connectMs.toFixed(0)}ms`);
 
-    // Schedule time starts INITIAL_LOOKAHEAD_S ahead of "now" to absorb jitter
-    let scheduleTime = ctx.currentTime + INITIAL_LOOKAHEAD_S;
+    // Schedule time starts `_initialLookaheadS` ahead of "now" to absorb jitter.
+    // Tunable via setLookaheadConfig (used by /sail experiment runner).
+    let scheduleTime = ctx.currentTime + _initialLookaheadS;
     let lastSource: AudioBufferSourceNode | null = null;
     let chunkIdx = 0;
     activeStreamSources = [];
@@ -478,7 +510,7 @@ export function createTTSSpeechQueue(config: TTSSpeechQueueConfig) {
       // If schedule time has fallen behind, snap forward
       let snappedForward = false;
       if (scheduleTime < ctx.currentTime) {
-        scheduleTime = ctx.currentTime + SNAP_LOOKAHEAD_S;
+        scheduleTime = ctx.currentTime + _snapLookaheadS;
         snappedForward = true;
         snapForwardCount++;
       }
@@ -524,7 +556,7 @@ export function createTTSSpeechQueue(config: TTSSpeechQueueConfig) {
           ? (ctx as any).outputLatency * 1000
           : null,
         connect_ms: connectMs,
-        initial_lookahead_ms: INITIAL_LOOKAHEAD_S * 1000,
+        initial_lookahead_ms: _initialLookaheadS * 1000,
         stream_duration_ms: streamDurationMs,
         total_audio_ms: totalAudioMs,
         total_chunks: chunkIdx,
@@ -575,8 +607,9 @@ export function createTTSSpeechQueue(config: TTSSpeechQueueConfig) {
     let totalAudioMs = 0;
     let cancelledDuringStream = false;
 
-    // Schedule time starts INITIAL_LOOKAHEAD_S ahead of "now" to absorb jitter
-    let scheduleTime = ctx.currentTime + INITIAL_LOOKAHEAD_S;
+    // Schedule time starts `_initialLookaheadS` ahead of "now" to absorb jitter.
+    // Tunable via setLookaheadConfig (used by /sail experiment runner).
+    let scheduleTime = ctx.currentTime + _initialLookaheadS;
     let lastSource: AudioBufferSourceNode | null = null;
     let chunkIdx = 0;
     activeStreamSources = [];
@@ -598,7 +631,7 @@ export function createTTSSpeechQueue(config: TTSSpeechQueueConfig) {
       // If schedule time has fallen behind, snap forward
       let snappedForward = false;
       if (scheduleTime < ctx.currentTime) {
-        scheduleTime = ctx.currentTime + SNAP_LOOKAHEAD_S;
+        scheduleTime = ctx.currentTime + _snapLookaheadS;
         snappedForward = true;
         snapForwardCount++;
       }
@@ -644,7 +677,7 @@ export function createTTSSpeechQueue(config: TTSSpeechQueueConfig) {
           ? (ctx as any).outputLatency * 1000
           : null,
         connect_ms: null,
-        initial_lookahead_ms: INITIAL_LOOKAHEAD_S * 1000,
+        initial_lookahead_ms: _initialLookaheadS * 1000,
         stream_duration_ms: streamDurationMs,
         total_audio_ms: totalAudioMs,
         total_chunks: chunkIdx,

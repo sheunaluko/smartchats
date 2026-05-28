@@ -35,6 +35,8 @@ import { completeOnboardingFlow } from './workflows/complete_onboarding';
 import { scriptureTimeFlow } from './workflows/scripture_time_flow';
 import { webSearchFlow } from './workflows/web_search_flow';
 import { structuredCompletionFlow } from './workflows/structured_completion_flow';
+import { longResponseFlow } from './workflows/long_response_flow';
+import { splitterReproFlow } from './workflows/splitter_repro_flow';
 
 export const cortexWorkflows = {
   complete_onboarding: completeOnboardingFlow,
@@ -73,5 +75,7 @@ export const cortexWorkflows = {
   shell_mode_cycle_flow: shellModeCycleFlow,
   scripture_time_flow: scriptureTimeFlow,
   web_search_flow: webSearchFlow,
+  long_response_flow: longResponseFlow,
+  splitter_repro_flow: splitterReproFlow,
   structured_completion_flow: structuredCompletionFlow,
 };

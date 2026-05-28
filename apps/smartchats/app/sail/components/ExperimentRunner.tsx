@@ -30,17 +30,27 @@ interface ExperimentConfig {
 }
 
 const DEFAULT_SUITE: ExperimentConfig[] = [
-    { name: 'baseline',           description: 'production defaults — control group',         params: {} },
-    { name: 'small_first_batch',  description: 'fast chunk 0, normal rest',                  params: { tts_first_batch_bytes: 1600 } },
-    { name: 'tiny_batches',       description: 'all batches 3200B (~67ms)',                  params: { tts_target_bytes: 3200, tts_first_batch_bytes: 3200 } },
-    { name: 'large_batches',      description: 'all batches 12800B (~267ms)',                params: { tts_target_bytes: 12800 } },
-    { name: 'tts1_model',         description: 'tts-1 instead of gpt-4o-mini-tts',           params: { tts_model_id: 'tts-1' } },
-    { name: 'eager_first_word',   description: 'fire TTS after 3 words instead of 8',        params: { first_chunk_word_threshold: 3 } },
+    { name: 'baseline',           description: 'production defaults (init=300/snap=150) — Phase C',            params: {} },
+    { name: 'no_lookahead',       description: 'pre-Phase-C: init=10/snap=10 — should reproduce glitch',       params: { initial_lookahead_ms: 10,   snap_lookahead_ms: 10 } },
+    { name: 'tiny_lookahead',     description: 'init=50/snap=20 — minimal scheduling margin',                  params: { initial_lookahead_ms: 50,   snap_lookahead_ms: 20 } },
+    { name: 'huge_lookahead',     description: 'init=1000/snap=500 — bulletproof but latent',                  params: { initial_lookahead_ms: 1000, snap_lookahead_ms: 500 } },
+    { name: 'small_first_batch',  description: 'fast chunk 0, normal rest',                                    params: { tts_first_batch_bytes: 1600 } },
+    { name: 'tts1_model',         description: 'tts-1 instead of gpt-4o-mini-tts',                             params: { tts_model_id: 'tts-1' } },
 ];
 
 const DEFAULT_REPLICATES = 3;
-const POST_RUN_WAIT_MS = 4000; // let TTS playback finish + insights batch flush
 const RESET_BETWEEN_RUNS_MS = 1500; // cool-down so OpenAI encoder doesn't carry state
+
+// Available simi workflows for experiment runs. Add new ones here as they're
+// authored. basic_chat_flow is fast (~12s) but produces short responses; the
+// chunk-0 audio glitch only reproduces with longer responses because of
+// server-side HTTP flush cadence (see long_response_flow comments).
+const WORKFLOWS = [
+    { id: 'basic_chat_flow',     label: 'basic_chat (short response, ~12s/run)',                wait_ms: 5_000 },
+    { id: 'long_response_flow',  label: 'long_response (~60s audio)',                            wait_ms: 90_000 },
+    { id: 'splitter_repro_flow', label: 'splitter_repro (2 sentences, forces early TTS call)',  wait_ms: 60_000 },
+] as const;
+type WorkflowId = typeof WORKFLOWS[number]['id'];
 
 interface RunSample {
     config_name: string;
@@ -72,7 +82,10 @@ export function ExperimentRunner() {
     const [progress, setProgress] = useState<{ config: string; replicate: number; configIdx: number; totalConfigs: number } | null>(null);
     const [samples, setSamples] = useState<RunSample[]>([]);
     const [replicates, setReplicates] = useState(DEFAULT_REPLICATES);
+    const [workflowId, setWorkflowId] = useState<WorkflowId>('basic_chat_flow');
     const stopRequestedRef = useRef(false);
+
+    const selectedWorkflow = WORKFLOWS.find(w => w.id === workflowId) ?? WORKFLOWS[0];
 
     async function runSuite() {
         setRunning(true);
@@ -111,8 +124,8 @@ export function ExperimentRunner() {
         let success = false;
         let error: string | undefined;
         try {
-            const flow = (window as any).__smartchats__?.simi?.workflows?.basic_chat_flow;
-            if (!flow) throw new Error('basic_chat_flow workflow not available (is voice mode on?)');
+            const flow = (window as any).__smartchats__?.simi?.workflows?.[selectedWorkflow.id];
+            if (!flow) throw new Error(`${selectedWorkflow.id} workflow not available (is voice mode on?)`);
             const result = await flow();
             success = !!result?.completed;
             if (!success) {
@@ -123,8 +136,9 @@ export function ExperimentRunner() {
             error = (err as Error)?.message ?? String(err);
         }
 
-        // Let TTS playback finish + insights batch flush
-        await new Promise(res => setTimeout(res, POST_RUN_WAIT_MS));
+        // Let TTS playback finish + insights batch flush. Long workflows
+        // produce 30-60s of TTS audio, so the wait scales per workflow.
+        await new Promise(res => setTimeout(res, selectedWorkflow.wait_ms));
         const end_ts = Date.now();
 
         // Pull events for this run by time-window
@@ -192,7 +206,16 @@ export function ExperimentRunner() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                 <span style={{ color: '#a0a0c0' }}>experiment runner</span>
                 <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                    <span style={{ color: '#666' }}>replicates</span>
+                    <select
+                        value={workflowId}
+                        onChange={e => setWorkflowId(e.target.value as WorkflowId)}
+                        disabled={running}
+                        style={inputStyle as any}
+                        title="simi workflow run per replicate"
+                    >
+                        {WORKFLOWS.map(w => <option key={w.id} value={w.id}>{w.label}</option>)}
+                    </select>
+                    <span style={{ color: '#666' }}>×</span>
                     <input
                         type="number"
                         min={1}
@@ -203,7 +226,7 @@ export function ExperimentRunner() {
                         style={{ ...inputStyle, width: 50 }}
                     />
                     {running ? (
-                        <button onClick={() => { stopRequestedRef.current = true; }} style={dangerBtn}>stop</button>
+                        <button onClick={() => { stopRequestedRef.current = true; }} style={dangerBtn}>stop suite</button>
                     ) : (
                         <button onClick={runSuite} style={primaryBtn}>run suite ({DEFAULT_SUITE.length}×{replicates})</button>
                     )}
@@ -211,9 +234,15 @@ export function ExperimentRunner() {
             </div>
 
             <div style={{ color: '#666', fontSize: 10, marginBottom: 8 }}>
-                requires voice mode active (start above first). each run sends a chat message,
-                waits ~{(POST_RUN_WAIT_MS / 1000).toFixed(0)}s for TTS to flush, then captures
-                tts_playback_timing + tts_server_timing events. cost: ~${(DEFAULT_SUITE.length * replicates * 0.008).toFixed(2)} OpenAI total.
+                requires voice mode active (start above first). each run dispatches the
+                selected workflow, waits {(selectedWorkflow.wait_ms / 1000).toFixed(0)}s for TTS to flush, then captures
+                tts_playback_timing + tts_server_timing events.
+                {workflowId === 'long_response_flow' && (
+                    <span style={{ color: '#ffcc66' }}> ⚠ long_response: ~{Math.ceil(DEFAULT_SUITE.length * replicates * (selectedWorkflow.wait_ms / 1000) / 60)} min runtime, ~${(DEFAULT_SUITE.length * replicates * 0.05).toFixed(2)} OpenAI total.</span>
+                )}
+                {workflowId === 'basic_chat_flow' && (
+                    <span> ~${(DEFAULT_SUITE.length * replicates * 0.008).toFixed(2)} OpenAI total.</span>
+                )}
             </div>
 
             {progress && (

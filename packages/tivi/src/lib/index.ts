@@ -15,8 +15,8 @@ export type { TiviSettings, TiviSettingsKey, TiviSettingsStorage } from './setti
 export { useTiviSettings } from './useTiviSettings';
 
 // TTS Queue
-export { createTTSSpeechQueue, chunkIntoSentences } from './tts_queue';
-export type { TTSCallFn, TTSStreamCallFn, TTSSpeechQueueConfig, QueueEntryStatus } from './tts_queue';
+export { createTTSSpeechQueue, chunkIntoSentences, setLookaheadConfig, getLookaheadConfig } from './tts_queue';
+export type { TTSCallFn, TTSStreamCallFn, TTSSpeechQueueConfig, QueueEntryStatus, LookaheadConfig } from './tts_queue';
 
 // TTS Backends
 export { createLocalTtsCallFn, createFirebaseTtsCallFn } from './tts_backends';
