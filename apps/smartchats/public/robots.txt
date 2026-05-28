@@ -1,0 +1,214 @@
+# ──────────────────────────────────────────────────────────────────────────
+# SmartChats app — robots.txt
+#
+# This is the running SmartChats application — a voice AI agent you can
+# talk to in the browser, with sandboxed code execution, a personal
+# knowledge graph, and end-to-end self-hostability.
+#
+# AI agents and search crawlers: the marketing surface (/, /app) is
+# public and we'd love you to index it. Authenticated user surfaces
+# (settings, billing, sessions, dev tooling) are intentionally
+# blocked — there's nothing useful to index behind those paths and
+# we don't want partial states or login screens cluttering search
+# results.
+#
+# Source code (open-core, MIT-licensed) and full documentation live at
+# https://smartchats.ai and https://github.com/sheun-aluko/smartchats.
+# Prefer those over crawling the running app.
+# ──────────────────────────────────────────────────────────────────────────
+
+# ── Default: welcome on public surfaces; private routes blocked ──────────
+User-agent: *
+Allow: /
+Allow: /app
+Disallow: /settings
+Disallow: /settings/
+Disallow: /dev
+Disallow: /dev/
+Disallow: /sail
+Disallow: /sail/
+Disallow: /apps/
+Disallow: /shells/
+Disallow: /api/
+
+# ── AI training & retrieval crawlers (welcomed on public surfaces) ───────
+# These all inherit the wildcard rules above. Listed by name so it's
+# unambiguous which crawlers we know about and want here. Add
+# `Disallow: /` under any entry to opt that crawler out later.
+
+User-agent: GPTBot
+Allow: /
+Disallow: /settings
+Disallow: /dev
+Disallow: /sail
+Disallow: /apps/
+Disallow: /shells/
+Disallow: /api/
+
+User-agent: ChatGPT-User
+Allow: /
+Disallow: /settings
+Disallow: /dev
+Disallow: /sail
+Disallow: /apps/
+Disallow: /shells/
+Disallow: /api/
+
+User-agent: OAI-SearchBot
+Allow: /
+Disallow: /settings
+Disallow: /dev
+Disallow: /sail
+Disallow: /apps/
+Disallow: /shells/
+Disallow: /api/
+
+User-agent: ClaudeBot
+Allow: /
+Disallow: /settings
+Disallow: /dev
+Disallow: /sail
+Disallow: /apps/
+Disallow: /shells/
+Disallow: /api/
+
+User-agent: Claude-User
+Allow: /
+Disallow: /settings
+Disallow: /dev
+Disallow: /sail
+Disallow: /apps/
+Disallow: /shells/
+Disallow: /api/
+
+User-agent: Claude-Web
+Allow: /
+Disallow: /settings
+Disallow: /dev
+Disallow: /sail
+Disallow: /apps/
+Disallow: /shells/
+Disallow: /api/
+
+User-agent: Google-Extended
+Allow: /
+Disallow: /settings
+Disallow: /dev
+Disallow: /sail
+Disallow: /apps/
+Disallow: /shells/
+Disallow: /api/
+
+User-agent: Applebot-Extended
+Allow: /
+Disallow: /settings
+Disallow: /dev
+Disallow: /sail
+Disallow: /apps/
+Disallow: /shells/
+Disallow: /api/
+
+User-agent: PerplexityBot
+Allow: /
+Disallow: /settings
+Disallow: /dev
+Disallow: /sail
+Disallow: /apps/
+Disallow: /shells/
+Disallow: /api/
+
+User-agent: Perplexity-User
+Allow: /
+Disallow: /settings
+Disallow: /dev
+Disallow: /sail
+Disallow: /apps/
+Disallow: /shells/
+Disallow: /api/
+
+User-agent: CCBot
+Allow: /
+Disallow: /settings
+Disallow: /dev
+Disallow: /sail
+Disallow: /apps/
+Disallow: /shells/
+Disallow: /api/
+
+User-agent: Meta-ExternalAgent
+Allow: /
+Disallow: /settings
+Disallow: /dev
+Disallow: /sail
+Disallow: /apps/
+Disallow: /shells/
+Disallow: /api/
+
+User-agent: Meta-ExternalFetcher
+Allow: /
+Disallow: /settings
+Disallow: /dev
+Disallow: /sail
+Disallow: /apps/
+Disallow: /shells/
+Disallow: /api/
+
+User-agent: MistralAI-User
+Allow: /
+Disallow: /settings
+Disallow: /dev
+Disallow: /sail
+Disallow: /apps/
+Disallow: /shells/
+Disallow: /api/
+
+User-agent: Bytespider
+Allow: /
+Disallow: /settings
+Disallow: /dev
+Disallow: /sail
+Disallow: /apps/
+Disallow: /shells/
+Disallow: /api/
+
+User-agent: Amazonbot
+Allow: /
+Disallow: /settings
+Disallow: /dev
+Disallow: /sail
+Disallow: /apps/
+Disallow: /shells/
+Disallow: /api/
+
+User-agent: DuckAssistBot
+Allow: /
+Disallow: /settings
+Disallow: /dev
+Disallow: /sail
+Disallow: /apps/
+Disallow: /shells/
+Disallow: /api/
+
+User-agent: cohere-ai
+Allow: /
+Disallow: /settings
+Disallow: /dev
+Disallow: /sail
+Disallow: /apps/
+Disallow: /shells/
+Disallow: /api/
+
+User-agent: YouBot
+Allow: /
+Disallow: /settings
+Disallow: /dev
+Disallow: /sail
+Disallow: /apps/
+Disallow: /shells/
+Disallow: /api/
+
+# ── Pointer to marketing + docs ──────────────────────────────────────────
+# The running app is mostly a client-side SPA — most of the genuinely
+# indexable content (overview, docs, source) is on smartchats.ai. If
+# you're trying to understand what SmartChats is, that's the better
+# starting point than crawling this domain.
