@@ -8,12 +8,20 @@
 
 import type { Router, Request, Response } from 'express';
 import express from 'express';
-import { JSDOM } from 'jsdom';
-import { Readability } from '@mozilla/readability';
 import type { SearchResult } from 'smartchats-backend';
 import type { ServerConfig } from '../config.js';
 import { writeUsageRecord } from '../usage_writer.js';
 import { log } from '../logger.js';
+
+// jsdom + @mozilla/readability are dynamic-imported inside the /fetchUrl
+// handler. Reasons:
+//   1. They're only needed for the /fetchUrl path — search doesn't touch DOM.
+//   2. jsdom spawns a Node Worker for synchronous XHR and looks up
+//      `xhr-sync-worker.js` via an absolute path bun --compile bakes in at
+//      build time. Eager-importing at the top of the file makes that lookup
+//      happen at server startup, crashing the bun-compiled binary on any
+//      machine other than the one it was compiled on. Lazy-loading defers
+//      it until the route is actually called.
 
 const routeLog = log.withTag('tools');
 
@@ -109,6 +117,9 @@ export function toolsRoutes(config: ServerConfig): Router {
         let title = '';
         let text = '';
         try {
+            // Lazy import — see file header comment for why this can't be a top-level import.
+            const { JSDOM } = await import('jsdom');
+            const { Readability } = await import('@mozilla/readability');
             const dom = new JSDOM(html, { url });
             const reader = new Readability(dom.window.document);
             const article = reader.parse();

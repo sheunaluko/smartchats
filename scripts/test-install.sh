@@ -204,8 +204,32 @@ done
 
 if ! $ready; then
     err "Stack did not respond on :$HOST_PORT within 60s."
-    echo "  Container logs (last 50 lines):"
-    docker logs --tail 50 "$CONTAINER_NAME" 2>&1 | sed 's/^/    /'
+    echo
+    echo "  ── docker logs --tail 80 $CONTAINER_NAME ─────────────────────────"
+    docker logs --tail 80 "$CONTAINER_NAME" 2>&1 | sed 's/^/    /'
+    # smartchats start redirects child stdio to log files inside the container.
+    # Grab them before cleanup. `docker cp` works on stopped containers (which
+    # is what we have here — the entrypoint died when the server failed).
+    TMP_LOGS="$(mktemp -d)"
+    for proc in server surreal; do
+        echo
+        echo "  ── /root/.smartchats/logs/${proc}.log (last 60 lines) ─────────────"
+        if docker cp "$CONTAINER_NAME:/root/.smartchats/logs/${proc}.log" "$TMP_LOGS/${proc}.log" 2>/dev/null; then
+            tail -n 60 "$TMP_LOGS/${proc}.log" 2>&1 | sed 's/^/    /'
+        else
+            echo "    (log file not present — process never started or container layout differs)"
+        fi
+    done
+    rm -rf "$TMP_LOGS"
+    # Also leave the container alive for inspection if --keep-running was set.
+    if $KEEP_RUNNING; then
+        echo
+        warn "Container left running for inspection (--keep-running). Stop with:"
+        warn "  docker rm -f $CONTAINER_NAME"
+        trap - EXIT INT TERM
+        if [[ -n "${HTTP_PID:-}" ]]; then kill "$HTTP_PID" 2>/dev/null || true; fi
+        rm -rf "$SERVER_ROOT"
+    fi
     exit 1
 fi
 
