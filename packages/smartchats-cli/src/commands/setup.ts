@@ -129,19 +129,6 @@ function checkSurreal(): SystemCheck {
     return { name: 'surreal', status: 'ok', detail: `${bin} (${first})`, blocking: false };
 }
 
-function checkNode(): SystemCheck {
-    const v = process.versions.node;
-    const major = parseInt(v.split('.')[0] ?? '0', 10);
-    if (major >= 22) return { name: 'node', status: 'ok', detail: `v${v}`, blocking: false };
-    return {
-        name: 'node',
-        status: 'warn',
-        detail: `v${v} — recommend ≥22`,
-        blocking: false,
-        fix: 'Node 22+ recommended (bun is used for the runtime, so this is informational only).',
-    };
-}
-
 function checkDisk(): SystemCheck {
     // `df -k $HOME` → second line, 4th field = free KB.
     const home = process.env.HOME ?? '/';
@@ -194,9 +181,11 @@ export async function runSetup(args: SetupArgs): Promise<number> {
     }
     consola.success(`Repo: ${repoRoot}`);
 
-    // 2. System analysis.
+    // 2. System analysis. Node is deliberately not checked — see doctor.ts
+    //    for the reasoning (Bun runtime is bundled with the binaries; npm
+    //    install gates Node via package.json `engines`).
     consola.start('Checking system...');
-    const checks: SystemCheck[] = [checkBun(), checkSurreal(), checkNode(), checkDisk()];
+    const checks: SystemCheck[] = [checkBun(), checkSurreal(), checkDisk()];
     printSystemChecks(checks);
     const blocking = checks.filter((c) => c.blocking);
     if (blocking.length > 0) {

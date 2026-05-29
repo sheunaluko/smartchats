@@ -64,18 +64,6 @@ function checkSurrealInstalled(): CheckResult {
     return { name: 'surreal installed', status: 'pass', severity: 'critical', note: `${bin} (${first})` };
 }
 
-function checkNodeVersion(): CheckResult {
-    const v = process.versions.node;
-    const major = parseInt(v.split('.')[0] ?? '0', 10);
-    if (major >= 22) return { name: 'Node ≥ 22', status: 'pass', severity: 'info', note: `v${v}` };
-    return {
-        name: 'Node ≥ 22',
-        status: 'warn',
-        severity: 'warn',
-        note: `v${v} — Node 22+ recommended (bun is the runtime, so non-blocking)`,
-    };
-}
-
 function checkDiskSpace(): CheckResult {
     const home = process.env.HOME ?? '/';
     const r = spawnSync('df', ['-k', home], { encoding: 'utf8' });
@@ -285,9 +273,12 @@ export async function runDoctor(opts: DoctorOptions): Promise<number> {
     results.push(checkContextDetected(ctx));
 
     // Native-binary stack prerequisites (the `smartchats start` path).
+    // Note: Node is deliberately not checked. The bun-compiled CLI + server
+    // binaries embed the Bun runtime, so Node isn't required at runtime.
+    // The npm-install path gates Node version via package.json `engines`
+    // before the CLI ever runs.
     results.push(checkBunInstalled());
     results.push(checkSurrealInstalled());
-    results.push(checkNodeVersion());
     results.push(checkDiskSpace());
 
     // Docker AIO path — informational since `smartchats start` no longer
