@@ -24,6 +24,8 @@ import consola from 'consola';
 
 import { requireRepo, detectContext } from '../lib/context.js';
 import { updateConfig } from '../lib/config.js';
+import { dotenvPath, parseDotenv } from '../lib/env.js';
+import { detectBinaryInstall, describeInstall, type BinaryInstall } from '../lib/install_root.js';
 import {
     type PidFile,
     defaultDataDir,
@@ -208,28 +210,61 @@ function spawnDetached(
 export async function runStart(args: StartArgs): Promise<number> {
     consola.box('SmartChats — start');
 
-    // 1. Resolve repo (start currently requires source — the bundled-binary
-    //    install path is task #9; it will land alongside a detection branch
-    //    here for ~/.smartchats/bin/{surreal,smartchats-server}).
-    const ctx = detectContext();
-    const repoRoot = requireRepo(ctx);
+    // 1. Mode detection. Binary install (curl|sh) → spawn bundled binaries.
+    //    Source mode (dev / npm install) → use bun + run TS from the repo.
+    const install = detectBinaryInstall();
+    consola.info(describeInstall(install));
 
-    // 2. Resolve binaries.
-    const surrealBin = findSurreal();
-    if (!surrealBin) {
-        consola.error('surreal binary not found.');
-        consola.info("Install: curl --proto '=https' --tlsv1.2 -sSf https://install.surrealdb.com | sh");
-        return 1;
+    // 2. Resolve binaries + spawn spec based on mode.
+    let surrealBin: string;
+    let serverBin: string;
+    let serverArgs: string[];
+    let serverCwd: string;
+    let staticDir: string;
+    let bunBin: string | null = null;
+    let repoRoot: string | null = null;
+
+    if (install) {
+        // Binary mode. Surreal may be bundled or pre-installed system-wide.
+        surrealBin = install.surrealBin || findSurreal() || '';
+        if (!surrealBin) {
+            consola.error('surreal binary not found (neither bundled nor on PATH).');
+            consola.info("Install: curl --proto '=https' --tlsv1.2 -sSf https://install.surrealdb.com | sh");
+            return 1;
+        }
+        serverBin = install.serverBin;
+        serverArgs = [];
+        serverCwd = install.root;
+        staticDir = install.staticDir;
+        consola.info(`surreal: ${surrealBin}`);
+        consola.info(`server:  ${serverBin}`);
+    } else {
+        // Source mode. Need bun to execute the TS server entrypoint, and a
+        // repo with .next /out to point SMARTCHATS_STATIC_DIR at.
+        const ctx = detectContext();
+        repoRoot = requireRepo(ctx);
+        const sb = findSurreal();
+        if (!sb) {
+            consola.error('surreal binary not found.');
+            consola.info("Install: curl --proto '=https' --tlsv1.2 -sSf https://install.surrealdb.com | sh");
+            return 1;
+        }
+        const bb = findBun();
+        if (!bb) {
+            consola.error('bun binary not found.');
+            consola.info('Install: curl -fsSL https://bun.sh/install | bash');
+            return 1;
+        }
+        surrealBin = sb;
+        bunBin = bb;
+        serverBin = bunBin;
+        serverArgs = ['--bun', 'run', 'src/cli.ts'];
+        serverCwd = path.join(repoRoot, 'packages/smartchats-local-server');
+        staticDir = path.join(repoRoot, 'apps/smartchats/out');
+        consola.info(`bun:     ${bunBin}`);
+        consola.info(`surreal: ${surrealBin}`);
+        consola.info(`repo:    ${repoRoot}`);
     }
-    const bunBin = findBun();
-    if (!bunBin) {
-        consola.error('bun binary not found.');
-        consola.info('Install: curl -fsSL https://bun.sh/install | bash');
-        return 1;
-    }
-    consola.info(`bun: ${bunBin}`);
-    consola.info(`surreal: ${surrealBin}`);
-    consola.info(`repo: ${repoRoot}`);
 
     // 3. Idempotency check.
     const existing = readPidFile();
@@ -242,9 +277,13 @@ export async function runStart(args: StartArgs): Promise<number> {
         try { fs.rmSync(pidFilePath()); } catch { /* */ }
     }
 
-    // 4. Ensure builds exist (auto-build on first run; --rebuild to force).
-    if (args.rebuild || !workspaceBuildArtifactsExist(repoRoot)) {
-        await runBuild(repoRoot, bunBin);
+    // 4. Source-mode only: ensure workspace builds exist.
+    if (!install) {
+        if (args.rebuild || !workspaceBuildArtifactsExist(repoRoot!)) {
+            await runBuild(repoRoot!, bunBin!);
+        }
+    } else if (args.rebuild) {
+        consola.warn('--rebuild ignored in binary install mode (binaries ship pre-built).');
     }
 
     // 5. Set up paths.
@@ -264,7 +303,7 @@ export async function runStart(args: StartArgs): Promise<number> {
             `rocksdb:${path.join(args.dataDir, 'surreal.db')}`,
         ],
         process.env,
-        repoRoot,
+        repoRoot ?? install!.root,
         surrealLog,
     );
 
@@ -280,8 +319,16 @@ export async function runStart(args: StartArgs): Promise<number> {
     }
     consola.success(`surreal ready on :${args.surrealPort}`);
 
-    // 7. Spawn smartchats-local-server (via bun, runs TS source directly).
-    const serverEnv = {
+    // 7. Spawn smartchats-local-server.
+    //    Binary mode: invoke the compiled binary directly.
+    //    Source mode: invoke bun --bun run src/cli.ts in the local-server pkg.
+    //    Either mode: merge .env from the right root (install root or repo
+    //    root) into the spawn env. process.env wins on collision so users
+    //    can override per-launch with `KEY=val smartchats start`.
+    const envRoot = install ? install.root : repoRoot!;
+    const dotenv = parseDotenv(dotenvPath(envRoot));
+    const serverEnv: NodeJS.ProcessEnv = {
+        ...dotenv,
         ...process.env,
         SURREAL_URL: `ws://127.0.0.1:${args.surrealPort}/rpc`,
         SURREAL_NS: 'smartchats',
@@ -290,17 +337,13 @@ export async function runStart(args: StartArgs): Promise<number> {
         SURREAL_PASSWORD: 'root',
         SMARTCHATS_HOST: '0.0.0.0',
         SMARTCHATS_PORT: String(args.appPort),
-        SMARTCHATS_STATIC_DIR: path.join(repoRoot, 'apps/smartchats/out'),
-        // Make sure nested `bun run ...` calls resolve the same bun.
-        PATH: `${path.dirname(bunBin)}:${process.env.PATH}`,
+        SMARTCHATS_STATIC_DIR: staticDir,
     };
-    const serverProc = spawnDetached(
-        bunBin,
-        ['--bun', 'run', 'src/cli.ts'],
-        serverEnv,
-        path.join(repoRoot, 'packages/smartchats-local-server'),
-        serverLog,
-    );
+    if (bunBin) {
+        // Source mode: ensure nested `bun run ...` calls resolve the same bun.
+        serverEnv.PATH = `${path.dirname(bunBin)}:${process.env.PATH}`;
+    }
+    const serverProc = spawnDetached(serverBin, serverArgs, serverEnv, serverCwd, serverLog);
 
     const serverReady = await withWave(
         `Starting smartchats-server on :${args.appPort}`,

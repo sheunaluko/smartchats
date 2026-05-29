@@ -48,6 +48,7 @@ import {
 } from './commands/lifecycle.js';
 import { runHome, parseHomeArgs, homeHelp } from './commands/home.js';
 import { runDev, parseDevArgs, devHelp } from './commands/dev.js';
+import { runUpgrade, parseUpgradeArgs, upgradeHelp } from './commands/upgrade.js';
 import { runLogin, loginHelp } from './commands/login.js';
 import { runLogout, logoutHelp } from './commands/logout.js';
 import { runWhoami, whoamiHelp } from './commands/whoami.js';
@@ -58,6 +59,7 @@ import { loadConfig } from './lib/config.js';
 
 const KNOWN_COMMANDS = new Set([
     'setup', 'start', 'stop', 'restart', 'status', 'logs', 'dev', 'home',
+    'upgrade',
     'launch', 'doctor', 'login', 'logout', 'whoami', 'data',
     'help', '--help', '-h',
 ]);
@@ -76,6 +78,7 @@ Lifecycle:
   status         Show what's running, on what ports, with what health.
   logs           Tail per-process logs.
   dev            Hot-reload development stack (delegates to bin/devserve).
+  upgrade        Upgrade to a newer release (re-runs install.sh).
 
 Cloud:
   login          Sign in to the SmartChats cloud (browser OAuth).
@@ -148,6 +151,7 @@ async function main(): Promise<void> {
         else if (sub === 'logs') console.log(logsHelp());
         else if (sub === 'dev') console.log(devHelp());
         else if (sub === 'home') console.log(homeHelp());
+        else if (sub === 'upgrade') console.log(upgradeHelp());
         else if (sub === 'launch') console.log(launchHelp());
         else if (sub === 'doctor') console.log(doctorHelp());
         else if (sub === 'login') console.log(loginHelp);
@@ -203,6 +207,11 @@ async function main(): Promise<void> {
         case 'home': {
             const args = parseHomeArgs(argv.slice(3));
             const exit = await runHome(args);
+            process.exit(exit);
+        }
+        case 'upgrade': {
+            const args = parseUpgradeArgs(argv.slice(3));
+            const exit = await runUpgrade(args);
             process.exit(exit);
         }
         case 'launch': {

@@ -32,6 +32,7 @@ import {
     parseDotenv,
     writeDotenv,
 } from '../lib/env.js';
+import { detectBinaryInstall, describeInstall } from '../lib/install_root.js';
 import { printLogo } from '../lib/visuals.js';
 import { runStart } from './start.js';
 
@@ -172,22 +173,33 @@ export async function runSetup(args: SetupArgs): Promise<number> {
     printLogo();
     consola.info('Guided setup — get the local stack running in ~2 minutes.\n');
 
-    // 1. Repo.
-    consola.start('Locating smartchats source...');
-    let repoRoot: string;
-    try {
-        repoRoot = await ensureRepoRoot({ repoPath: args.repoPath });
-    } catch (err) {
-        consola.error((err as Error).message);
-        return 1;
-    }
-    consola.success(`Repo: ${repoRoot}`);
+    // 1. Decide where .env lives. Binary mode → install root (bundled).
+    //    Source mode → repo root (auto-cloned if missing).
+    const install = detectBinaryInstall();
+    consola.info(describeInstall(install));
 
-    // 2. System analysis. Node is deliberately not checked — see doctor.ts
-    //    for the reasoning (Bun runtime is bundled with the binaries; npm
-    //    install gates Node via package.json `engines`).
+    let envRoot: string;
+    if (install) {
+        envRoot = install.root;
+    } else {
+        consola.start('Locating smartchats source...');
+        try {
+            envRoot = await ensureRepoRoot({ repoPath: args.repoPath });
+        } catch (err) {
+            consola.error((err as Error).message);
+            return 1;
+        }
+        consola.success(`Repo: ${envRoot}`);
+    }
+
+    // 2. System analysis. In binary mode, bun + surreal are bundled — skip
+    //    those checks; just verify disk space. In source mode, all three.
+    //    Node is deliberately never checked (Bun runtime is bundled with
+    //    the binaries; npm install gates Node via package.json `engines`).
     consola.start('Checking system...');
-    const checks: SystemCheck[] = [checkBun(), checkSurreal(), checkDisk()];
+    const checks: SystemCheck[] = install
+        ? [checkDisk()]
+        : [checkBun(), checkSurreal(), checkDisk()];
     printSystemChecks(checks);
     const blocking = checks.filter((c) => c.blocking);
     if (blocking.length > 0) {
@@ -198,7 +210,7 @@ export async function runSetup(args: SetupArgs): Promise<number> {
 
     // 3. Provider keys.
     consola.start('Provider API keys');
-    const dotenv = dotenvPath(repoRoot);
+    const dotenv = dotenvPath(envRoot);
     const existing = parseDotenv(dotenv);
     const resolved: Record<string, string> = { ...existing };
 

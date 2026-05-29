@@ -1,0 +1,116 @@
+name: release
+
+# Triggered by:
+#   - Pushing a tag matching v*  → builds + uploads to a GitHub Release.
+#   - workflow_dispatch          → manual run (no upload, just verifies the
+#                                  build works on all platforms).
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write   # for uploading release assets
+
+jobs:
+  build:
+    name: build (${{ matrix.target }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: darwin-arm64
+            runner: macos-14            # M-series
+            native: true
+          - target: darwin-x64
+            runner: macos-13            # Intel
+            native: true
+          - target: linux-x64
+            runner: ubuntu-22.04
+            native: true
+          - target: linux-arm64
+            runner: ubuntu-22.04-arm
+            native: true
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install Node (for npm install in workspaces + build scripts)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install workspace deps
+        run: npm install --no-fund --no-audit
+
+      - name: Build release tarball
+        run: scripts/build-release.sh --target ${{ matrix.target }}
+
+      - name: Smoke-test extracted tarball (native targets only)
+        if: matrix.native == true
+        run: |
+          mkdir -p /tmp/sc-test
+          tar -xzf "dist-release/smartchats-${{ matrix.target }}.tar.gz" -C /tmp/sc-test
+          ls -la /tmp/sc-test/bin
+          /tmp/sc-test/bin/smartchats --version || /tmp/sc-test/bin/smartchats help | head -5
+
+      - name: Install asciinema (Linux)
+        if: matrix.native == true && startsWith(matrix.runner, 'ubuntu')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y asciinema
+
+      - name: Install asciinema (macOS)
+        if: matrix.native == true && startsWith(matrix.runner, 'macos')
+        run: brew install asciinema
+
+      - name: Record install asciinema cast
+        if: matrix.native == true
+        run: |
+          # Records the extracted-tarball CLI commands. This cast is uploaded
+          # as a release asset AND can be embedded in the docs site.
+          mkdir -p dist-release/casts
+          asciinema rec --quiet \
+            --command "/tmp/sc-test/bin/smartchats help && /tmp/sc-test/bin/smartchats home && /tmp/sc-test/bin/smartchats status" \
+            "dist-release/casts/smartchats-${{ matrix.target }}.cast" || true
+
+      - name: Upload tarball as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: smartchats-${{ matrix.target }}
+          path: |
+            dist-release/smartchats-${{ matrix.target }}.tar.gz
+            dist-release/casts/*.cast
+          if-no-files-found: warn
+
+      - name: Upload to GitHub Release (tag push only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist-release/smartchats-${{ matrix.target }}.tar.gz
+            dist-release/casts/*.cast
+          fail_on_unmatched_files: false
+          generate_release_notes: true
+
+  # Once all four platform builds succeed, mark the release as the latest.
+  publish:
+    name: mark release latest
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - name: Mark as latest
+        uses: softprops/action-gh-release@v2
+        with:
+          make_latest: 'true'
+          generate_release_notes: true
