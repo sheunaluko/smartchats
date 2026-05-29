@@ -22,20 +22,35 @@ function dim(s: string): string {
 }
 
 // Cyan → teal → green sweep, evocative of voice / waves / motion.
+// Used by the traveling sin wave indicator.
 const WAVE_COLORS = [39, 38, 44, 43, 49, 48, 84, 83, 119, 118, 154, 148, 184, 178];
+
+// Solid vivid terminal green for the logo. ANSI 256: 46 ('lime' / classic
+// CRT green). One color rather than a gradient keeps the large multi-line
+// banner unified instead of busy.
+const LOGO_COLOR = 46;
 
 // ─── Logo ─────────────────────────────────────────────────────────────
 
+// Mirrors data/ascii-art.txt. The art file is the canonical source — if
+// either changes, update both. Inlined here (rather than read from disk
+// at runtime) so the bun-compiled binary stays self-contained: no fs
+// lookups, no __dirname path baking.
 const LOGO_LINES = [
-    '   ___                  _    ___ _         _',
-    '  / __| _ __  __ _ _ _ | |_ / __| |_  __ _| |_ ___',
-    "  \\__ \\| '  \\/ _` | '_||  _|(__ | ' \\/ _` |  _(_-<",
-    '  |___/|_|_|_\\__,_|_|   \\__|\\___|_||_\\__,_|\\__/__/',
+    String.raw`_____/\\\\\\\\\\\____/\\\\____________/\\\\_____/\\\\\\\\\_______/\\\\\\\\\______/\\\\\\\\\\\\\\\________/\\\\\\\\\__/\\\________/\\\_____/\\\\\\\\\_____/\\\\\\\\\\\\\\\_____/\\\\\\\\\\\___`,
+    String.raw` ___/\\\/////////\\\_\/\\\\\\________/\\\\\\___/\\\\\\\\\\\\\___/\\\///////\\\___\///////\\\/////______/\\\////////__\/\\\_______\/\\\___/\\\\\\\\\\\\\__\///////\\\/////____/\\\/////////\\\_`,
+    String.raw`  __\//\\\______\///__\/\\\//\\\____/\\\//\\\__/\\\/////////\\\_\/\\\_____\/\\\_________\/\\\_________/\\\/___________\/\\\_______\/\\\__/\\\/////////\\\_______\/\\\________\//\\\______\///__`,
+    String.raw`   ___\////\\\_________\/\\\\///\\\/\\\/_\/\\\_\/\\\_______\/\\\_\/\\\\\\\\\\\/__________\/\\\________/\\\_____________\/\\\\\\\\\\\\\\\_\/\\\_______\/\\\_______\/\\\_________\////\\\_________`,
+    String.raw`    ______\////\\\______\/\\\__\///\\\/___\/\\\_\/\\\\\\\\\\\\\\\_\/\\\//////\\\__________\/\\\_______\/\\\_____________\/\\\/////////\\\_\/\\\\\\\\\\\\\\\_______\/\\\____________\////\\\______`,
+    String.raw`     _________\////\\\___\/\\\____\///_____\/\\\_\/\\\/////////\\\_\/\\\____\//\\\_________\/\\\_______\//\\\____________\/\\\_______\/\\\_\/\\\/////////\\\_______\/\\\_______________\////\\\___`,
+    String.raw`      __/\\\______\//\\\__\/\\\_____________\/\\\_\/\\\_______\/\\\_\/\\\_____\//\\\________\/\\\________\///\\\__________\/\\\_______\/\\\_\/\\\_______\/\\\_______\/\\\________/\\\______\//\\\__`,
+    String.raw`       _\///\\\\\\\\\\\/___\/\\\_____________\/\\\_\/\\\_______\/\\\_\/\\\______\//\\\_______\/\\\__________\////\\\\\\\\\_\/\\\_______\/\\\_\/\\\_______\/\\\_______\/\\\_______\///\\\\\\\\\\\/___`,
+    String.raw`        ___\///////////_____\///______________\///__\///________\///__\///________\///________\///______________\/////////__\///________\///__\///________\///________\///__________\///////////_____`,
 ];
 
 /**
- * Print the SmartChats logo with a horizontal gradient. Single-shot — call
- * once per command run (typically at the top of `setup`).
+ * Print the SmartChats logo in solid green. Single-shot — call once per
+ * command run (typically at the top of `setup`).
  */
 export function printLogo(): void {
     if (!useColor) {
@@ -45,14 +60,7 @@ export function printLogo(): void {
         return;
     }
     for (const line of LOGO_LINES) {
-        let out = '';
-        const width = line.length;
-        for (let i = 0; i < width; i++) {
-            const t = width > 1 ? i / (width - 1) : 0;
-            const idx = Math.floor(t * (WAVE_COLORS.length - 1));
-            out += fg(WAVE_COLORS[idx]!, line[i]!);
-        }
-        console.log(out);
+        console.log(fg(LOGO_COLOR, line));
     }
     console.log('');
 }
