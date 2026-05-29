@@ -11,6 +11,8 @@ dist
 **/dist
 dist-bun
 **/dist-bun
+dist-release
+**/dist-release
 *.tsbuildinfo
 **/*.tsbuildinfo
 next-env.d.ts
