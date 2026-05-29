@@ -227,21 +227,47 @@ class SurrealClient implements Client {
             // accepted shape is still RootAuth ({username, password}) for
             // root-credentialed connections, or omitted for user mode (auth
             // is established later via authenticate / signin / signup).
-            const opts: Record<string, unknown> = {
-                namespace: this.config.namespace,
-                database: this.config.database,
-            };
+            //
+            // Scope handling differs by mode:
+            //   - root mode: connect WITHOUT scope, then DEFINE NS + DB if
+            //     missing, then `use(scope)`. SurrealDB v3 does not
+            //     auto-create namespaces on USE — connecting scoped to a
+            //     non-existent NS fails with "namespace does not exist".
+            //     Root creds are trusted, so the auto-create is safe.
+            //   - user mode: connect WITH scope (existing behavior). User
+            //     JWTs are issued against existing NS+DB; if the scope is
+            //     missing, the right answer is to surface the error.
+            const opts: Record<string, unknown> = {};
             if (this.config.mode.kind === 'root') {
                 opts.authentication = {
                     username: this.config.mode.auth.username,
                     password: this.config.mode.auth.password,
                 };
+            } else {
+                opts.namespace = this.config.namespace;
+                opts.database = this.config.database;
             }
             await this.db.connect(this.config.url, opts);
-            // For user mode with a pre-supplied token, switch auth context.
-            // Without this the connection is unauthenticated and queries
-            // hit the table's PERMISSIONS clause as $auth.id == NONE.
-            if (this.config.mode.kind === 'user' && this.config.mode.token) {
+
+            if (this.config.mode.kind === 'root') {
+                // DEFINE ... IF NOT EXISTS is idempotent — safe to run on
+                // every connect. Identifier was validated at factory time
+                // (assertValidIdentifier), so direct interpolation is safe.
+                await this.db.query(
+                    `DEFINE NAMESPACE IF NOT EXISTS ${this.config.namespace};`,
+                );
+                await this.db.use({ namespace: this.config.namespace });
+                await this.db.query(
+                    `DEFINE DATABASE IF NOT EXISTS ${this.config.database};`,
+                );
+                await this.db.use({
+                    namespace: this.config.namespace,
+                    database: this.config.database,
+                });
+            } else if (this.config.mode.token) {
+                // User mode with a pre-supplied token: switch auth context.
+                // Without this the connection is unauthenticated and queries
+                // hit the table's PERMISSIONS clause as $auth.id == NONE.
                 await this.db.authenticate(this.config.mode.token);
             }
             this.connected = true;
@@ -354,7 +380,31 @@ class SurrealClient implements Client {
     }
 }
 
+/**
+ * SurrealDB identifier validator. DDL statements (`DEFINE NAMESPACE ...`)
+ * can't take bound parameters for the identifier itself, so we interpolate.
+ * Restricting to `[A-Za-z_][A-Za-z0-9_]*` blocks SQL injection at the
+ * factory boundary — anything outside that shape fails fast at construction
+ * rather than producing a malformed DDL string at connect time.
+ *
+ * SurrealDB does allow backtick-quoted identifiers with arbitrary chars,
+ * but smartchats canonical names ('smartchats', 'main', 'production') all
+ * fit the simple pattern. If you need richer identifiers later, switch
+ * this to a backtick-escaper instead of widening the regex.
+ */
+const VALID_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
+function assertValidIdentifier(name: string, field: 'namespace' | 'database'): void {
+    if (!VALID_IDENTIFIER.test(name)) {
+        throw new Error(
+            `Invalid ${field} identifier: ${JSON.stringify(name)}. `
+            + `Must match /^[A-Za-z_][A-Za-z0-9_]*$/ (the DDL is interpolated, not bound).`,
+        );
+    }
+}
+
 function rootInternal(config: ClientConfig): InternalConfig {
+    assertValidIdentifier(config.namespace, 'namespace');
+    assertValidIdentifier(config.database, 'database');
     return {
         url: config.url,
         namespace: config.namespace,
@@ -364,6 +414,8 @@ function rootInternal(config: ClientConfig): InternalConfig {
 }
 
 function userInternal(config: UserClientConfig): InternalConfig {
+    assertValidIdentifier(config.namespace, 'namespace');
+    assertValidIdentifier(config.database, 'database');
     return {
         url: config.url,
         namespace: config.namespace,
