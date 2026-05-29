@@ -8,20 +8,18 @@
 
 import type { Router, Request, Response } from 'express';
 import express from 'express';
+import { parseHTML } from 'linkedom';
+import { Readability } from '@mozilla/readability';
 import type { SearchResult } from 'smartchats-backend';
 import type { ServerConfig } from '../config.js';
 import { writeUsageRecord } from '../usage_writer.js';
 import { log } from '../logger.js';
 
-// jsdom + @mozilla/readability are dynamic-imported inside the /fetchUrl
-// handler. Reasons:
-//   1. They're only needed for the /fetchUrl path — search doesn't touch DOM.
-//   2. jsdom spawns a Node Worker for synchronous XHR and looks up
-//      `xhr-sync-worker.js` via an absolute path bun --compile bakes in at
-//      build time. Eager-importing at the top of the file makes that lookup
-//      happen at server startup, crashing the bun-compiled binary on any
-//      machine other than the one it was compiled on. Lazy-loading defers
-//      it until the route is actually called.
+// linkedom is bun-compile-safe — no __dirname path baking, no worker thread
+// spawning, pure JS DOM. Readability only uses the subset of DOM APIs
+// linkedom implements (tree-walking, querySelectorAll, attribute access);
+// it never executes inline <script> tags, never uses getComputedStyle, never
+// fires XMLHttpRequest. See: docs/contributing → "bun-compile compatibility".
 
 const routeLog = log.withTag('tools');
 
@@ -57,7 +55,7 @@ export function toolsRoutes(config: ServerConfig): Router {
                 const text = await response.text().catch(() => '');
                 return res.status(502).json({ error: `serper: ${response.status} ${text}` });
             }
-            serperResponse = await response.json();
+            serperResponse = await response.json() as typeof serperResponse;
         } catch (err) {
             routeLog.error(`serper fetch failed: ${(err as Error).message}`);
             return res.status(502).json({ error: `serper fetch failed: ${(err as Error).message}` });
@@ -117,17 +115,29 @@ export function toolsRoutes(config: ServerConfig): Router {
         let title = '';
         let text = '';
         try {
-            // Lazy import — see file header comment for why this can't be a top-level import.
-            const { JSDOM } = await import('jsdom');
-            const { Readability } = await import('@mozilla/readability');
-            const dom = new JSDOM(html, { url });
-            const reader = new Readability(dom.window.document);
+            // Inject a <base href> so Readability can resolve relative URLs
+            // in <a> and <img> tags. jsdom accepted `{ url }` at construction
+            // time; linkedom doesn't have an equivalent option, so we splice
+            // the tag in manually.
+            //
+            // The casts: linkedom's parseHTML is typed as `Window` but its
+            // runtime shape has `{ document, window, ... }`. The local-server
+            // tsconfig has lib: ["ES2022"] (no "DOM"), so `Document` isn't
+            // a defined global type — anything DOM-shaped is typed as `any`
+            // at this layer. Readability accepts any DOM-compatible object;
+            // its runtime tree-walking works fine against linkedom's Document.
+            const win = parseHTML(html) as unknown as { document: any };
+            const document = win.document;
+            const base = document.createElement('base');
+            base.setAttribute('href', url);
+            document.head?.insertBefore(base, document.head.firstChild);
+            const reader = new Readability(document);
             const article = reader.parse();
             if (article) {
                 title = article.title ?? '';
                 text = article.textContent ?? '';
             } else {
-                text = dom.window.document.body?.textContent ?? '';
+                text = document.body?.textContent ?? '';
             }
             if (typeof maxChars === 'number' && maxChars > 0 && text.length > maxChars) {
                 text = text.substring(0, maxChars) + '\n\n[truncated]';
