@@ -133,17 +133,26 @@ jobs:
           make_latest: 'true'
           generate_release_notes: true
 
-  # Publish the smartchats-ai CLI to npm. Runs in parallel with the binary
-  # matrix (npm publish doesn't need the tarballs), but we still gate on
-  # `needs: build` so a failing matrix doesn't ship a half-broken release
-  # to npm. Requires NPM_TOKEN as a repository secret — generate at
-  # https://www.npmjs.com/settings/<user>/tokens (Automation token, granted
-  # publish scope on smartchats-ai).
+  # Publish smartchats-ai to npm via Trusted Publishing (OIDC).
+  # No NPM_TOKEN secret — GitHub Actions mints a short-lived OIDC token
+  # at job time and exchanges it with npm for a publish credential. Setup:
+  #   https://www.npmjs.com/package/smartchats-ai/access → Trusted Publishers
+  #     Org/User: sheunaluko
+  #     Repo:     smartchats
+  #     Workflow: release.yml
+  #
+  # `--provenance` attaches a signed attestation of what built the package
+  # (workflow run, git SHA, repo). Users can verify the chain on npmjs.com.
+  #
+  # `needs: build` so a failing matrix doesn't ship a half-broken release.
   npm:
     name: npm publish smartchats-ai
     needs: build
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      id-token: write   # required for Trusted Publishing OIDC
     steps:
       - uses: actions/checkout@v4
 
@@ -152,12 +161,10 @@ jobs:
           node-version: '22'
           registry-url: 'https://registry.npmjs.org'
 
-      - name: Install workspace deps (so the CLI's workspace imports resolve)
+      - name: Install workspace deps (so CLI's workspace imports resolve)
         run: npm install --no-fund --no-audit
 
       - name: Verify package.json version matches the tag
-        # The bin/release script enforces this locally, but double-check
-        # here so a stray manual tag can't ship a mismatched version.
         run: |
           PKG_VERSION=$(node -p "require('./packages/smartchats-cli/package.json').version")
           TAG_VERSION="${GITHUB_REF_NAME#v}"
@@ -167,10 +174,8 @@ jobs:
           fi
           echo "Publishing smartchats-ai@$PKG_VERSION"
 
-      - name: Build + publish
+      - name: Build + publish (Trusted Publishing OIDC)
         # prepack runs `npm run build:bundle` (tsup) automatically.
-        # --access public for scoped/new packages (no-op for already-public).
-        run: npm publish --access public
+        # No token — npm uses the GHA OIDC token via id-token write.
+        run: npm publish --access public --provenance
         working-directory: packages/smartchats-cli
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
