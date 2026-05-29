@@ -181,6 +181,19 @@ ok "Image built: $TAG"
 
 # ─── 4. Run AIO container ─────────────────────────────────────────────
 header "Running container $CONTAINER_NAME on :$HOST_PORT"
+
+# Preflight: if anything is already bound to HOST_PORT, docker's port
+# mapping fails silently on macOS (vpnkit can't bind, container starts
+# anyway, our curl hits the squatter instead of the container). Better
+# to bail clearly here than discover it via a 60-second timeout below.
+if PORT_HOLDER="$(lsof -nP -iTCP:"${HOST_PORT}" -sTCP:LISTEN 2>/dev/null | awk 'NR==2 { print $1 " (pid " $2 ")" }')"; then
+    if [[ -n "$PORT_HOLDER" ]]; then
+        err "Port ${HOST_PORT} is already in use by: ${PORT_HOLDER}"
+        err "Free it (e.g. \`kill <pid>\`), or re-run with: --port <other>"
+        exit 1
+    fi
+fi
+
 docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
 
 # Pass provider keys through if a host .env exists. Otherwise the stack
