@@ -72,8 +72,9 @@ VOLUME ["/data"]
 
 EXPOSE 3000
 
-# Foreground + explicit data-dir so docker can see the process tree and
-# the rocksdb store lands on the mounted volume.
+# Foreground + explicit data-dir + --no-prompt so docker can see the
+# process tree, the rocksdb store lands on the mounted volume, and the
+# missing-keys preflight prompt is skipped (no TTY in container anyway).
 ENTRYPOINT ["/usr/bin/tini", "--", \
             "/root/.smartchats/bin/smartchats", "start", \
-            "--data-dir=/data", "--foreground"]
+            "--data-dir=/data", "--foreground", "--no-prompt"]

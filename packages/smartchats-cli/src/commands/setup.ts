@@ -284,5 +284,7 @@ export async function runSetup(args: SetupArgs): Promise<number> {
         dataDir: path.join(process.env.HOME ?? '/tmp', '.smartchats', 'data'),
         rebuild: false,
         foreground: false,
+        // setup already collected keys; don't re-prompt in start
+        noPrompt: true,
     });
 }

@@ -24,8 +24,9 @@ import consola from 'consola';
 
 import { requireRepo, detectContext } from '../lib/context.js';
 import { updateConfig } from '../lib/config.js';
-import { dotenvPath, parseDotenv } from '../lib/env.js';
+import { PROVIDERS, dotenvPath, findExistingValue, parseDotenv } from '../lib/env.js';
 import { detectBinaryInstall, describeInstall, type BinaryInstall } from '../lib/install_root.js';
+import { runEnv } from './env.js';
 import {
     type PidFile,
     defaultDataDir,
@@ -84,6 +85,7 @@ export interface StartArgs {
     dataDir: string;
     rebuild: boolean;
     foreground: boolean;
+    noPrompt: boolean;
 }
 
 export function parseStartArgs(rest: string[]): StartArgs {
@@ -93,6 +95,7 @@ export function parseStartArgs(rest: string[]): StartArgs {
         dataDir: defaultDataDir(),
         rebuild: false,
         foreground: false,
+        noPrompt: false,
     };
     for (let i = 0; i < rest.length; i++) {
         const a = rest[i];
@@ -101,6 +104,7 @@ export function parseStartArgs(rest: string[]): StartArgs {
         else if (a === '--data-dir') args.dataDir = rest[++i];
         else if (a === '--rebuild') args.rebuild = true;
         else if (a === '-f' || a === '--foreground') args.foreground = true;
+        else if (a === '--no-prompt') args.noPrompt = true;
         else if (a === '-h' || a === '--help') {
             console.log(startHelp());
             process.exit(0);
@@ -122,6 +126,9 @@ Options:
   --rebuild            Force workspace rebuild (turbo run build) before start.
   -f, --foreground     Attach to children; Ctrl-C stops the stack.
                        (Default: detach, start returns immediately.)
+  --no-prompt          Skip the interactive "configure keys?" preflight that
+                       fires when no provider keys are detected. Use in
+                       scripts, CI, and Docker entrypoints.
   -h, --help           Show this help.
 
 Lifecycle:
@@ -291,6 +298,32 @@ export async function runStart(args: StartArgs): Promise<number> {
     const surrealLog = surrealLogPath();
     const serverLog = serverLogPath();
     const startedAt = new Date().toISOString();
+
+    // 5b. Preflight provider keys. If none are configured AND we're
+    //     interactive AND --no-prompt wasn't passed, offer to walk the
+    //     user through `smartchats env` before launching anything.
+    //     Skipped in non-interactive contexts (Docker, CI, --no-prompt)
+    //     since the post-ready box already surfaces the warning there.
+    const preflightEnvRoot = install ? install.root : repoRoot!;
+    const preflightDotenv = parseDotenv(dotenvPath(preflightEnvRoot));
+    const anyKeyConfigured = PROVIDERS.some((spec) => findExistingValue(spec, preflightDotenv) !== null);
+    if (!anyKeyConfigured && !args.noPrompt && process.stdin.isTTY && process.stdout.isTTY) {
+        consola.warn('No LLM provider keys found in environment or .env.');
+        consola.info(`Looked in: ${dotenvPath(preflightEnvRoot)}`);
+        const { confirm } = await import('@inquirer/prompts');
+        const wantConfigure = await confirm({
+            message: 'Run `smartchats env` to configure keys interactively now?',
+            default: true,
+        });
+        if (wantConfigure) {
+            const envExit = await runEnv({ list: false });
+            if (envExit !== 0) {
+                consola.warn('Key configuration cancelled or failed — continuing with launch anyway.');
+            }
+        } else {
+            consola.info('Proceeding without keys. The agent will not be able to reply until keys are configured.');
+        }
+    }
 
     // 6. Spawn SurrealDB.
     const surrealProc = spawnDetached(

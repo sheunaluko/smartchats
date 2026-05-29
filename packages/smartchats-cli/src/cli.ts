@@ -132,6 +132,7 @@ async function main(): Promise<void> {
             dataDir: `${process.env.HOME ?? '/tmp'}/.smartchats/data`,
             rebuild: false,
             foreground: false,
+            noPrompt: false,
         });
         process.exit(exit);
     }
