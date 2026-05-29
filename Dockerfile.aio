@@ -33,16 +33,26 @@ RUN apt-get update \
         tini ca-certificates curl tar \
     && rm -rf /var/lib/apt/lists/*
 
-# Allow override of the installer URL / version at build time (CI uses this
-# to pin a specific tag in PR builds).
+# Allow override of the installer source at build time. Three knobs:
+#   SMARTCHATS_INSTALL_URL    Where to fetch install.sh from.
+#   SMARTCHATS_INSTALL_BASE   Where install.sh fetches the release tarball
+#                             from (passed through as env, install.sh reads it).
+#   SMARTCHATS_VERSION        Pin a specific release tag (default: latest).
+#
+# Production builds use the defaults. scripts/test-install.sh overrides
+# both URLs to point at a local HTTP server, so the same Dockerfile and
+# same install.sh are exercised against locally-built artifacts — image
+# build IS the install regression test.
 ARG SMARTCHATS_VERSION=latest
 ARG SMARTCHATS_INSTALL_URL=https://smartchats.ai/install
+ARG SMARTCHATS_INSTALL_BASE=https://github.com/sheunaluko/smartchats/releases
 
 # Install. --non-interactive skips the setup prompts (no TTY in docker
 # build); --no-path skips the rc-file edits (the ENTRYPOINT uses the full
 # binary path so PATH doesn't need to be wired).
 RUN curl -fsSL "${SMARTCHATS_INSTALL_URL}" \
-    | bash -s -- --non-interactive --no-path --version "${SMARTCHATS_VERSION}"
+    | SMARTCHATS_INSTALL_BASE="${SMARTCHATS_INSTALL_BASE}" \
+      bash -s -- --non-interactive --no-path --version "${SMARTCHATS_VERSION}"
 
 # Persistent volume for SurrealDB rocksdb store.
 VOLUME ["/data"]

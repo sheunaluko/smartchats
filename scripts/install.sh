@@ -102,7 +102,11 @@ fi
 
 # ─── Resolve release URL ──────────────────────────────────────────────
 TARBALL_NAME="smartchats-${PLATFORM}.tar.gz"
-if [[ "$VERSION" == "latest" ]]; then
+# SMARTCHATS_TARBALL_URL fully overrides the URL construction. Used by
+# scripts/test-install.sh to point at a locally-built artifact.
+if [[ -n "${SMARTCHATS_TARBALL_URL:-}" ]]; then
+    DOWNLOAD_URL="$SMARTCHATS_TARBALL_URL"
+elif [[ "$VERSION" == "latest" ]]; then
     DOWNLOAD_URL="${DOWNLOAD_BASE}/latest/download/${TARBALL_NAME}"
 else
     DOWNLOAD_URL="${DOWNLOAD_BASE}/download/${VERSION}/${TARBALL_NAME}"
