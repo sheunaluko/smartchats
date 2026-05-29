@@ -359,6 +359,31 @@ export async function runStart(args: StartArgs): Promise<number> {
     }
     consola.success(`smartchats-server ready on :${args.appPort}`);
 
+    // Probe /health and surface a loud warning if no provider keys are
+    // configured. This catches the Docker user who never runs `smartchats
+    // setup` and would otherwise discover "agent can't reply" only after
+    // opening the SPA + sending their first message.
+    try {
+        const healthRes = await fetch(`http://127.0.0.1:${args.appPort}/local-api/health`);
+        const health = await healthRes.json() as { checks?: { providers?: { ok?: boolean } } };
+        if (health.checks?.providers?.ok === false) {
+            const dotenvLoc = path.join(envRoot, '.env');
+            consola.box(
+                'NO API KEYS CONFIGURED — agent will not be able to reply\n\n'
+                + 'The stack is up and the SPA loads, but every LLM call will fail until you\n'
+                + 'configure at least one provider key. Two ways to fix:\n\n'
+                + `  1. Edit ${dotenvLoc} (or your container-mounted .env), then restart:\n`
+                + '       OPENAI_API_KEY=sk-...\n'
+                + '       (optional) ANTHROPIC_API_KEY=sk-ant-...\n'
+                + '       (optional) GOOGLE_API_KEY=AIza...\n'
+                + `       smartchats restart\n\n`
+                + '  2. Open the SPA → Settings → BYO Keys, paste keys there.\n'
+                + '     They persist in SurrealDB; no restart needed.\n\n'
+                + 'Docs: https://smartchats.ai/docs/self-host#environment-configuration',
+            );
+        }
+    } catch { /* health probe is best-effort polish; don't fail start on it */ }
+
     // 8. Persist PID file.
     const pidRecord: PidFile = {
         version: 1,

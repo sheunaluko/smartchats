@@ -75,6 +75,35 @@ docker run --rm -p 3000:3000 \
 
 This image is built by running the standard install script inside a fresh Debian — same code path as the bare-metal install, just wrapped for environments where you want process isolation. Open [http://localhost:3000](http://localhost:3000).
 
+<Callout type="warning">
+**You must provide at least an OpenAI API key.** The container starts without one, but **the agent cannot reply** until at least one LLM provider key is configured. You'll see a loud warning in `docker logs smartchats-aio` if you forget. See [Required environment](/docs/self-host#required-environment) for the full list.
+</Callout>
+
+**Three ways to supply keys** — pick whichever fits your workflow:
+
+| Method | When to use |
+|---|---|
+| `-e OPENAI_API_KEY=$OPENAI_API_KEY` flag | One-off runs, CI |
+| `--env-file ~/.smartchats/.env` | Multiple vars at once, file-based |
+| `-v ~/.smartchats/.env:/root/.smartchats/.env:ro` (mounted) | Same file the bare-metal CLI uses — edit, then `docker restart` to pick up changes |
+| Configure via the SPA's Settings → BYO Keys page | No restart, stored in SurrealDB |
+
+The mounted-file pattern uses the **same `.env` location convention as the bare-metal install** (`~/.smartchats/.env`), so you can switch between Docker and native and keep one config file. Create it before starting the container:
+
+```bash
+mkdir -p ~/.smartchats
+cat > ~/.smartchats/.env <<EOF
+OPENAI_API_KEY=sk-...
+ANTHROPIC_API_KEY=sk-ant-...
+EOF
+chmod 600 ~/.smartchats/.env
+
+docker run --rm -p 3000:3000 \
+  -v ~/.smartchats/.env:/root/.smartchats/.env:ro \
+  -v ~/.smartchats/data:/data \
+  smartchats/smartchats-aio:latest
+```
+
 For a full self-hosting walkthrough including env-var management, persistent volumes, and non-localhost bearer auth, see [Self-Hosting](/docs/self-host).
 
 </Tabs.Tab>

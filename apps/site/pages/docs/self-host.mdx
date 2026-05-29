@@ -63,26 +63,81 @@ One port externally (3000). SurrealDB stays on loopback. No Docker, no Next.js r
 
 `smartchats home` prints the resolved source root if you need to script against it.
 
+## Required environment
+
+The stack will boot without any keys, but **the agent cannot reply** until at least one LLM provider key is configured. `smartchats start` surfaces a loud warning at boot if it can't find any.
+
+| Variable | Required? | Effect if missing |
+|---|---|---|
+| `OPENAI_API_KEY` | **Strongly recommended** | Chat, embeddings, TTS all unavailable |
+| `ANTHROPIC_API_KEY` | Optional | Claude models can't be selected |
+| `GOOGLE_API_KEY` *(or `GEMINI_API_KEY`)* | Optional | Gemini models can't be selected |
+| `SERPER_API_KEY` | Optional | Agent's web-search tool is a no-op |
+| `SMARTCHATS_API_KEY` | Optional | Bearer auth on every `/local-api/*` request (recommended for non-localhost) |
+
+Any of the canonical names above; for each provider there's also a `SMARTCHATS_<PROVIDER>_API_KEY` alias for users who want a smartchats-namespaced env.
+
 ## Environment configuration
 
-Provider keys are read from `process.env` first, then from a `.env` file at the repo root. The CLI walks four candidates per provider; first match wins:
+Provider keys are read from `process.env` first, then from a `.env` file at the install root. The CLI walks the candidates per provider in this order; first match wins:
 
-| Provider | Canonical | Aliases also accepted |
+| Provider | Canonical | Also accepted |
 |---|---|---|
 | OpenAI | `OPENAI_API_KEY` | `SMARTCHATS_OPENAI_API_KEY` |
 | Anthropic | `ANTHROPIC_API_KEY` | `SMARTCHATS_ANTHROPIC_API_KEY` |
 | Google (Gemini) | `GOOGLE_API_KEY` | `SMARTCHATS_GOOGLE_API_KEY`, `GEMINI_API_KEY` |
 | Serper (web search) | `SERPER_API_KEY` | `SMARTCHATS_SERPER_API_KEY` |
 
-`smartchats setup` writes whichever ones you provide to `.env` at the repo root. To edit later, just edit the file and `smartchats restart`.
+### Where the `.env` file lives
+
+| Install path | `.env` location |
+|---|---|
+| `curl \| sh` install | `~/.smartchats/.env` |
+| `git clone + npm link` | `<repo>/.env` (or `~/.smartchats/.env` if `SMARTCHATS_HOME` not in the repo) |
+| Docker container | `/root/.smartchats/.env` (mount the host file into here, see below) |
+
+`smartchats setup` writes the file for you. To edit later, just edit it directly and run `smartchats restart`.
+
+### Sharing one `.env` between bare-metal and Docker installs
+
+Because the Docker container looks at `/root/.smartchats/.env` (its install root), and the bare-metal install looks at `~/.smartchats/.env` on the host, **mounting the host file into the container reuses the exact same config**:
+
+```bash
+mkdir -p ~/.smartchats
+cat > ~/.smartchats/.env <<EOF
+OPENAI_API_KEY=sk-...
+ANTHROPIC_API_KEY=sk-ant-...
+GOOGLE_API_KEY=AIza...
+EOF
+chmod 600 ~/.smartchats/.env
+
+docker run -d --name smartchats \
+  -p 3000:3000 \
+  -v ~/.smartchats/.env:/root/.smartchats/.env:ro \
+  -v ~/.smartchats/data:/data \
+  smartchats/smartchats-aio:latest
+```
+
+Edit `~/.smartchats/.env` later, then:
+
+```bash
+docker restart smartchats   # picks up changes in ~1 sec
+```
+
+### Adding keys after the container is already running
+
+Two options, depending on whether you want to use the host file or the SPA:
+
+- **Host file + restart**: as above. Edit `~/.smartchats/.env`, `docker restart smartchats`. Works whenever the file is mounted in.
+- **SPA settings → BYO Keys**: open `localhost:3000`, navigate to settings, paste keys into the BYO Keys panel. Stored in SurrealDB; no restart needed. Works without any host file or env config — handy when the container is on a VPS and you don't want to touch the filesystem.
 
 ### Optional: bearer-token auth (for non-localhost deploys)
 
 If you're exposing SmartChats beyond localhost, set a bearer token:
 
 ```bash
-echo 'SMARTCHATS_API_KEY=any-string-you-want' >> .env
-smartchats restart
+echo 'SMARTCHATS_API_KEY=any-string-you-want' >> ~/.smartchats/.env
+smartchats restart   # or docker restart smartchats
 ```
 
 Every `/local-api/*` request now requires `Authorization: Bearer <token>`. The setup wizard offers to set this for you.
@@ -172,26 +227,28 @@ smartchats data export ~/backups/$(date +%Y-%m-%d).json --target=local
 
 ## Docker (alternative)
 
-If you prefer containers, there's an image. Same install code path inside — the Dockerfile just runs `curl … install | bash` against a fresh Debian:
+If you prefer containers, there's an image. Same install code path inside — the Dockerfile just runs `curl … install | bash` against a fresh Debian, then `ENTRYPOINT`s `smartchats start --foreground`. Image is ~300 MB.
+
+```bash
+docker run -d --name smartchats \
+  -p 3000:3000 \
+  -v ~/.smartchats/.env:/root/.smartchats/.env:ro \
+  -v ~/.smartchats/data:/data \
+  smartchats/smartchats-aio:latest
+```
+
+The `.env` mount is the same file the bare-metal CLI reads (`~/.smartchats/.env`), so one config works for both install modes — see [Sharing one `.env` between bare-metal and Docker installs](#sharing-one-env-between-bare-metal-and-docker-installs) above.
+
+**`-e` flags** also work for one-off runs:
 
 ```bash
 docker run --rm -p 3000:3000 \
   -e OPENAI_API_KEY=$OPENAI_API_KEY \
-  -e ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY \
   -v ~/.smartchats/data:/data \
   smartchats/smartchats-aio:latest
 ```
 
-For env-vars, you can either pass them with `-e` flags (one per provider) or mount a `.env` file:
-
-```bash
-docker run --rm -p 3000:3000 \
-  -v ~/smartchats/.env:/root/.smartchats/.env:ro \
-  -v ~/.smartchats/data:/data \
-  smartchats/smartchats-aio:latest
-```
-
-The image is ~300 MB. It's a fallback for environments where you need process isolation or are deploying via container orchestration — for laptop self-host, the native install is faster and uses less disk.
+It's a fallback for environments where you need process isolation or are deploying via container orchestration — for laptop self-host, the native install is faster and uses less disk.
 
 ## Backup + restore
 

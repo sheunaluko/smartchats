@@ -59,8 +59,11 @@ if [[ -t 2 ]] && [[ -z "${NO_COLOR:-}" ]]; then
 else
     C_BLUE=''; C_GREEN=''; C_RED=''; C_YELLOW=''; C_RESET=''
 fi
-info()    { printf "${C_BLUE}info${C_RESET}  %s\n" "$*" >&2; }
-ok()      { printf "${C_GREEN}ok${C_RESET}    %s\n" "$*" >&2; }
+# info + ok go to stdout (Docker BuildKit colors stderr red; these are
+# informational, not errors). warn + err keep stderr to keep the
+# semantic distinction.
+info()    { printf "${C_BLUE}info${C_RESET}  %s\n" "$*"; }
+ok()      { printf "${C_GREEN}ok${C_RESET}    %s\n" "$*"; }
 warn()    { printf "${C_YELLOW}warn${C_RESET}  %s\n" "$*" >&2; }
 err()     { printf "${C_RED}err${C_RESET}   %s\n" "$*" >&2; }
 
@@ -68,7 +71,9 @@ err()     { printf "${C_RED}err${C_RESET}   %s\n" "$*" >&2; }
 # Mirrors data/ascii-art.txt (canonical art source) + packages/smartchats-cli/
 # src/lib/visuals.ts (CLI runtime copy). Keep all three in sync.
 # Wrapped in vivid green (ANSI 256: 46). Falls back to plain text on non-TTY.
-if [[ -t 2 ]] && [[ -z "${NO_COLOR:-}" ]]; then
+# Writes to STDOUT (not stderr) so Docker BuildKit doesn't mark the
+# informational banner as a red error.
+if [[ -t 1 ]] && [[ -z "${NO_COLOR:-}" ]]; then
     _G='\033[38;5;46m'; _R='\033[0m'
 else
     _G=''; _R=''
@@ -80,7 +85,7 @@ ${_G}   _____ __  ______    ____  ______________  _____  ___________
  ___╱ ╱ ╱  ╱ ╱ ___ │╱ _, _╱ ╱ ╱ ╱ ╱___╱ __  ╱ ___ │╱ ╱  ___╱ ╱
 ╱____╱_╱  ╱_╱_╱  │_╱_╱ │_│ ╱_╱  ╲____╱_╱ ╱_╱_╱  │_╱_╱  ╱____╱  ${_R}
 
-" >&2
+"
 
 # ─── Detect platform ──────────────────────────────────────────────────
 OS=""
