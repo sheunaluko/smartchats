@@ -120,16 +120,22 @@ echo
 header "Release prepared (NOT pushed)"
 info "Per project policy, this script does not auto-push. To ship:"
 echo
+echo "    git push --follow-tags origin main"
+echo
+info "  --follow-tags pushes main + any annotated tags pointing at commits"
+info "  being pushed. One command, both refs. Equivalent to:"
+echo
 echo "    git push origin main && git push origin $TAG"
 echo
-info "That sequence:"
-info "  1. Publishes the version-bump commit (no-op if you skipped it)."
-info "  2. Pushes the tag, which fires .github/workflows/release.yml."
-info "  3. CI matrix builds 5 platform tarballs + casts (~15 min)."
-info "  4. Once the workflow completes, smartchats.ai/install bash works"
-info "     for real on a fresh VM."
+info "After the push:"
+info "  • CI fires .github/workflows/release.yml on the tag"
+info "  • Matrix builds 5 platform tarballs + casts (~15 min)"
+info "  • smartchats.ai/install | bash works end-to-end once the matrix completes"
 echo
-info "To undo locally before pushing:"
+info "Make --follow-tags the default for future releases:"
+echo "    git config --global push.followTags true"
+echo
+info "Undo locally before pushing:"
 echo "    git tag -d $TAG"
 if ! $SKIP_BUMP; then
     echo "    git reset --hard HEAD~1   # drop the version-bump commit"
