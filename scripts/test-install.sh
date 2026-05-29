@@ -156,11 +156,24 @@ header "Building AIO image $TAG"
 info "  SMARTCHATS_INSTALL_URL  = $INSTALL_URL"
 info "  SMARTCHATS_TARBALL_URL  = $TARBALL_URL"
 
+# Docker caches the `RUN curl | bash` layer based on the literal text of
+# the command + the build args. Build args stay the same across runs (URLs
+# don't change), so we inject the tarball's content hash as a cache-bust
+# arg → the install layer invalidates exactly when the tarball changes.
+if command -v sha256sum >/dev/null 2>&1; then
+    TARBALL_HASH="$(sha256sum "$TARBALL" | cut -c1-16)"
+else
+    # macOS: shasum -a 256.
+    TARBALL_HASH="$(shasum -a 256 "$TARBALL" | cut -c1-16)"
+fi
+info "  SMARTCHATS_CACHE_BUST   = $TARBALL_HASH"
+
 docker build \
     --add-host=host.docker.internal:host-gateway \
     --build-arg SMARTCHATS_INSTALL_URL="$INSTALL_URL" \
     --build-arg SMARTCHATS_INSTALL_BASE="http://host.docker.internal:${SERVER_PORT}" \
     --build-arg SMARTCHATS_VERSION="latest" \
+    --build-arg SMARTCHATS_CACHE_BUST="$TARBALL_HASH" \
     -f Dockerfile.aio \
     -t "$TAG" \
     .

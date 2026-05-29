@@ -33,11 +33,20 @@ RUN apt-get update \
         tini ca-certificates curl tar \
     && rm -rf /var/lib/apt/lists/*
 
-# Allow override of the installer source at build time. Three knobs:
+# Allow override of the installer source at build time. Four knobs:
 #   SMARTCHATS_INSTALL_URL    Where to fetch install.sh from.
 #   SMARTCHATS_INSTALL_BASE   Where install.sh fetches the release tarball
 #                             from (passed through as env, install.sh reads it).
 #   SMARTCHATS_VERSION        Pin a specific release tag (default: latest).
+#   SMARTCHATS_CACHE_BUST     Opaque string that, when changed, forces Docker
+#                             to invalidate the install layer's cache. The
+#                             URLs above stay the same across rebuilds (e.g.
+#                             when test-install.sh keeps serving on the same
+#                             local port), so Docker would otherwise re-use
+#                             the cached install layer that downloaded the
+#                             OLD tarball content. test-install.sh sets this
+#                             to the tarball's sha256 prefix → cache busts
+#                             exactly when the tarball changes.
 #
 # Production builds use the defaults. scripts/test-install.sh overrides
 # both URLs to point at a local HTTP server, so the same Dockerfile and
@@ -46,11 +55,15 @@ RUN apt-get update \
 ARG SMARTCHATS_VERSION=latest
 ARG SMARTCHATS_INSTALL_URL=https://smartchats.ai/install
 ARG SMARTCHATS_INSTALL_BASE=https://github.com/sheunaluko/smartchats/releases
+ARG SMARTCHATS_CACHE_BUST=
 
 # Install. --non-interactive skips the setup prompts (no TTY in docker
 # build); --no-path skips the rc-file edits (the ENTRYPOINT uses the full
 # binary path so PATH doesn't need to be wired).
-RUN curl -fsSL "${SMARTCHATS_INSTALL_URL}" \
+# Reference SMARTCHATS_CACHE_BUST as an inline env so its value participates
+# in the layer hash — when it changes, Docker rebuilds this layer.
+RUN echo "cache-bust=${SMARTCHATS_CACHE_BUST}" \
+    && curl -fsSL "${SMARTCHATS_INSTALL_URL}" \
     | SMARTCHATS_INSTALL_BASE="${SMARTCHATS_INSTALL_BASE}" \
       bash -s -- --non-interactive --no-path --version "${SMARTCHATS_VERSION}"
 
