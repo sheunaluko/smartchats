@@ -65,14 +65,22 @@ warn()    { printf "${C_YELLOW}warn${C_RESET}  %s\n" "$*" >&2; }
 err()     { printf "${C_RED}err${C_RESET}   %s\n" "$*" >&2; }
 
 # ─── Banner ───────────────────────────────────────────────────────────
-cat >&2 <<'EOF'
+# Mirrors data/ascii-art.txt (canonical art source) + packages/smartchats-cli/
+# src/lib/visuals.ts (CLI runtime copy). Keep all three in sync.
+# Wrapped in vivid green (ANSI 256: 46). Falls back to plain text on non-TTY.
+if [[ -t 2 ]] && [[ -z "${NO_COLOR:-}" ]]; then
+    _G='\033[38;5;46m'; _R='\033[0m'
+else
+    _G=''; _R=''
+fi
+printf "%b" "
+${_G}   _____ __  ______    ____  ______________  _____  ___________
+  ╱ ___╱╱  │╱  ╱   │  ╱ __ ╲╱_  __╱ ____╱ ╱ ╱ ╱   │╱_  __╱ ___╱
+  ╲__ ╲╱ ╱│_╱ ╱ ╱│ │ ╱ ╱_╱ ╱ ╱ ╱ ╱ ╱   ╱ ╱_╱ ╱ ╱│ │ ╱ ╱  ╲__ ╲
+ ___╱ ╱ ╱  ╱ ╱ ___ │╱ _, _╱ ╱ ╱ ╱ ╱___╱ __  ╱ ___ │╱ ╱  ___╱ ╱
+╱____╱_╱  ╱_╱_╱  │_╱_╱ │_│ ╱_╱  ╲____╱_╱ ╱_╱_╱  │_╱_╱  ╱____╱  ${_R}
 
-   ___                  _    ___ _         _
-  / __| _ __  __ _ _ _ | |_ / __| |_  __ _| |_ ___
-  \__ \| '  \/ _` | '_||  _|(__ | ' \/ _` |  _(_-<
-  |___/|_|_|_\__,_|_|   \__|\___|_||_\__,_|\__/__/
-
-EOF
+" >&2
 
 # ─── Detect platform ──────────────────────────────────────────────────
 OS=""
