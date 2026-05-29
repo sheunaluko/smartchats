@@ -14,7 +14,7 @@
     "@anthropic-ai/sdk": "^0.88.0",
     "@google/genai": "^1.42.0",
     "openai": "^4.73.0",
-    "tiktoken": "^1.0.21",
+    "js-tiktoken": "^1.0.13",
     "cortex": "*"
   },
   "devDependencies": {

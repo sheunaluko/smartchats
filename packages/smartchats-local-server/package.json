@@ -24,7 +24,7 @@
     "consola": "^3.2.3",
     "linkedom": "^0.18.12",
     "@mozilla/readability": "^0.5.0",
-    "tiktoken": "^1.0.21",
+    "js-tiktoken": "^1.0.13",
     "cortex": "*",
     "llm-service": "*"
   },
