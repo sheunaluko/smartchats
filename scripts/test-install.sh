@@ -262,6 +262,10 @@ ok "Stack is up: http://localhost:${HOST_PORT}"
 info "  /local-api/health → $(curl -sf "http://localhost:${HOST_PORT}/local-api/health" | head -c 200)"
 info "  /                  → HTTP $(curl -sf -o /dev/null -w '%{http_code}' "http://localhost:${HOST_PORT}/")"
 
+echo
+header "Container startup output (docker logs)"
+docker logs "$CONTAINER_NAME" 2>&1 | sed 's/^/    /'
+
 if $KEEP_RUNNING; then
     echo
     ok "Container left running. Open: http://localhost:${HOST_PORT}"
