@@ -18,17 +18,34 @@
 #   bin/release v0.3.0           # explicit
 #   bin/release 0.3.0            # `v` prefix added automatically
 #   bin/release v1.0.0-beta.1    # pre-release suffixes are accepted
+#   bin/release v0.3.0 --npm     # ALSO publish smartchats-ai to npm
+#                                  (CI publishes automatically — only use
+#                                   --npm for manual / testing / hotfix flows)
 #
-# Tagging fires .github/workflows/release.yml on push, which builds the
-# 5-platform tarball matrix and uploads to GitHub Releases.
+# Tagging fires .github/workflows/release.yml on push, which:
+#   - builds the 5-platform binary matrix (tarballs + asciinema casts)
+#   - publishes smartchats-ai to npm (gated on NPM_TOKEN secret)
 
 set -euo pipefail
 source "$(dirname "$0")/_lib.sh"
 
-[[ $# -eq 1 ]] || { err "Usage: bin/release <version>  (e.g. bin/release v0.3.0)"; exit 1; }
+PUBLISH_NPM=false
+VERSION_ARG=""
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --npm)  PUBLISH_NPM=true; shift ;;
+        --help|-h)
+            sed -n '2,/^$/p' "$0" | sed 's/^# \?//'
+            exit 0
+            ;;
+        -*) err "Unknown option: $1"; exit 1 ;;
+        *)  VERSION_ARG="$1"; shift ;;
+    esac
+done
+
+[[ -n "$VERSION_ARG" ]] || { err "Usage: bin/release <version> [--npm]  (e.g. bin/release v0.3.0)"; exit 1; }
 
 # ─── Normalize tag ────────────────────────────────────────────────────
-VERSION_ARG="$1"
 if [[ "$VERSION_ARG" =~ ^[0-9] ]]; then
     TAG="v$VERSION_ARG"
 else
@@ -114,6 +131,30 @@ fi
 
 git tag -a "$TAG" -m "Release $TAG"
 ok "Tagged $TAG"
+
+# ─── Optional: npm publish ────────────────────────────────────────────
+# Default is to NOT publish — CI handles npm publish on tag push (via
+# .github/workflows/release.yml's `npm` job). Use --npm only if you want
+# to ship a release without CI doing it (e.g. testing, urgent hotfix,
+# NPM_TOKEN not configured yet).
+if $PUBLISH_NPM; then
+    header "Publishing smartchats-ai@$NUM_VERSION to npm"
+    if ! command -v npm >/dev/null 2>&1; then
+        err "npm not found. Install Node or skip --npm and let CI publish."
+        exit 1
+    fi
+    if ! npm whoami >/dev/null 2>&1; then
+        err "Not logged in to npm. Run \`npm login\` first or skip --npm."
+        exit 1
+    fi
+    info "Logged in as: $(npm whoami)"
+    info "Bundling + publishing..."
+    cd "$REPO_ROOT/packages/smartchats-cli"
+    # prepack runs build:bundle automatically.
+    npm publish --access public
+    cd "$REPO_ROOT"
+    ok "Published smartchats-ai@$NUM_VERSION"
+fi
 
 # ─── Push instructions ────────────────────────────────────────────────
 echo

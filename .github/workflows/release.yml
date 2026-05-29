@@ -118,7 +118,7 @@ jobs:
           fail_on_unmatched_files: false
           generate_release_notes: true
 
-  # Once all four platform builds succeed, mark the release as the latest.
+  # Once all five platform builds succeed, mark the release as the latest.
   publish:
     name: mark release latest
     needs: build
@@ -132,3 +132,45 @@ jobs:
         with:
           make_latest: 'true'
           generate_release_notes: true
+
+  # Publish the smartchats-ai CLI to npm. Runs in parallel with the binary
+  # matrix (npm publish doesn't need the tarballs), but we still gate on
+  # `needs: build` so a failing matrix doesn't ship a half-broken release
+  # to npm. Requires NPM_TOKEN as a repository secret — generate at
+  # https://www.npmjs.com/settings/<user>/tokens (Automation token, granted
+  # publish scope on smartchats-ai).
+  npm:
+    name: npm publish smartchats-ai
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install workspace deps (so the CLI's workspace imports resolve)
+        run: npm install --no-fund --no-audit
+
+      - name: Verify package.json version matches the tag
+        # The bin/release script enforces this locally, but double-check
+        # here so a stray manual tag can't ship a mismatched version.
+        run: |
+          PKG_VERSION=$(node -p "require('./packages/smartchats-cli/package.json').version")
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
+            echo "::error::package.json version ($PKG_VERSION) doesn't match git tag ($TAG_VERSION)"
+            exit 1
+          fi
+          echo "Publishing smartchats-ai@$PKG_VERSION"
+
+      - name: Build + publish
+        # prepack runs `npm run build:bundle` (tsup) automatically.
+        # --access public for scoped/new packages (no-op for already-public).
+        run: npm publish --access public
+        working-directory: packages/smartchats-cli
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
