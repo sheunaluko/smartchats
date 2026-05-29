@@ -31,7 +31,16 @@ jobs:
           - target: linux-arm64
             runner: ubuntu-22.04-arm
             native: true
+          - target: windows-x64
+            runner: windows-latest
+            native: true
+            # bash shell required for build-release.sh; available on
+            # windows-latest as Git Bash by default.
+            shell: bash
     runs-on: ${{ matrix.runner }}
+    defaults:
+      run:
+        shell: ${{ matrix.shell || 'bash' }}
 
     steps:
       - name: Checkout
@@ -53,29 +62,38 @@ jobs:
       - name: Build release tarball
         run: scripts/build-release.sh --target ${{ matrix.target }}
 
-      - name: Smoke-test extracted tarball (native targets only)
-        if: matrix.native == true
+      - name: Smoke-test extracted tarball (Unix-like)
+        if: matrix.target != 'windows-x64'
         run: |
           mkdir -p /tmp/sc-test
           tar -xzf "dist-release/smartchats-${{ matrix.target }}.tar.gz" -C /tmp/sc-test
           ls -la /tmp/sc-test/bin
-          /tmp/sc-test/bin/smartchats --version || /tmp/sc-test/bin/smartchats help | head -5
+          /tmp/sc-test/bin/smartchats help | head -5
+
+      - name: Smoke-test extracted tarball (Windows)
+        if: matrix.target == 'windows-x64'
+        run: |
+          mkdir -p sc-test
+          tar -xzf "dist-release/smartchats-${{ matrix.target }}.tar.gz" -C sc-test
+          ls -la sc-test/bin
+          ./sc-test/bin/smartchats.exe help | head -5
 
       - name: Install asciinema (Linux)
-        if: matrix.native == true && startsWith(matrix.runner, 'ubuntu')
+        if: startsWith(matrix.runner, 'ubuntu')
         run: |
           sudo apt-get update
           sudo apt-get install -y asciinema
 
       - name: Install asciinema (macOS)
-        if: matrix.native == true && startsWith(matrix.runner, 'macos')
+        if: startsWith(matrix.runner, 'macos')
         run: brew install asciinema
 
-      - name: Record install asciinema cast
-        if: matrix.native == true
+      - name: Record install asciinema cast (Unix-like only)
+        # Windows lacks a PTY-allocating shell that asciinema can attach to
+        # out of the box. Skip for now; revisit if PowerShell-native recording
+        # tooling matures.
+        if: matrix.target != 'windows-x64'
         run: |
-          # Records the extracted-tarball CLI commands. This cast is uploaded
-          # as a release asset AND can be embedded in the docs site.
           mkdir -p dist-release/casts
           asciinema rec --quiet \
             --command "/tmp/sc-test/bin/smartchats help && /tmp/sc-test/bin/smartchats home && /tmp/sc-test/bin/smartchats status" \

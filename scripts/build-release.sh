@@ -47,8 +47,9 @@ done
 # Default target = current platform.
 if [[ -z "$TARGET" ]]; then
     case "$(uname -s)" in
-        Darwin)  HOST_OS="darwin" ;;
-        Linux)   HOST_OS="linux"  ;;
+        Darwin)              HOST_OS="darwin" ;;
+        Linux)               HOST_OS="linux"  ;;
+        MINGW*|MSYS*|CYGWIN*) HOST_OS="windows" ;;
         *) err "Unsupported host OS: $(uname -s)"; exit 1 ;;
     esac
     case "$(uname -m)" in
@@ -59,11 +60,20 @@ if [[ -z "$TARGET" ]]; then
     TARGET="${HOST_OS}-${HOST_ARCH}"
 fi
 
-# Validate target.
+# Validate target. Windows is x64-only for now (no Windows-on-ARM support
+# in SurrealDB upstream as of this writing).
 case "$TARGET" in
-    darwin-arm64|darwin-x64|linux-x64|linux-arm64) ;;
-    *) err "Unsupported target: $TARGET. Choose: darwin-arm64 darwin-x64 linux-x64 linux-arm64"; exit 1 ;;
+    darwin-arm64|darwin-x64|linux-x64|linux-arm64|windows-x64) ;;
+    *) err "Unsupported target: $TARGET. Choose: darwin-arm64 darwin-x64 linux-x64 linux-arm64 windows-x64"; exit 1 ;;
 esac
+
+# Windows-specific: binaries get .exe; SurrealDB ships a raw exe (no tarball).
+EXE_EXT=""
+SURREAL_IS_TARBALL=true
+if [[ "$TARGET" == "windows-x64" ]]; then
+    EXE_EXT=".exe"
+    SURREAL_IS_TARBALL=false
+fi
 
 # Map to bun's --target naming.
 BUN_TARGET="bun-${TARGET}"
@@ -74,6 +84,7 @@ case "$TARGET" in
     darwin-x64)   SURREAL_ASSET="surreal-${SURREAL_VERSION}.darwin-amd64.tgz" ;;
     linux-x64)    SURREAL_ASSET="surreal-${SURREAL_VERSION}.linux-amd64.tgz" ;;
     linux-arm64)  SURREAL_ASSET="surreal-${SURREAL_VERSION}.linux-arm64.tgz" ;;
+    windows-x64)  SURREAL_ASSET="surreal-${SURREAL_VERSION}.windows-amd64.exe" ;;
 esac
 SURREAL_URL="https://github.com/surrealdb/surrealdb/releases/download/${SURREAL_VERSION}/${SURREAL_ASSET}"
 
@@ -103,25 +114,30 @@ info "Compiling smartchats (CLI) for ${BUN_TARGET}..."
 bun build --compile \
     --target="$BUN_TARGET" \
     packages/smartchats-cli/src/cli.ts \
-    --outfile "$DIST/bin/smartchats"
-ok "CLI: $(du -h "$DIST/bin/smartchats" | cut -f1)"
+    --outfile "$DIST/bin/smartchats${EXE_EXT}"
+ok "CLI: $(du -h "$DIST/bin/smartchats${EXE_EXT}" | cut -f1)"
 
 info "Compiling smartchats-server for ${BUN_TARGET}..."
 bun build --compile \
     --target="$BUN_TARGET" \
     packages/smartchats-local-server/src/cli.ts \
-    --outfile "$DIST/bin/smartchats-server"
-ok "Server: $(du -h "$DIST/bin/smartchats-server" | cut -f1)"
+    --outfile "$DIST/bin/smartchats-server${EXE_EXT}"
+ok "Server: $(du -h "$DIST/bin/smartchats-server${EXE_EXT}" | cut -f1)"
 
 # ─── 3. SurrealDB binary ──────────────────────────────────────────────
 info "Fetching SurrealDB ${SURREAL_VERSION} for ${TARGET}..."
 TMP_SURREAL="$(mktemp -d)"
 trap 'rm -rf "$TMP_SURREAL"' EXIT
-curl -fsSL "$SURREAL_URL" -o "$TMP_SURREAL/surreal.tgz"
-tar -xzf "$TMP_SURREAL/surreal.tgz" -C "$TMP_SURREAL"
-cp "$TMP_SURREAL/surreal" "$DIST/bin/surreal"
-chmod +x "$DIST/bin/surreal"
-ok "SurrealDB: $(du -h "$DIST/bin/surreal" | cut -f1)"
+if $SURREAL_IS_TARBALL; then
+    curl -fsSL "$SURREAL_URL" -o "$TMP_SURREAL/surreal.tgz"
+    tar -xzf "$TMP_SURREAL/surreal.tgz" -C "$TMP_SURREAL"
+    cp "$TMP_SURREAL/surreal" "$DIST/bin/surreal"
+    chmod +x "$DIST/bin/surreal"
+else
+    # Windows: raw .exe, no archive wrapper.
+    curl -fsSL "$SURREAL_URL" -o "$DIST/bin/surreal.exe"
+fi
+ok "SurrealDB: $(du -h "$DIST/bin/surreal${EXE_EXT}" | cut -f1)"
 
 # ─── 4. Static SPA ────────────────────────────────────────────────────
 if [[ ! -d "apps/smartchats/out" ]]; then
