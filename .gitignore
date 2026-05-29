@@ -9,6 +9,8 @@ out
 **/out
 dist
 **/dist
+dist-bun
+**/dist-bun
 *.tsbuildinfo
 **/*.tsbuildinfo
 next-env.d.ts
