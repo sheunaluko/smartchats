@@ -264,6 +264,13 @@ info "  /                  → HTTP $(curl -sf -o /dev/null -w '%{http_code}' "h
 
 echo
 header "Container startup output (docker logs)"
+# Brief wait for smartchats start to finish its post-ready output —
+# /local-api/health responds 200 the instant the server binds, but the
+# CLI then probes /health, conditionally prints the NO-KEYS warning box,
+# writes the PID file, and only then prints the final 'Stack up' line.
+# Without this sleep, docker logs catches the stream mid-way and misses
+# the box.
+sleep 1.5
 docker logs "$CONTAINER_NAME" 2>&1 | sed 's/^/    /'
 
 if $KEEP_RUNNING; then
