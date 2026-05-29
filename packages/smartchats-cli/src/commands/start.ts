@@ -370,15 +370,23 @@ export async function runStart(args: StartArgs): Promise<number> {
             const dotenvLoc = path.join(envRoot, '.env');
             consola.box(
                 'NO API KEYS CONFIGURED — agent will not be able to reply\n\n'
-                + 'The stack is up and the SPA loads, but every LLM call will fail until you\n'
-                + 'configure at least one provider key. Two ways to fix:\n\n'
-                + `  1. Edit ${dotenvLoc} (or your container-mounted .env), then restart:\n`
+                + 'The stack is up and the SPA loads, but every LLM call will fail\n'
+                + 'until you configure at least one provider key. Three ways to fix,\n'
+                + 'easiest first:\n\n'
+                + '  1. Interactive walkthrough (RECOMMENDED):\n'
+                + '       smartchats env\n'
+                + '     Prompts for OpenAI, Anthropic, Google, and Serper keys.\n'
+                + `     Writes to ${dotenvLoc}.\n\n`
+                + '  2. Edit the .env file directly. The file at\n'
+                + `       ${dotenvLoc}\n`
+                + '     is the same file Docker mounts into the container. Add:\n'
                 + '       OPENAI_API_KEY=sk-...\n'
+                + '       SERPER_API_KEY=...           # for web-search tool\n'
                 + '       (optional) ANTHROPIC_API_KEY=sk-ant-...\n'
                 + '       (optional) GOOGLE_API_KEY=AIza...\n'
-                + `       smartchats restart\n\n`
-                + '  2. Open the SPA → Settings → BYO Keys, paste keys there.\n'
-                + '     They persist in SurrealDB; no restart needed.\n\n'
+                + '     Then restart: `smartchats restart` (or `docker restart <name>`)\n\n'
+                + '  3. Open the SPA → Settings → BYO Keys, paste keys there.\n'
+                + '     Stored in SurrealDB; no restart needed.\n\n'
                 + 'Docs: https://smartchats.ai/docs/self-host#environment-configuration',
             );
         }

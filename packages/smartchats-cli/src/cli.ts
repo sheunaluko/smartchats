@@ -49,6 +49,7 @@ import {
 import { runHome, parseHomeArgs, homeHelp } from './commands/home.js';
 import { runDev, parseDevArgs, devHelp } from './commands/dev.js';
 import { runUpgrade, parseUpgradeArgs, upgradeHelp } from './commands/upgrade.js';
+import { runEnv, parseEnvArgs, envHelp } from './commands/env.js';
 import { runLogin, loginHelp } from './commands/login.js';
 import { runLogout, logoutHelp } from './commands/logout.js';
 import { runWhoami, whoamiHelp } from './commands/whoami.js';
@@ -58,7 +59,7 @@ import { detectContext } from './lib/context.js';
 import { loadConfig } from './lib/config.js';
 
 const KNOWN_COMMANDS = new Set([
-    'setup', 'start', 'stop', 'restart', 'status', 'logs', 'dev', 'home',
+    'setup', 'env', 'start', 'stop', 'restart', 'status', 'logs', 'dev', 'home',
     'upgrade',
     'launch', 'doctor', 'login', 'logout', 'whoami', 'data',
     'help', '--help', '-h',
@@ -72,6 +73,7 @@ Usage:
 
 Lifecycle:
   setup          Guided first-run: system check, API keys, .env, then start.
+  env            Interactively configure provider API keys (no start).
   start          Start the local stack (surreal + server). Detached by default.
   stop           Stop the running stack.
   restart        Stop the stack and start it again.
@@ -144,6 +146,7 @@ async function main(): Promise<void> {
         const sub = argv[3];
         if (!sub) { console.log(topHelp()); return; }
         if (sub === 'setup') console.log(setupHelp());
+        else if (sub === 'env') console.log(envHelp());
         else if (sub === 'start') console.log(startHelp());
         else if (sub === 'stop') console.log(stopHelp());
         else if (sub === 'restart') console.log(restartHelp());
@@ -173,6 +176,11 @@ async function main(): Promise<void> {
         case 'setup': {
             const args = parseSetupArgs(argv.slice(3));
             const exit = await runSetup(args);
+            process.exit(exit);
+        }
+        case 'env': {
+            const args = parseEnvArgs(argv.slice(3));
+            const exit = await runEnv(args);
             process.exit(exit);
         }
         case 'start': {
