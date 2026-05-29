@@ -28,9 +28,12 @@ export SURREAL_NS SURREAL_DB SURREAL_USER SURREAL_PASSWORD
 export SMARTCHATS_HOST=127.0.0.1
 export SMARTCHATS_PORT=${SERVER_INTERNAL_PORT}
 
-# Pass-through to Next.js for the same-origin proxy.
-export SMARTCHATS_INTERNAL_PROXY=1
-export SMARTCHATS_INTERNAL_LOCAL_URL="http://127.0.0.1:${SERVER_INTERNAL_PORT}"
+# Next.js proxies /local-api/* → SMARTCHATS_LOCAL_HOST:SMARTCHATS_LOCAL_PORT
+# by default. Defaults are 127.0.0.1:4242 (matches what we just spawned), so
+# only set explicitly when the internal port has been overridden.
+if [[ "${SERVER_INTERNAL_PORT}" != "4242" ]]; then
+    export SMARTCHATS_LOCAL_PORT=${SERVER_INTERNAL_PORT}
+fi
 
 # ── Process supervision ───────────────────────────────────────────────
 PIDS=()

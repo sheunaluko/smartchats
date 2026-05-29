@@ -1,0 +1,170 @@
+#!/usr/bin/env bash
+# Smoke-test the no-Docker, native-binaries deploy path.
+#
+# Runs the full smartchats stack as TWO child processes:
+#   1. surreal           — native binary (install via curl … install.surrealdb.com)
+#   2. smartchats-server — Express, via `bun` (runs src/cli.ts directly).
+#                          Serves BOTH the API at /local-api/* AND the static
+#                          SPA from apps/smartchats/out/. No Next.js runtime.
+#
+# Purpose: validate that the entire stack runs under Bun + native binaries,
+# Docker-free, ahead of designing the `smartchats start` CLI command and the
+# `curl | sh` install pipeline.
+#
+# Browser only ever hits port 3000 (Express). Same-origin everything.
+#
+# Usage:
+#   bin/test-bun-deploy                Build (if needed) + run all three.
+#   bin/test-bun-deploy --rebuild      Force `bun run build` for apps/smartchats first.
+#   bin/test-bun-deploy --keep-data    Reuse the data dir from a prior run.
+#   bin/test-bun-deploy --port <n>     Next.js port (default 3000).
+#   bin/test-bun-deploy --data-dir <p> SurrealDB data dir (default ~/.smartchats/test-bun-deploy/data).
+#   bin/test-bun-deploy --help
+
+set -uo pipefail
+source "$(dirname "$0")/_lib.sh"
+
+# ── Defaults ──────────────────────────────────────────────────────────
+APP_PORT=3000
+SURREAL_PORT=8000
+DATA_DIR="${HOME}/.smartchats/test-bun-deploy/data"
+REBUILD=false
+KEEP_DATA=false
+
+# ── Args ──────────────────────────────────────────────────────────────
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --rebuild)    REBUILD=true; shift ;;
+        --keep-data)  KEEP_DATA=true; shift ;;
+        --port)       APP_PORT="$2"; shift 2 ;;
+        --data-dir)   DATA_DIR="$2"; shift 2 ;;
+        --help|-h)
+            sed -n '2,/^$/p' "$0" | sed 's/^# \?//'
+            exit 0
+            ;;
+        *)  err "Unknown option: $1"; exit 1 ;;
+    esac
+done
+
+# ── Preflight ─────────────────────────────────────────────────────────
+header "Preflight"
+
+check_command bun || exit 1
+info "bun: $(bun --version)"
+
+# Surreal: PATH, then ~/.surrealdb/surreal, then /usr/local/bin/surreal.
+SURREAL_BIN=""
+if command -v surreal &>/dev/null; then
+    SURREAL_BIN="$(command -v surreal)"
+elif [[ -x "${HOME}/.surrealdb/surreal" ]]; then
+    SURREAL_BIN="${HOME}/.surrealdb/surreal"
+elif [[ -x "/usr/local/bin/surreal" ]]; then
+    SURREAL_BIN="/usr/local/bin/surreal"
+else
+    err "surreal binary not found."
+    err "Install: curl --proto '=https' --tlsv1.2 -sSf https://install.surrealdb.com | sh"
+    exit 1
+fi
+info "surreal: $SURREAL_BIN ($("$SURREAL_BIN" version 2>&1 | head -1))"
+
+cd "$REPO_ROOT"
+
+# Provider keys from .env if present (so the agent can actually answer).
+if [[ -f "$REPO_ROOT/.env" ]]; then
+    set -a; source "$REPO_ROOT/.env"; set +a
+    info ".env loaded from repo root"
+fi
+
+# ── Build (if needed) ─────────────────────────────────────────────────
+# Two artifacts matter:
+#   - apps/smartchats/out/  for the static SPA (Express serves it)
+#   - packages/*/dist/      for workspace deps the local-server imports
+#     (smartchats-database, smartchats-backend-local, etc.). The local-server
+#     resolves these via package.json `main: dist/index.js`, so stale dist =
+#     stale code even with bun running TS directly in the server itself.
+#
+# turbo handles dependency-ordering + caching, so the full root build is
+# fast on subsequent runs (only changed packages re-emit).
+SPA_DIR="$REPO_ROOT/apps/smartchats/out"
+DB_DIST="$REPO_ROOT/packages/smartchats-database/dist"
+
+if $REBUILD || [[ ! -d "$SPA_DIR" ]] || [[ ! -d "$DB_DIST" ]]; then
+    header "Building workspace (turbo run build)"
+    cd "$REPO_ROOT"
+    PATH="$HOME/.bun/bin:$PATH" bun run build || { err "build failed"; exit 1; }
+    ok "Workspace built"
+else
+    info "Reusing existing builds (pass --rebuild to force)"
+fi
+
+# ── Data dir ──────────────────────────────────────────────────────────
+if ! $KEEP_DATA && [[ -d "$DATA_DIR" ]]; then
+    info "Wiping prior data dir: $DATA_DIR"
+    rm -rf "$DATA_DIR"
+fi
+mkdir -p "$DATA_DIR"
+
+# ── Process supervision ───────────────────────────────────────────────
+PIDS=()
+
+cleanup() {
+    echo
+    info "Shutting down..."
+    for pid in "${PIDS[@]+"${PIDS[@]}"}"; do
+        kill -TERM "$pid" 2>/dev/null || true
+    done
+    sleep 1
+    for pid in "${PIDS[@]+"${PIDS[@]}"}"; do
+        kill -KILL "$pid" 2>/dev/null || true
+    done
+}
+trap cleanup INT TERM EXIT
+
+# ── 1. SurrealDB ──────────────────────────────────────────────────────
+header "Starting SurrealDB on 127.0.0.1:${SURREAL_PORT}"
+"$SURREAL_BIN" start \
+    --user root --pass root \
+    --bind "127.0.0.1:${SURREAL_PORT}" \
+    --log info \
+    "rocksdb:${DATA_DIR}/surreal.db" &
+PIDS+=($!)
+
+for _ in {1..30}; do
+    if curl -sf "http://127.0.0.1:${SURREAL_PORT}/health" >/dev/null 2>&1; then
+        ok "SurrealDB ready"
+        break
+    fi
+    sleep 1
+done
+
+# ── 2. smartchats-local-server: API + static SPA, on the app port ─────
+# This single process replaces the old `Next.js (port 3000)` +
+# `Express (port 4242)` split. The Express server now mounts the API at
+# /local-api/* and serves the static export from apps/smartchats/out/.
+header "Starting smartchats-local-server on 0.0.0.0:${APP_PORT} (API + SPA)"
+export SURREAL_URL="ws://127.0.0.1:${SURREAL_PORT}/rpc"
+export SURREAL_NS=smartchats SURREAL_DB=main
+export SURREAL_USER=root SURREAL_PASSWORD=root
+export SMARTCHATS_HOST=0.0.0.0
+export SMARTCHATS_PORT=${APP_PORT}
+export SMARTCHATS_STATIC_DIR="$SPA_DIR"
+
+cd "$REPO_ROOT/packages/smartchats-local-server"
+PATH="$HOME/.bun/bin:$PATH" bun --bun run src/cli.ts &
+PIDS+=($!)
+cd "$REPO_ROOT"
+
+for _ in {1..30}; do
+    if curl -sf "http://127.0.0.1:${APP_PORT}/local-api/health" >/dev/null 2>&1; then
+        ok "smartchats-local-server ready"
+        break
+    fi
+    sleep 1
+done
+
+echo
+ok "Stack up. Open: http://localhost:${APP_PORT}"
+info "Express :${APP_PORT}  ↦  / (static SPA from $SPA_DIR) + /local-api/* (API) → SurrealDB :${SURREAL_PORT}"
+info "Ctrl-C to stop."
+
+wait -n

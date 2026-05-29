@@ -11,21 +11,30 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
  */
 const nextConfig = {
   reactStrictMode: true,
+  // Static export: produces out/ — a static HTML/JS/CSS bundle servable by
+  // any static file server. The app has no API routes, server actions,
+  // middleware, or dynamic routes (all pages compile as ○ Static), so an
+  // export is fully equivalent to the standalone server. Lets us drop the
+  // Next.js runtime from the production install: smartchats-local-server
+  // (Express) serves out/ via express.static and handles /local-api/*
+  // natively as same-origin routes — one binary, one port, no Next.js
+  // runtime to ship.
+  output: 'export',
   async rewrites() {
     const rules = [];
 
-    // AIO container path: when SMARTCHATS_INTERNAL_PROXY=1 is set at runtime
-    // (the all-in-one image's entrypoint sets it), proxy /local-api/* to the
-    // Express server running on container loopback. This lets the browser
-    // talk to a single origin (port 3000) and the container expose only that
-    // one port.
-    const internalLocalUrl = process.env.SMARTCHATS_INTERNAL_LOCAL_URL ?? 'http://127.0.0.1:4242';
-    if (process.env.SMARTCHATS_INTERNAL_PROXY) {
-      rules.push({
-        source: '/local-api/:path*',
-        destination: `${internalLocalUrl}/:path*`,
-      });
-    }
+    // Dev-only: when `next dev` is serving the UI on this port, forward
+    // /local-api/* to the Express server (which now mounts the API under
+    // /local-api too — see smartchats-local-server/src/app.ts). Prefix is
+    // PRESERVED in the destination so the Express path matches both in dev
+    // and in prod (where Express serves the SPA directly, no Next.js).
+    // Override upstream via SMARTCHATS_LOCAL_HOST / SMARTCHATS_LOCAL_PORT.
+    const localHost = process.env.SMARTCHATS_LOCAL_HOST ?? '127.0.0.1';
+    const localPort = process.env.SMARTCHATS_LOCAL_PORT ?? '4242';
+    rules.push({
+      source: '/local-api/:path*',
+      destination: `http://${localHost}:${localPort}/local-api/:path*`,
+    });
 
     // Embedded apps/site (static export). prebuild:site copies
     // apps/site/out/ → public/_site/. Map user-facing URLs to those

@@ -40,7 +40,7 @@
 - Built with `createInsightStore` — auto-instruments all actions with insight events
 - Config: `{ appName: 'smartchats', silent: ['checkAuth', 'captureExecutionSnapshot', 'setAgent', 'handleStreamChunk', 'handleStreamEnd', 'handleProcessOutput'], workflows: cortexWorkflows }`
 - **Auth state**: `isAuthenticated`
-- **Settings** (persisted): `aiModel` (default `'gpt-5.2'`), `speechCooldownMs`, `soundFeedback`
+- **Settings** (persisted): `aiModel` (default `'gpt-5.5'`), `speechCooldownMs`, `soundFeedback`
 - **Chat**: `chatHistory`, `lastAiMessage`
 - **Workspace**: `workspace` (Record<string, any>)
 - **Observables** (not persisted): `thoughtHistory`, `logHistory`, `htmlDisplay`, `codeParams`, `contextUsage`

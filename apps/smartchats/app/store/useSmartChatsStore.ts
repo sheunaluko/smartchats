@@ -68,7 +68,7 @@ interface SmartChatsSettings {
 }
 
 const DEFAULT_SETTINGS: SmartChatsSettings = {
-  aiModel: 'gpt-5.2',
+  aiModel: 'gpt-5.5',
   speechCooldownMs: 2000,
   soundFeedback: true,
 };

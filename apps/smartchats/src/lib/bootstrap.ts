@@ -21,7 +21,6 @@
 'use client';
 
 import type { AuthProvider, SmartChatsBackend } from 'smartchats-backend';
-import { SMARTCHATS_DEFAULT_LOCAL_URL } from 'smartchats-backend';
 import { LocalAuthProvider, LocalBackend } from 'smartchats-backend-local';
 
 export interface SmartChatsConfig {
@@ -45,19 +44,16 @@ export interface BootstrapResult {
  *
  * Priority:
  *  1. Explicit `config.localServerUrl` (caller wins)
- *  2. `NEXT_PUBLIC_SMARTCHATS_LOCAL_URL` (build-time override)
- *  3. `/local-api` when `NEXT_PUBLIC_SMARTCHATS_INTERNAL_PROXY` is truthy —
- *     the AIO container path: the Next.js server proxies same-origin requests
- *     to the Express server on container loopback, so the browser only needs
- *     port 3000.
- *  4. `SMARTCHATS_DEFAULT_LOCAL_URL` (`http://localhost:4242`) — the
- *     dev / 3-service-compose path where the browser hits the server directly.
+ *  2. `NEXT_PUBLIC_SMARTCHATS_LOCAL_URL` (build-time override — bypass the
+ *     proxy entirely, e.g. browser talks directly to a remote Express)
+ *  3. `/local-api` (default) — Next.js proxies same-origin requests to the
+ *     Express server. Upstream host/port configurable via `SMARTCHATS_LOCAL_HOST`
+ *     and `SMARTCHATS_LOCAL_PORT` (see next.config.mjs).
  */
 function resolveLocalServerUrl(explicit?: string): string {
     if (explicit) return explicit;
     if (process.env.NEXT_PUBLIC_SMARTCHATS_LOCAL_URL) return process.env.NEXT_PUBLIC_SMARTCHATS_LOCAL_URL;
-    if (process.env.NEXT_PUBLIC_SMARTCHATS_INTERNAL_PROXY) return '/local-api';
-    return SMARTCHATS_DEFAULT_LOCAL_URL;
+    return '/local-api';
 }
 
 export function bootstrap(config: SmartChatsConfig = {}): BootstrapResult {
