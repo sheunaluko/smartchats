@@ -36,6 +36,7 @@ import {
     surrealLogPath,
     writePidFile,
 } from '../lib/runstate.js';
+import { withWave } from '../lib/visuals.js';
 
 // ─── Binary resolution ────────────────────────────────────────────────
 
@@ -141,15 +142,19 @@ function workspaceBuildArtifactsExist(repoRoot: string): boolean {
     return fs.existsSync(spa) && fs.existsSync(dbDist);
 }
 
-function runBuild(repoRoot: string, bun: string): void {
-    consola.start('Building workspace (turbo run build)...');
+async function runBuild(repoRoot: string, bun: string): Promise<void> {
     const env = { ...process.env, PATH: `${path.dirname(bun)}:${process.env.PATH}` };
-    const result = spawnSync(bun, ['run', 'build'], {
-        cwd: repoRoot,
-        env,
-        stdio: 'inherit',
+    // Capture build output (pipe instead of inherit) so the wave isn't fighting
+    // turbo's status spam. Logs to the build log file on failure for debugging.
+    await withWave('Building workspace', async () => {
+        const result = spawnSync(bun, ['run', 'build'], { cwd: repoRoot, env, stdio: 'pipe' });
+        if (result.status !== 0) {
+            // Surface the captured output before throwing so the user can see why.
+            process.stderr.write(result.stdout?.toString() ?? '');
+            process.stderr.write(result.stderr?.toString() ?? '');
+            throw new Error(`build failed (exit ${result.status})`);
+        }
     });
-    if (result.status !== 0) throw new Error(`build failed (exit ${result.status})`);
     consola.success('Workspace built');
 }
 
@@ -239,7 +244,7 @@ export async function runStart(args: StartArgs): Promise<number> {
 
     // 4. Ensure builds exist (auto-build on first run; --rebuild to force).
     if (args.rebuild || !workspaceBuildArtifactsExist(repoRoot)) {
-        runBuild(repoRoot, bunBin);
+        await runBuild(repoRoot, bunBin);
     }
 
     // 5. Set up paths.
@@ -249,7 +254,6 @@ export async function runStart(args: StartArgs): Promise<number> {
     const startedAt = new Date().toISOString();
 
     // 6. Spawn SurrealDB.
-    consola.start(`Starting surreal on 127.0.0.1:${args.surrealPort}...`);
     const surrealProc = spawnDetached(
         surrealBin,
         [
@@ -264,9 +268,9 @@ export async function runStart(args: StartArgs): Promise<number> {
         surrealLog,
     );
 
-    const surrealReady = await waitForUrl(
-        `http://127.0.0.1:${args.surrealPort}/health`,
-        30_000,
+    const surrealReady = await withWave(
+        `Starting surreal on :${args.surrealPort}`,
+        () => waitForUrl(`http://127.0.0.1:${args.surrealPort}/health`, 30_000),
     );
     if (!surrealReady) {
         consola.error('SurrealDB did not become ready within 30s.');
@@ -274,10 +278,9 @@ export async function runStart(args: StartArgs): Promise<number> {
         consola.info(`Logs: ${surrealLog}`);
         return 1;
     }
-    consola.success('surreal ready');
+    consola.success(`surreal ready on :${args.surrealPort}`);
 
     // 7. Spawn smartchats-local-server (via bun, runs TS source directly).
-    consola.start(`Starting smartchats-local-server on 0.0.0.0:${args.appPort}...`);
     const serverEnv = {
         ...process.env,
         SURREAL_URL: `ws://127.0.0.1:${args.surrealPort}/rpc`,
@@ -299,9 +302,9 @@ export async function runStart(args: StartArgs): Promise<number> {
         serverLog,
     );
 
-    const serverReady = await waitForUrl(
-        `http://127.0.0.1:${args.appPort}/local-api/health`,
-        30_000,
+    const serverReady = await withWave(
+        `Starting smartchats-server on :${args.appPort}`,
+        () => waitForUrl(`http://127.0.0.1:${args.appPort}/local-api/health`, 30_000),
     );
     if (!serverReady) {
         consola.error('smartchats-local-server did not become ready within 30s.');
@@ -311,7 +314,7 @@ export async function runStart(args: StartArgs): Promise<number> {
         consola.info(`Surreal logs: ${surrealLog}`);
         return 1;
     }
-    consola.success('smartchats-local-server ready');
+    consola.success(`smartchats-server ready on :${args.appPort}`);
 
     // 8. Persist PID file.
     const pidRecord: PidFile = {

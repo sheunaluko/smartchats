@@ -32,6 +32,7 @@ import {
     parseDotenv,
     writeDotenv,
 } from '../lib/env.js';
+import { printLogo } from '../lib/visuals.js';
 import { runStart } from './start.js';
 
 // ─── Args + help ──────────────────────────────────────────────────────
@@ -168,7 +169,8 @@ function printSystemChecks(checks: SystemCheck[]): void {
 // ─── runSetup ─────────────────────────────────────────────────────────
 
 export async function runSetup(args: SetupArgs): Promise<number> {
-    consola.box('SmartChats — guided setup');
+    printLogo();
+    consola.info('Guided setup — get the local stack running in ~2 minutes.\n');
 
     // 1. Repo.
     consola.start('Locating smartchats source...');
