@@ -2,14 +2,32 @@
 /**
  * smartchats CLI — multi-purpose entry point.
  *
- * Subcommands:
- *   smartchats login        Sign in to the SmartChats cloud (browser OAuth).
- *   smartchats logout       Clear cached cloud credentials.
- *   smartchats whoami       Show the currently-authenticated cloud user.
- *   smartchats data import  Load a JSON bundle into a SmartChats deployment.
- *   smartchats data export  Save a SmartChats deployment's user data to JSON.
- *   smartchats launch       Interactive launcher for the local docker stack.
- *   smartchats              (no subcommand) → 'launch' for backward compat.
+ * Lifecycle:
+ *   smartchats setup        Guided first-run: deps + keys + .env, then start.
+ *   smartchats start        Start the local stack (surreal + server).
+ *   smartchats stop         Stop the running stack.
+ *   smartchats restart      Stop then start.
+ *   smartchats status       Show what's running + health.
+ *   smartchats logs         Tail per-process logs.
+ *   smartchats dev          Hot-reload dev stack (delegates to bin/devserve).
+ *
+ * Cloud:
+ *   smartchats login / logout / whoami     Cloud auth (Firebase OAuth).
+ *   smartchats data import / export        User-data bundles.
+ *
+ * Meta:
+ *   smartchats doctor       Environment health check.
+ *   smartchats home         Print resolved smartchats source root.
+ *
+ * Hidden (back-compat with the pre-`start` CLI):
+ *   smartchats launch       Docker AIO launcher. New installs should prefer
+ *                           `setup` + `start`.
+ *
+ * Bare `smartchats` (no subcommand, no flags):
+ *   No config + no repo  → run `setup` (guided first-run).
+ *   Otherwise            → run `start`.
+ *   Any flag present     → route to `launch` (preserves `npx smartchats --no-prompt`
+ *                          scripted callers).
  *
  * Auth: cloud subcommands read/write credentials at
  * `~/.smartchats-mcp/credentials.json` (overridable via
@@ -20,13 +38,29 @@
 import consola from 'consola';
 
 import { runLaunch, parseLaunchArgs, launchHelp } from './commands/launch.js';
+import { runStart, parseStartArgs, startHelp } from './commands/start.js';
+import { runSetup, parseSetupArgs, setupHelp } from './commands/setup.js';
+import {
+    runStop, parseStopArgs, stopHelp,
+    runRestart, restartHelp,
+    runStatus, parseStatusArgs, statusHelp,
+    runLogs, parseLogsArgs, logsHelp,
+} from './commands/lifecycle.js';
+import { runHome, parseHomeArgs, homeHelp } from './commands/home.js';
+import { runDev, parseDevArgs, devHelp } from './commands/dev.js';
 import { runLogin, loginHelp } from './commands/login.js';
 import { runLogout, logoutHelp } from './commands/logout.js';
 import { runWhoami, whoamiHelp } from './commands/whoami.js';
 import { runData, parseDataArgs, dataHelp } from './commands/data.js';
 import { runDoctor, parseDoctorArgs, doctorHelp } from './commands/doctor.js';
+import { detectContext } from './lib/context.js';
+import { loadConfig } from './lib/config.js';
 
-const KNOWN_COMMANDS = new Set(['launch', 'doctor', 'login', 'logout', 'whoami', 'data', 'help', '--help', '-h']);
+const KNOWN_COMMANDS = new Set([
+    'setup', 'start', 'stop', 'restart', 'status', 'logs', 'dev', 'home',
+    'launch', 'doctor', 'login', 'logout', 'whoami', 'data',
+    'help', '--help', '-h',
+]);
 
 function topHelp(): string {
     return `smartchats — CLI for SmartChats (cloud + local self-hosted)
@@ -34,27 +68,38 @@ function topHelp(): string {
 Usage:
   smartchats <command> [options]
 
-Commands:
-  launch         Interactive launcher for the local docker stack (default if no command).
-  doctor         Diagnose the local stack: docker, image, container, port 3000, LLM keys.
+Lifecycle:
+  setup          Guided first-run: system check, API keys, .env, then start.
+  start          Start the local stack (surreal + server). Detached by default.
+  stop           Stop the running stack.
+  restart        Stop the stack and start it again.
+  status         Show what's running, on what ports, with what health.
+  logs           Tail per-process logs.
+  dev            Hot-reload development stack (delegates to bin/devserve).
+
+Cloud:
   login          Sign in to the SmartChats cloud (browser OAuth).
   logout         Clear cached cloud credentials.
   whoami         Show the currently-authenticated cloud user.
   data import    Load a JSON bundle into a SmartChats deployment.
   data export    Save a SmartChats deployment's user data to JSON.
+
+Meta:
+  doctor         Environment health check.
+  home           Print resolved smartchats source root.
   help <cmd>     Show detailed help for <cmd>.
 
 Environment:
-  SMARTCHATS_HOME   Explicit path to a smartchats repo clone. Overrides dir walk.
+  SMARTCHATS_HOME   Explicit path to a smartchats repo clone (overrides dir walk).
   XDG_CONFIG_HOME   If set, CLI config lives at $XDG_CONFIG_HOME/smartchats/config.json
                     (else ~/.smartchats/config.json).
 
 Examples:
-  smartchats login
-  smartchats doctor
+  smartchats setup
+  smartchats start
+  smartchats status
+  smartchats logs -f
   smartchats data export ~/backup.json --target=cloud
-  smartchats data import ~/backup.json --target=local
-  smartchats launch --no-prompt -d
 `;
 }
 
@@ -62,9 +107,30 @@ async function main(): Promise<void> {
     const argv = process.argv;
     const first = argv[2];
 
-    // No subcommand → fall through to launch (backward-compat with the
-    // pre-subcommand CLI). Any flag-prefixed first arg also routes to launch.
-    if (!first || (first.startsWith('-') && first !== '-h' && first !== '--help')) {
+    // Bare invocation routing:
+    //   - Any flag (e.g. `npx smartchats --no-prompt -d`) → `launch`. Preserves
+    //     all pre-subcommand scripted callers that rely on the old behavior.
+    //   - No flag, no subcommand → smart: first-timer (no config + no source
+    //     reachable) → `setup`; everyone else → `start`. This is the friend-
+    //     onboarding fix — the right thing happens by default.
+    if (!first) {
+        const ctx = detectContext();
+        const cfg = loadConfig();
+        const firstTime = !ctx.root && !cfg.smartchatsHome;
+        if (firstTime) {
+            const exit = await runSetup({ noPrompt: false, noStart: false });
+            process.exit(exit);
+        }
+        const exit = await runStart({
+            appPort: cfg.lastUsedPort ?? 3000,
+            surrealPort: 8000,
+            dataDir: `${process.env.HOME ?? '/tmp'}/.smartchats/data`,
+            rebuild: false,
+            foreground: false,
+        });
+        process.exit(exit);
+    }
+    if (first.startsWith('-') && first !== '-h' && first !== '--help') {
         const args = parseLaunchArgs(argv.slice(2));
         await runLaunch(args);
         return;
@@ -74,7 +140,15 @@ async function main(): Promise<void> {
     if (first === 'help' || first === '--help' || first === '-h') {
         const sub = argv[3];
         if (!sub) { console.log(topHelp()); return; }
-        if (sub === 'launch') console.log(launchHelp());
+        if (sub === 'setup') console.log(setupHelp());
+        else if (sub === 'start') console.log(startHelp());
+        else if (sub === 'stop') console.log(stopHelp());
+        else if (sub === 'restart') console.log(restartHelp());
+        else if (sub === 'status') console.log(statusHelp());
+        else if (sub === 'logs') console.log(logsHelp());
+        else if (sub === 'dev') console.log(devHelp());
+        else if (sub === 'home') console.log(homeHelp());
+        else if (sub === 'launch') console.log(launchHelp());
         else if (sub === 'doctor') console.log(doctorHelp());
         else if (sub === 'login') console.log(loginHelp);
         else if (sub === 'logout') console.log(logoutHelp);
@@ -92,6 +166,45 @@ async function main(): Promise<void> {
     }
 
     switch (first) {
+        case 'setup': {
+            const args = parseSetupArgs(argv.slice(3));
+            const exit = await runSetup(args);
+            process.exit(exit);
+        }
+        case 'start': {
+            const args = parseStartArgs(argv.slice(3));
+            const exit = await runStart(args);
+            process.exit(exit);
+        }
+        case 'stop': {
+            const args = parseStopArgs(argv.slice(3));
+            const exit = await runStop(args);
+            process.exit(exit);
+        }
+        case 'restart': {
+            const exit = await runRestart(argv.slice(3));
+            process.exit(exit);
+        }
+        case 'status': {
+            const args = parseStatusArgs(argv.slice(3));
+            const exit = await runStatus(args);
+            process.exit(exit);
+        }
+        case 'logs': {
+            const args = parseLogsArgs(argv.slice(3));
+            const exit = await runLogs(args);
+            process.exit(exit);
+        }
+        case 'dev': {
+            const args = parseDevArgs(argv.slice(3));
+            const exit = await runDev(args);
+            process.exit(exit);
+        }
+        case 'home': {
+            const args = parseHomeArgs(argv.slice(3));
+            const exit = await runHome(args);
+            process.exit(exit);
+        }
         case 'launch': {
             const args = parseLaunchArgs(argv.slice(3));
             await runLaunch(args);

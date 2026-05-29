@@ -24,6 +24,7 @@ import * as path from 'node:path';
 import consola from 'consola';
 
 import { detectContext, type SmartChatsContext } from './context.js';
+import { updateConfig } from './config.js';
 
 const DEFAULT_REPO_URL = 'https://github.com/sheunaluko/smartchats.git';
 const DOCKERFILE_MARKER = 'Dockerfile.aio';
@@ -131,5 +132,9 @@ export async function ensureRepoRoot(opts: EnsureRepoOptions = {}): Promise<stri
     }
 
     consola.success(`Cloned smartchats → ${target}`);
+    // Persist the resolved root so subsequent CLI invocations auto-discover
+    // it without re-walking or re-cloning (see context.ts third tier).
+    updateConfig({ smartchatsHome: target });
+    consola.info(`Tip: export SMARTCHATS_HOME=${target} to make this explicit for shells / IDEs.`);
     return target;
 }

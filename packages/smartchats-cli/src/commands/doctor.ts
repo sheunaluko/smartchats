@@ -27,6 +27,72 @@ import consola from 'consola';
 import { detectContext, describeContext, type SmartChatsContext } from '../lib/context.js';
 import { loadConfig } from '../lib/config.js';
 
+function checkBunInstalled(): CheckResult {
+    const r = spawnSync('which', ['bun'], { encoding: 'utf8' });
+    let bin: string | null = r.status === 0 ? r.stdout.trim() : null;
+    if (!bin && fs.existsSync(`${process.env.HOME}/.bun/bin/bun`)) {
+        bin = `${process.env.HOME}/.bun/bin/bun`;
+    }
+    if (!bin) {
+        return {
+            name: 'bun installed',
+            status: 'fail',
+            severity: 'critical',
+            note: 'install: curl -fsSL https://bun.sh/install | bash',
+        };
+    }
+    const ver = spawnSync(bin, ['--version'], { encoding: 'utf8' });
+    return { name: 'bun installed', status: 'pass', severity: 'critical', note: `${bin} (${ver.stdout.trim()})` };
+}
+
+function checkSurrealInstalled(): CheckResult {
+    const r = spawnSync('which', ['surreal'], { encoding: 'utf8' });
+    let bin: string | null = r.status === 0 ? r.stdout.trim() : null;
+    if (!bin && fs.existsSync(`${process.env.HOME}/.surrealdb/surreal`)) {
+        bin = `${process.env.HOME}/.surrealdb/surreal`;
+    }
+    if (!bin) {
+        return {
+            name: 'surreal installed',
+            status: 'fail',
+            severity: 'critical',
+            note: "install: curl --proto '=https' --tlsv1.2 -sSf https://install.surrealdb.com | sh",
+        };
+    }
+    const ver = spawnSync(bin, ['version'], { encoding: 'utf8' });
+    const first = (ver.stdout || ver.stderr).split('\n')[0]?.trim() ?? '?';
+    return { name: 'surreal installed', status: 'pass', severity: 'critical', note: `${bin} (${first})` };
+}
+
+function checkNodeVersion(): CheckResult {
+    const v = process.versions.node;
+    const major = parseInt(v.split('.')[0] ?? '0', 10);
+    if (major >= 22) return { name: 'Node ≥ 22', status: 'pass', severity: 'info', note: `v${v}` };
+    return {
+        name: 'Node ≥ 22',
+        status: 'warn',
+        severity: 'warn',
+        note: `v${v} — Node 22+ recommended (bun is the runtime, so non-blocking)`,
+    };
+}
+
+function checkDiskSpace(): CheckResult {
+    const home = process.env.HOME ?? '/';
+    const r = spawnSync('df', ['-k', home], { encoding: 'utf8' });
+    if (r.status !== 0) {
+        return { name: 'Free disk ≥ 3 GB', status: 'skip', severity: 'warn', note: 'df failed' };
+    }
+    const lines = r.stdout.trim().split('\n');
+    const fields = lines[lines.length - 1]?.trim().split(/\s+/) ?? [];
+    const freeKb = parseInt(fields[3] ?? '0', 10);
+    const freeGb = freeKb / (1024 * 1024);
+    const detail = `${freeGb.toFixed(1)} GB free at ${home}`;
+    if (freeGb < 3) {
+        return { name: 'Free disk ≥ 3 GB', status: 'fail', severity: 'warn', note: `${detail} — need ≥3 GB for builds + SurrealDB` };
+    }
+    return { name: 'Free disk ≥ 3 GB', status: 'pass', severity: 'info', note: detail };
+}
+
 type Severity = 'critical' | 'warn' | 'info';
 type Status = 'pass' | 'fail' | 'skip' | 'warn';
 
@@ -218,7 +284,17 @@ export async function runDoctor(opts: DoctorOptions): Promise<number> {
     const results: CheckResult[] = [];
     results.push(checkContextDetected(ctx));
 
+    // Native-binary stack prerequisites (the `smartchats start` path).
+    results.push(checkBunInstalled());
+    results.push(checkSurrealInstalled());
+    results.push(checkNodeVersion());
+    results.push(checkDiskSpace());
+
+    // Docker AIO path — informational since `smartchats start` no longer
+    // requires Docker. Kept so `smartchats launch` users get the same
+    // diagnostic surface.
     const docker = checkDockerInstalled();
+    docker.severity = 'info';
     results.push(docker);
 
     let containerUp = false;

@@ -29,6 +29,14 @@ export interface SmartChatsConfig {
     lastUsedMode?: LaunchMode;
     /** Last host port used for the local stack. */
     lastUsedPort?: number;
+    /**
+     * Resolved smartchats source-tree root. Written by lib/clone.ts after a
+     * successful auto-clone, read by lib/context.ts as the third-tier
+     * fallback when $SMARTCHATS_HOME isn't set and dir-walk finds nothing.
+     * Lets the CLI auto-discover the repo across invocations without the
+     * user having to export an env var.
+     */
+    smartchatsHome?: string;
     /** BYO SurrealDB target. Phase 2+. */
     byo?: {
         surrealUrl?: string;
