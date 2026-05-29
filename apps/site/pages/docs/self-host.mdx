@@ -2,162 +2,113 @@ import { Callout, Steps, Tabs } from 'nextra/components'
 
 # Self-Hosting
 
-If you want to run SmartChats yourself — on your laptop, a VPS, a
-Raspberry Pi, anywhere with Docker — this is the page.
+If you want to run SmartChats yourself — on your laptop, a VPS, a Raspberry Pi, anywhere with a shell — this is the page.
 
-The all-in-one (AIO) container holds **everything**: SurrealDB,
-the local Express server, and the Next.js app. One image, one port,
-one process tree. Single-tenant by design.
+For most people, [Quick Start](/docs/quickstart) already covers it. This page is the deep version: env-var management, running on a VPS, bearer-token auth for non-localhost deploys, Docker as an alternative, and the architecture inside.
+
+## TL;DR
+
+```bash
+curl -fsSL https://smartchats.ai/install | bash
+smartchats setup
+```
+
+That's a self-hosted SmartChats running on your machine. Everything below is for cases where you need more control.
 
 ## What you need
 
-- **Docker** 20.10+
-- **Node.js 22+** if you're building from source (skip if you `docker pull` a published image; not yet published)
-- **~2 GB free disk** for the image + initial data
-- **An OpenAI API key** (required — chat, embeddings, TTS all use it)
-- Optional: Anthropic, Google (Gemini), Serper API keys for additional model providers and web search
+- **macOS or Linux** with a shell. Windows via WSL2.
+- **An OpenAI API key** — required for chat, embeddings, TTS.
+- Optional: Anthropic, Google (Gemini), Serper API keys for additional model providers and web search.
+- **~500 MB free disk** for binaries + initial database.
 
-## Quickest path: `bin/aio`
+The installer bundles the Bun runtime, the SurrealDB binary, and the SmartChats app — no Node, no Docker, no system-level deps required.
 
-From a smartchats checkout:
+## The stack, briefly
 
-```bash
-bin/aio
+`smartchats start` launches **two** processes:
+
+```
+                  ┌──────────────────────────────────────┐
+                  │  smartchats-server  (port 3000)      │
+                  │                                      │
+                  │   • serves the SPA at /              │
+                  │   • handles /local-api/* (LLM, TTS,  │
+                  │     embeddings, data, keys, tools,   │
+                  │     usage, insights, health)         │
+                  └─────────────────┬────────────────────┘
+                                    │  ws://127.0.0.1:8000/rpc
+                                    ▼
+                  ┌──────────────────────────────────────┐
+                  │  surreal  (port 8000, loopback only) │
+                  │  rocksdb:~/.smartchats/data          │
+                  └──────────────────────────────────────┘
+                          ▲
+                          │
+                   browser at :3000
 ```
 
-This builds the image (first time only — about 3 minutes) and runs the
-container. The app is at **[http://localhost:3000](http://localhost:3000)**.
+One port externally (3000). SurrealDB stays on loopback. No Docker, no Next.js runtime, no Express-Next.js port juggling — the Express server serves the static export of the Next.js app directly.
 
-Useful flags:
+## Where things live
 
-| Flag | Default | Notes |
+| Path | Purpose |
+|---|---|
+| `~/.smartchats/bin/` | Installed binaries (smartchats CLI, smartchats-server, surreal, bun) |
+| `~/.smartchats/data/` | SurrealDB persistent storage (rocksdb) |
+| `~/.smartchats/run/pids.json` | Live process IDs + ports + start times |
+| `~/.smartchats/logs/` | Per-process logs (`surreal.log`, `server.log`) |
+| `<repo>/.env` | API keys + config (or any path you point `SMARTCHATS_ENV_FILE` at) |
+| `~/.smartchats/config.json` | CLI preferences (last port, resolved source root, etc.) |
+
+`smartchats home` prints the resolved source root if you need to script against it.
+
+## Environment configuration
+
+Provider keys are read from `process.env` first, then from a `.env` file at the repo root. The CLI walks four candidates per provider; first match wins:
+
+| Provider | Canonical | Aliases also accepted |
 |---|---|---|
-| `-d` | (foreground) | Detached mode — runs in background |
-| `--rebuild` | off | Force docker image rebuild |
-| `--port <n>` | 3000 | Host port to bind |
-| `--surreal-port <n>` | 8000 | Expose SurrealDB on host loopback (admin tools use this) |
-| `--data-dir <path>` | `~/.smartchats/data` | Where SurrealDB persists data |
+| OpenAI | `OPENAI_API_KEY` | `SMARTCHATS_OPENAI_API_KEY` |
+| Anthropic | `ANTHROPIC_API_KEY` | `SMARTCHATS_ANTHROPIC_API_KEY` |
+| Google (Gemini) | `GOOGLE_API_KEY` | `SMARTCHATS_GOOGLE_API_KEY`, `GEMINI_API_KEY` |
+| Serper (web search) | `SERPER_API_KEY` | `SMARTCHATS_SERPER_API_KEY` |
+
+`smartchats setup` writes whichever ones you provide to `.env` at the repo root. To edit later, just edit the file and `smartchats restart`.
+
+### Optional: bearer-token auth (for non-localhost deploys)
+
+If you're exposing SmartChats beyond localhost, set a bearer token:
 
 ```bash
-# Run detached on a non-default port
-bin/aio -d --port 8080
-
-# Stop a detached AIO
-docker stop smartchats
+echo 'SMARTCHATS_API_KEY=any-string-you-want' >> .env
+smartchats restart
 ```
 
-## With the interactive wizard: `npx smartchats`
-
-If you'd rather walk through setup interactively — env detection,
-prompts for missing keys, optional bearer token for non-localhost
-deploys:
-
-```bash
-npx smartchats          # interactive
-npx smartchats --no-prompt    # use existing .env, skip prompts
-```
-
-The wizard writes `.env` in your repo root, then runs the same docker
-container as `bin/aio`. Subsequent runs reuse the `.env` values.
-
-## For development: `bin/devserve`
-
-If you're modifying the SmartChats app or extending the stack — not
-just running it — `bin/devserve` is the faster iteration path. Hot
-reload, TypeScript watch mode, no docker rebuild on each change:
-
-```bash
-bin/devserve smartchats firebase
-```
-
-This starts the Next.js dev server (with hot reload) and the Firebase
-Functions emulator side by side. Point it at a database the same way
-you'd point AIO at one — environment variables for the connection.
-
-`bin/aio` is for running the production-mode app on your machine;
-`bin/devserve` is for changing the source. Most contributor workflows
-spend most of their time in `devserve`.
-
-See [`smartchats launch` in the CLI Reference](/docs/cli#smartchats-launch)
-for all flags.
-
-## Where data lives
-
-SurrealDB persists to **`~/.smartchats/data/`** by default
-(overridable via `--data-dir`). It survives container restarts. Back it
-up with `cp -r` (after stopping the container) or use the CLI:
-
-```bash
-smartchats data export ~/local-backup-$(date +%Y-%m-%d).json --target=local
-```
-
-Restoring later:
-
-```bash
-smartchats data import ~/local-backup-2026-05-01.json --target=local
-```
+Every `/local-api/*` request now requires `Authorization: Bearer <token>`. The setup wizard offers to set this for you.
 
 ## Running on a VPS
 
-The AIO container works on any Linux box with Docker. A few extras for
-production:
+The CLI was designed for laptop use, but it works fine on a VPS too — same install, same commands. The extras for a production deploy are nginx in front for TLS and the bearer token.
 
 <Steps>
 
-### Build the image
-
-On a fast machine (your laptop):
+### Install on the VPS
 
 ```bash
-docker build -f Dockerfile.aio -t smartchats-aio:latest .
-docker save smartchats-aio:latest | gzip > smartchats-aio.tar.gz
+ssh user@vps
+curl -fsSL https://smartchats.ai/install | bash
+smartchats setup --no-prompt  # ← interactive; or pre-write .env and use --no-prompt
 ```
 
-Copy it to the VPS:
+### Bind to loopback only
 
 ```bash
-scp smartchats-aio.tar.gz user@vps:~/
-ssh user@vps 'docker load < smartchats-aio.tar.gz'
+smartchats stop
+smartchats start --port 3000   # default; we'll proxy through nginx
 ```
 
-(Or `docker push` to a private registry, then `docker pull` on the VPS — your call.)
-
-### Set up environment
-
-On the VPS:
-
-```bash
-mkdir -p ~/smartchats
-cd ~/smartchats
-cat > .env <<'EOF'
-OPENAI_API_KEY=sk-...
-ANTHROPIC_API_KEY=sk-ant-...
-GOOGLE_API_KEY=AIza...
-SERPER_API_KEY=...
-SMARTCHATS_API_KEY=your-bearer-token-here   # optional but recommended for non-localhost
-EOF
-chmod 600 .env
-```
-
-The `SMARTCHATS_API_KEY` is a bearer token that, if set, gets required
-on every request to the local Express server. Recommended for
-non-localhost deploys (otherwise anyone on your network can hit your
-SmartChats install).
-
-### Run with restart-on-failure
-
-```bash
-docker run -d \
-  --name smartchats \
-  --restart unless-stopped \
-  -p 127.0.0.1:3000:3000 \
-  -v ~/smartchats/data:/data \
-  --env-file ~/smartchats/.env \
-  smartchats-aio:latest
-```
-
-Note the `127.0.0.1:3000:3000` binding — only listens on loopback. We'll
-proxy through nginx in the next step.
+The server binds to `0.0.0.0:3000` by default. If you want to be safer, use nginx as the only public-facing process and either firewall :3000 off, or run the smartchats process behind a reverse-only configuration.
 
 ### Front it with nginx + Let's Encrypt
 
@@ -181,106 +132,107 @@ server {
 }
 ```
 
-Then, in the smartchats UI, set your bearer token in the appropriate
-header — the local Express server checks `Authorization: Bearer <token>`
-against `SMARTCHATS_API_KEY` for every request.
+### Auto-start on boot (systemd)
 
-### (Optional) Periodic backup
+```ini
+# /etc/systemd/system/smartchats.service
+[Unit]
+Description=SmartChats local stack
+After=network.target
+
+[Service]
+Type=forking
+User=YOUR_USER
+WorkingDirectory=/home/YOUR_USER
+ExecStart=/home/YOUR_USER/.smartchats/bin/smartchats start
+ExecStop=/home/YOUR_USER/.smartchats/bin/smartchats stop
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now smartchats
+sudo systemctl status smartchats
+```
+
+### Periodic backup
 
 ```bash
 # /etc/cron.daily/smartchats-backup
 #!/bin/bash
-docker exec smartchats node /app/packages/smartchats-cli/dist/cli.js \
-  data export "/data/backups/$(date +%Y-%m-%d).json" --target=local
+mkdir -p ~/backups
+smartchats data export ~/backups/$(date +%Y-%m-%d).json --target=local
 ```
 
 </Steps>
 
-## Architecture inside the container
+## Docker (alternative)
 
-The AIO entrypoint script (`scripts/aio-entrypoint.sh`) is a bash
-supervisor:
+If you prefer containers, there's an image. Same install code path inside — the Dockerfile just runs `curl … install | bash` against a fresh Debian:
 
-```
-                ┌─────────────────────────────────────┐
-                │  smartchats-aio container           │
-                │                                     │
-                │  ┌─────────────┐                    │
-                │  │  SurrealDB  │  port 8000         │
-                │  └─────────────┘  (internal +       │
-                │         ▲          host loopback    │
-                │         │          via --surreal-port)
-                │         │                           │
-                │  ┌─────────────────┐                │
-                │  │  Express server │  port 4242     │
-                │  │  (smartchats-   │  (internal     │
-                │  │   local-server) │   only)        │
-                │  └─────────────────┘                │
-                │         ▲                           │
-                │         │ (Next.js rewrite          │
-                │         │  /local-api/* → :4242)    │
-                │  ┌─────────────────┐                │
-                │  │  Next.js app    │  port 3000     │
-                │  │  (smartchats)   │  (exposed)     │
-                │  └─────────────────┘                │
-                │                                     │
-                └─────────────────────────────────────┘
-                              ▲
-                              │
-                       browser at :3000
+```bash
+docker run --rm -p 3000:3000 \
+  -e OPENAI_API_KEY=$OPENAI_API_KEY \
+  -e ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY \
+  -v ~/.smartchats/data:/data \
+  smartchats/smartchats-aio:latest
 ```
 
-The supervisor "dies together": if any of the three processes exits, the
-container exits. Restart-on-failure (above) brings it back.
+For env-vars, you can either pass them with `-e` flags (one per provider) or mount a `.env` file:
+
+```bash
+docker run --rm -p 3000:3000 \
+  -v ~/smartchats/.env:/root/.smartchats/.env:ro \
+  -v ~/.smartchats/data:/data \
+  smartchats/smartchats-aio:latest
+```
+
+The image is ~300 MB. It's a fallback for environments where you need process isolation or are deploying via container orchestration — for laptop self-host, the native install is faster and uses less disk.
+
+## Backup + restore
+
+```bash
+# Snapshot (writes a single JSON file)
+smartchats data export ~/snapshot.json --target=local
+
+# Wipe and restore (the import upserts every row by id)
+smartchats stop
+rm -rf ~/.smartchats/data
+smartchats start
+smartchats data import ~/snapshot.json --target=local
+```
+
+The fresh stack will boot, the `client.ts` root-mode connect will define the namespace + database, schema migrations will apply, and the import will populate.
 
 ## Troubleshooting
 
 <Callout type="warning">
-  **Port 3000 already in use** → another process is bound to it. Either
-  kill it (`lsof -i:3000` to find), or use `bin/aio --port 3001`.
+**Port 3000 already in use** → another process is bound to it. Either kill it (`lsof -i:3000` to find), or `smartchats start --port 3030`.
 </Callout>
 
 <Callout type="warning">
-  **AIO container exits immediately** → check `docker logs smartchats`
-  for the actual error. Common causes: missing `OPENAI_API_KEY`,
-  data dir owned by wrong user, SurrealDB binary unable to write to
-  `/data` (chmod issue with the bind-mount).
+**`smartchats start` exits with "surreal binary not found"** → installer didn't add `~/.smartchats/bin` to PATH. Either rerun `smartchats setup`, or `export PATH="$HOME/.smartchats/bin:$PATH"` in your shell rc.
 </Callout>
 
 <Callout type="warning">
-  **App loads but says "no models available"** → no provider API keys
-  configured. Add to `.env`, restart the container. See
-  [`smartchats launch`](/docs/cli#smartchats-launch) for the env-var
-  precedence.
+**App loads but says "no models available"** → no provider API keys reachable. Run `smartchats doctor` to see what it found; add to `.env`; `smartchats restart`.
 </Callout>
 
 <Callout type="info">
-  **Want a simpler dev loop without rebuilding the image every time?**
-  Use `bin/devserve smartchats firebase` — runs `next dev` (hot reload)
-  alongside the Firebase Functions emulator. Useful when you're iterating
-  on smartchats app code. AIO is for production-mode validation.
+**Diagnosing a running stack** → `smartchats status` for a health snapshot, `smartchats logs -f` to tail per-process output, `smartchats logs --proc server -n 200` for just the server's last 200 lines.
 </Callout>
 
-## Backup + restore in one tab
-
-```bash
-# Snapshot
-smartchats data export ~/snapshot.json --target=local --include-sensitive
-
-# Wipe (be sure!) and restore
-docker stop smartchats
-rm -rf ~/.smartchats/data
-bin/aio -d
-smartchats data import ~/snapshot.json --target=local
-```
-
-The fresh container will boot, apply the schema migrations, and the
-import will UPSERT every row by id.
+<Callout type="info">
+**Iterating on the source?** → `smartchats dev` (hot reload, Next.js dev server, Express side-by-side) instead of `smartchats start`. See [Contributing](/docs/contributing).
+</Callout>
 
 ## See also
 
-- **[Quickstart](/docs/quickstart)** — the simplest possible path.
-- **[CLI Reference](/docs/cli)** — `smartchats launch` flags, `data
-  export/import` examples.
-- **[Architecture](/docs/architecture)** — what's inside the container,
-  open vs closed boundary, how the local target fits the layered model.
+- **[Quick Start](/docs/quickstart)** — the two-minute path.
+- **[CLI Reference](/docs/cli)** — every command and flag.
+- **[Architecture](/docs/architecture)** — the open / cloud boundary and what's inside the stack.
+- **[Contributing](/docs/contributing)** — modifying SmartChats itself.

@@ -2,71 +2,62 @@
 
 **The future of agentic voice experiences. Now.**
 
-SmartChats is an open source voice-native AI platform. Voice in. Code, charts, web answers, and persistent knowledge — out. SmartChats turns conversation into a computing surface that gets smarter every time you use it.
+Get started in 2 minutes — install with `curl | sh`.
 
 → [smartchats.ai](https://smartchats.ai) · [docs](https://smartchats.ai/docs)
 
 ---
 
+## Install
+
+```bash
+curl -fsSL https://smartchats.ai/install | bash
+```
+
+Then:
+
+```bash
+smartchats setup
+```
+
+That's it. The wizard walks you through your API keys, builds what it needs, and opens [http://localhost:3000](http://localhost:3000). No Docker, no Node, no prereqs — the installer bundles the runtime.
+
+**Other install paths:** `npm install -g smartchats-ai` (if you already have Node 22+), `npx smartchats-ai` (no install), `git clone + npm link` (contributors). Full options at [docs/install](https://smartchats.ai/docs/install).
+
+## What you get
+
+Voice in. Code, charts, web answers, persistent knowledge — out. SmartChats turns conversation into a computing surface that gets smarter every time you use it.
+
+- **Voice-native, cross-device.** Talk naturally, interrupt, switch devices mid-thought. Same agent, same memory.
+- **Multi-model routing.** GPT-5.5, Claude Opus 4.7, Gemini 3.1 Pro — pick per task or per turn.
+- **Sandboxed code execution + a knowledge graph that compounds.** The agent writes JavaScript that runs in your browser, persists what it learns about you to a local SurrealDB triple store with vector search.
+- **MCP both directions.** Consume external MCP servers; expose SmartChats as one to Claude Desktop or any MCP-aware tool.
+- **Self-hostable.** The entire stack runs on your laptop with one command. Hosted SaaS optional.
+
+→ **[Read the docs](https://smartchats.ai/docs)** for architecture, full CLI reference, MCP integration, package guides, and contribution workflow.
+
 ## Status
 
 🟢 **Production-ready · Open-core release · 2026 Q2**
 
-The full stack is live: voice pipeline, knowledge graph, sandboxed code execution, multi-provider LLM routing (GPT-5.5 / Claude Opus 4.7 / Gemini 3.1 Pro), MCP server, billing, end-to-end test coverage. Active daily use; deploys ship continuously.
+The hosted SaaS at [smartchats.ai](https://smartchats.ai) runs the same stack you can self-host here. Only multi-tenant cloud orchestration (billing back-end, hosted database, infrastructure) stays private.
 
-**This repo is the open core.** Everything you need to self-host the same stack on your own machine is here under MIT. The hosted SaaS at [smartchats.ai](https://smartchats.ai) runs on top of this — only the multi-tenant production cloud orchestration (billing back-end, hosted database, infrastructure) stays private.
+## CLI at a glance
 
-→ **[Read the docs](https://smartchats.ai/docs)** for architecture, quickstart, self-hosting, CLI reference, MCP integration, package-by-package guides, and contribution workflow.
-
-## Quick start
-
-### Option 1 — Run the CLI against the hosted SaaS
-
-```bash
-npx smartchats-ai
+```
+smartchats setup       guided first-run
+smartchats start       launch the local stack
+smartchats stop        stop the stack
+smartchats status      what's running + health
+smartchats logs        tail per-process logs
+smartchats doctor      environment health check
+smartchats data        import / export user data
+smartchats login       sign in to the hosted SaaS
 ```
 
-Auto-clones this repo on first run, logs you into the hosted SaaS, and launches the local web app pointed at the cloud backend. Free tier included.
-
-### Option 2 — Self-host the full stack
-
-```bash
-git clone https://github.com/sheunaluko/smartchats.git
-cd smartchats
-npm install
-bin/aio                           # one-command all-in-one container
-# OR
-bin/devserve                      # local dev — SurrealDB + Next.js
-```
-
-Open [http://localhost:3000](http://localhost:3000). Bring your own API keys (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`) or use the hosted billing.
-
-Full self-hosting guide: [smartchats.ai/docs/self-host](https://smartchats.ai/docs/self-host)
-
-## Roadmap
-
-| Quarter | Milestone |
-|---|---|
-| **Now (Q2 2026)** | **Open Core + Hosted.** MIT-licensed source release. Hosted web app live with managed billing, auth, and infrastructure. |
-| Q3 2026 | **Integrations + Mobile.** Native mobile app launch. Third-party integrations buildout — Gmail, Calendar, X, GitHub, and more — so SmartChats can read, write, and act across the apps where users already live. |
-| Q4 2026 | **Enterprise.** Three offerings: drop-in voice agent SDK (Tivi), drop-in voice + agent runtime (Tivi + Cortex), and full closed-cloud licensing with deployment support for regulated environments. White-label and self-hosted across all tiers. |
-
-## Architecture
-
-The full stack ships open under MIT — frontend, local server, schema, voice pipeline, agent runtime, MCP server, CLI. The entire app self-hosts with one command. Only multi-tenant cloud orchestration stays private.
-
-**Core layers:**
-
-- **Voice** ([`tivi`](https://smartchats.ai/docs/packages/tivi)) — ONNX VAD (Silero v5), streaming STT, per-utterance TTS, two-phase mic calibration, designed for natural turn-taking with interruption.
-- **Agent runtime** ([`cortex`](https://smartchats.ai/docs/packages/cortex)) — multi-provider LLM router, JSON-stream parser, function-calling loop, background process manager, modular prompt composition.
-- **Output** — sandboxed JavaScript execution (iframe + proxy membrane), entity-relation knowledge graph (SurrealDB triple store + HNSW vector index, 1536-dim embeddings), multi-modal renderers.
-- **Interop** ([`smartchats-mcp`](https://smartchats.ai/docs/mcp)) — first-class Model Context Protocol, both directions: SmartChats consumes external MCP servers AND exposes itself as one. Read your data from any MCP-aware LLM; write into your account from any MCP-aware tool.
-
-Full architecture writeup: [smartchats.ai/docs/architecture](https://smartchats.ai/docs/architecture).
+Full reference: [docs/cli](https://smartchats.ai/docs/cli).
 
 ## Packages
-
-This is a TypeScript monorepo. Each package is independently usable — drop `tivi` into a different React app, embed `cortex` in your own agent, run `smartchats-sessions` analyzers on exported bundles. Per-package docs at [smartchats.ai/docs/packages](https://smartchats.ai/docs/packages).
 
 | Package | What it does |
 |---|---|
@@ -79,20 +70,28 @@ This is a TypeScript monorepo. Each package is independently usable — drop `ti
 | [`simi`](https://smartchats.ai/docs/packages/simi) | Declarative E2E workflow tests |
 | `smartchats-cli` *(npm: [`smartchats-ai`](https://www.npmjs.com/package/smartchats-ai))* | The `smartchats` command-line tool |
 | `smartchats-mcp` | MCP server — expose SmartChats to Claude Desktop / any MCP client |
-| `graph-viz`, `smartchats-common`, `smartchats-local-server`, `smartchats-backend-local`, `smartchats-cloud-client`, `smartchats-test` | Supporting libraries |
+
+Plus supporting libraries: `graph-viz`, `smartchats-common`, `smartchats-local-server`, `smartchats-backend-local`, `smartchats-cloud-client`, `smartchats-test`.
+
+## Roadmap
+
+| Quarter | Milestone |
+|---|---|
+| **Now (Q2 2026)** | **Open Core + Hosted.** MIT-licensed source release. Hosted web app live with managed billing, auth, and infrastructure. |
+| Q3 2026 | **Integrations + Mobile.** Native mobile app launch. Third-party integrations buildout — Gmail, Calendar, X, GitHub, and more — so SmartChats can read, write, and act across the apps where users already live. |
+| Q4 2026 | **Enterprise.** Three offerings: drop-in voice agent SDK (Tivi), drop-in voice + agent runtime (Tivi + Cortex), and full closed-cloud licensing with deployment support for regulated environments. White-label and self-hosted across all tiers. |
 
 ## Contributing
 
-A full contribution policy is being prepared. In the meantime, please reach out before opening pull requests:
+A full contribution policy is being prepared. In the meantime, reach out before opening pull requests:
 
 - 📧 [shay@smartchats.ai](mailto:shay@smartchats.ai)
 - 💼 [LinkedIn](https://www.linkedin.com/in/sheun-aluko/)
 
-For everything else:
+Working on SmartChats itself? See [docs/contributing](https://smartchats.ai/docs/contributing) for the `npm run dev` / `bin/devserve` workflow.
 
 - 🐛 [Issues](https://github.com/sheunaluko/smartchats/issues) — bugs, feature requests, questions
 - 💬 [Discussions](https://github.com/sheunaluko/smartchats/discussions) — design conversations, show-and-tell
-- 📖 [Docs](https://smartchats.ai/docs) — everything
 
 ## License
 
@@ -103,4 +102,3 @@ For everything else:
 **Sheun Aluko, MD, MS** — Founder & CEO
 
 - 💼 [LinkedIn](https://www.linkedin.com/in/sheun-aluko/)
-

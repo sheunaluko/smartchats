@@ -25,35 +25,73 @@ formal policy that supersedes it is still in progress.
 
 The TL;DR for newcomers:
 
-1. **Clone, install, run `bin/test_all --quick`** — about 30 seconds; type-checks
-   everything. If green, your environment is sound.
-2. **Adding a new query the agent can run?** It's three files, ~20 lines
-   total. See [the architecture doc](/docs/architecture#adding-a-new-query-the-agent-can-run).
-3. **Run `bin/test_all` at the right level** for the change. The
-   table in [CONTRIBUTING.md → Verification Workflow](https://github.com/sheunaluko/smartchats/blob/master/CONTRIBUTING.md#verification-workflow)
-   shows which level matches which kind of change.
+1. **Clone, install, run `bin/preflight`** — type-checks the whole monorepo via turbo. If green, your environment is sound.
+2. **Adding a new query the agent can run?** It's three files, ~20 lines total. See [the architecture doc](/docs/architecture#adding-a-new-query-the-agent-can-run).
+3. **Run `bin/preflight` (lint + build)** before opening a PR. For testing UI changes, `bin/devserve` (or `smartchats dev`) gives you hot reload.
+
+## Running from source
+
+The user-facing install (`curl | sh` from [Quick Start](/docs/quickstart)) ships compiled binaries. For development you want the source path:
+
+```bash
+git clone https://github.com/sheunaluko/smartchats.git
+cd smartchats
+npm install
+```
+
+Two ways to run the stack while iterating:
+
+```bash
+# Hot-reload Next.js dev server + Express + SurrealDB container
+bin/devserve
+
+# Or via the CLI (same thing, wrapped):
+cd packages/smartchats-cli
+npm link    # makes the local `smartchats` binary point at your source
+smartchats dev
+```
+
+`bin/devserve` is the canonical dev loop — hot reload, TypeScript watch mode, no container rebuild on each change. `smartchats start` is for end users and for production-mode validation. Most contributor time is in `dev`.
+
+<Callout type="warning">
+**Don't run `npm run dev` at the root.** Turbo's fan-out used to fire the MCP server's dev script, which spawns a Firebase OAuth browser flow. That script has been renamed (`mcp/package.json:scripts/dev:stdio`) but it's still better to use `bin/devserve` or `smartchats dev` — they target only the processes you actually need.
+</Callout>
+
+## Useful bin/ scripts
+
+| Script | What it does |
+|---|---|
+| `bin/preflight` | Lint + workspace type-check + build. Run before every PR. |
+| `bin/devserve` | Hot-reload dev stack (Next.js dev + Express + SurrealDB container) |
+| `bin/aio` | Build + run the all-in-one Docker container. Production-mode validation. |
+| `bin/cloud_test_db` | Local SurrealDB with the cloud schema, for closed-target testing |
+| `bin/checkpoint "<msg>"` | `git add -A && git commit -m "checkpoint: <msg>"` |
+| `bin/save_session` | Export the current session bundle for triage |
+| `bin/test-bun-deploy` | Smoke-test the no-Docker, bun + native-surreal production path |
 
 ## Repo layout (high level)
 
 ```
 smartchats/
 ├── apps/
-│   └── smartchats/                # Next.js app (chat UI, voice, KG)
+│   └── smartchats/                # Next.js app (chat UI, voice, KG) — static SPA
 ├── packages/
 │   ├── smartchats-backend/        # DataAPI contract (types only)
 │   ├── smartchats-backend-firebase/  # Cloud-target backend adapter
 │   ├── smartchats-backend-local/     # Local-target backend adapter
 │   ├── smartchats-cloud-client/   # Open client for the hosted cloud
-│   ├── smartchats-cli/            # `smartchats` command
+│   ├── smartchats-cli/            # `smartchats` command (setup, start, etc.)
 │   ├── smartchats-database/       # SurrealDB queries + operations + DataAPI factories
-│   ├── smartchats-local-server/   # Express server backing the local stack
+│   ├── smartchats-local-server/   # Express server: serves SPA + /local-api/*
 │   ├── smartchats-mcp/            # MCP server
 │   └── ...
 ├── bin/
-│   ├── aio                        # Run the all-in-one container
+│   ├── preflight                  # Lint + type-check + build
+│   ├── devserve                   # Hot-reload dev stack
+│   ├── aio                        # Docker AIO container
 │   ├── cloud_test_db              # Local SurrealDB for cloud-shape testing
-│   ├── devserve                   # Next.js dev + Firebase emulator
-│   ├── test_all                   # The single-command test runner
+│   ├── checkpoint                 # `git add -A && git commit -m "checkpoint: …"`
+│   ├── test-bun-deploy            # Smoke-test the bun + native-surreal path
 │   └── ...
 └── CONTRIBUTING.md                # The canonical guide
 ```
@@ -88,9 +126,7 @@ land well:
 - **Make small, surgical changes.** A feature should usually touch one
   builder, one tool wrapper, and one CLI command — not five files.
   When the diff sprawls, you're working against the architecture.
-- **Run `bin/test_all` at the right level** before declaring done. The
-  table in CONTRIBUTING.md picks the level. Don't rely on CI alone for
-  your own change.
+- **Run `bin/preflight` before declaring done.** Don't rely on CI alone for your own change. For UI-affecting work, also bring up the stack with `bin/devserve` or `smartchats dev` and verify the change in a browser.
 - **For destructive actions** (deleting data, force-pushing, modifying
   live cloud, killing shared processes), confirm with the user first.
   Reversibility is a one-way valve.

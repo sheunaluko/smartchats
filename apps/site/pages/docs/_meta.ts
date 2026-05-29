@@ -1,10 +1,10 @@
 export default {
   index: 'Welcome',
-  quickstart: 'Quickstart',
+  quickstart: 'Quick Start',
   'self-host': 'Self-Hosting',
+  cli: 'CLI Reference',
   architecture: 'Architecture',
   packages: 'Packages',
-  cli: 'CLI Reference',
   mcp: 'MCP Server',
   contributing: 'Contributing',
 };
