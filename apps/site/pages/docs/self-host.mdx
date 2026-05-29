@@ -96,7 +96,15 @@ Provider keys are read from `process.env` first, then from a `.env` file at the 
 | `git clone + npm link` | `<repo>/.env` (or `~/.smartchats/.env` if `SMARTCHATS_HOME` not in the repo) |
 | Docker container | `/root/.smartchats/.env` (mount the host file into here, see below) |
 
-`smartchats setup` writes the file for you. To edit later, just edit it directly and run `smartchats restart`.
+Three ways to write keys, in order of friendliness:
+
+```bash
+smartchats env                   # interactive walkthrough (recommended)
+smartchats env --list            # show what's configured (masked)
+vi ~/.smartchats/.env            # direct edit if you prefer
+```
+
+`smartchats setup` also writes the file as part of first-run. After editing by any of these methods, run `smartchats restart` (or `docker restart <container>`) to pick up the changes.
 
 ### Sharing one `.env` between bare-metal and Docker installs
 
@@ -126,9 +134,10 @@ docker restart smartchats   # picks up changes in ~1 sec
 
 ### Adding keys after the container is already running
 
-Two options, depending on whether you want to use the host file or the SPA:
+Three options, easiest first:
 
-- **Host file + restart**: as above. Edit `~/.smartchats/.env`, `docker restart smartchats`. Works whenever the file is mounted in.
+- **`smartchats env` on the host** (recommended): interactive prompts, writes to `~/.smartchats/.env`. If you mounted that file into the container, `docker restart <container>` picks it up. If you didn't, you can also run it inside the container with `docker exec -it <container> smartchats env` and edit the in-container `/root/.smartchats/.env` directly (changes lost when the container is removed unless you commit/mount).
+- **Edit the host file directly**: `vi ~/.smartchats/.env`, then `docker restart <container>`. Same end state as the env command, just text-editor instead of prompts.
 - **SPA settings → BYO Keys**: open `localhost:3000`, navigate to settings, paste keys into the BYO Keys panel. Stored in SurrealDB; no restart needed. Works without any host file or env config — handy when the container is on a VPS and you don't want to touch the filesystem.
 
 ### Optional: bearer-token auth (for non-localhost deploys)

@@ -52,6 +52,37 @@ What it walks through, in order:
 4. **Bearer token (optional)** — for non-localhost deploys, configures `SMARTCHATS_API_KEY`.
 5. **Persist + start** — writes `.env`, invokes `start`. You're at [http://localhost:3000](http://localhost:3000) when the wizard exits.
 
+### `smartchats env`
+
+Interactively configure provider API keys. Same prompt loop as `smartchats setup`'s key step, scoped to just keys — no system check, no start. For when you've got a working install and want to rotate keys or enable a new provider (e.g. Serper for web search).
+
+```bash
+smartchats env [options]
+```
+
+| Flag | Default | Notes |
+|---|---|---|
+| `--list`, `-l` | off | Show what's configured (masked); don't prompt for changes. |
+
+Walks each provider (OpenAI, Anthropic, Google Gemini, Serper). For each one, shows what's already in `$env` or `.env` and lets you keep it, replace it, or remove it. Writes to the install root's `.env` (typically `~/.smartchats/.env` — the same file Docker mounts at `/root/.smartchats/.env`).
+
+If the stack is running, restart afterward to pick up the new values:
+
+```bash
+smartchats restart           # bare-metal install
+docker restart <container>   # docker install
+```
+
+Quick "what's configured" check without prompts:
+
+```bash
+smartchats env --list
+#   ✓ OpenAI                   sk-V…vGiE  (env $OPENAI_API_KEY)
+#   ✓ Anthropic (Claude)       sk-a…iQAA  (env $ANTHROPIC_API_KEY)
+#   ✓ Google (Gemini)          AIza…Uvbg  (env $GEMINI_API_KEY)
+#   ✓ Serper (web search)      983d…4abf  (env $SERPER_API_KEY)
+```
+
 ### `smartchats start`
 
 Launches the local stack as detached child processes. Idempotent — re-running while the stack is up + healthy is a no-op.
