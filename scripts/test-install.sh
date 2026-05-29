@@ -14,24 +14,18 @@
 #   6. Tears down: stop container, kill HTTP server, cleanup.
 #
 # Usage:
-#   scripts/test-install.sh                      # docker backend (default)
-#   scripts/test-install.sh --backend docker
-#   scripts/test-install.sh --target linux-x64   # any platform bun can cross-compile
-#   scripts/test-install.sh --keep-running       # don't stop the container at the end
-#   scripts/test-install.sh --skip-build         # reuse a prior dist-release/ tarball
+#   scripts/test-install.sh                          # docker backend (default)
+#   scripts/test-install.sh --backend docker         # container, fast iteration
+#   scripts/test-install.sh --backend multipass      # real Linux VM
+#   scripts/test-install.sh --backend tart           # macOS guest (prints manual recipe)
+#   scripts/test-install.sh --target linux-x64       # cross-compile target
+#   scripts/test-install.sh --keep-running           # leave the container/VM up
+#   scripts/test-install.sh --skip-build             # reuse a prior dist-release/ tarball
 #
-# Multipass / Tart backends (manual for now; same shape, different driver):
-#   multipass launch 22.04 --name sc-test
-#   multipass mount $PWD/dist-release sc-test:/release
-#   multipass exec sc-test -- bash -c '
-#     SMARTCHATS_INSTALL_URL=file:///release/install.sh \
-#     SMARTCHATS_TARBALL_URL=file:///release/smartchats-linux-arm64.tar.gz \
-#     bash /release/install.sh --non-interactive
-#   '
-#   multipass exec sc-test -- smartchats setup --no-prompt --no-start
-#   multipass exec sc-test -- smartchats start
-#   multipass exec sc-test -- curl -fsSL http://localhost:3000/local-api/health
-#   multipass delete sc-test --purge
+# Backend-target matrix:
+#   docker    → linux-x64, linux-arm64   (container, Docker Desktop)
+#   multipass → linux-x64, linux-arm64   (real Linux VM via Apple Hypervisor)
+#   tart      → darwin-arm64, darwin-x64 (macOS guest — manual recipe printed for now)
 
 set -euo pipefail
 source "$(dirname "$0")/../bin/_lib.sh"
@@ -63,29 +57,61 @@ while [[ $# -gt 0 ]]; do
 done
 
 case "$BACKEND" in
-    docker) ;;
-    multipass|tart)
-        err "$BACKEND backend not yet wired into this script — see header for manual recipe."
-        exit 1
-        ;;
-    *) err "Unknown backend: $BACKEND"; exit 1 ;;
+    docker|multipass|tart) ;;
+    *) err "Unknown backend: $BACKEND (choose: docker, multipass, tart)"; exit 1 ;;
 esac
 
-# Detect current target if not specified. The Docker image RUNS the
-# target's binaries, so it must match the docker engine's platform.
+# Detect current target if not specified. Backend-aware:
+#   docker / multipass → Linux guests, so target is linux-{arch}
+#   tart               → macOS guests, so target is darwin-{arch}
 if [[ -z "$TARGET" ]]; then
-    case "$(uname -s)-$(uname -m)" in
-        Darwin-arm64|Darwin-aarch64) TARGET="linux-arm64" ;;  # Docker Desktop on Apple Silicon → Linux/arm64
-        Darwin-x86_64)               TARGET="linux-x64" ;;
-        Linux-x86_64|Linux-amd64)    TARGET="linux-x64" ;;
-        Linux-aarch64|Linux-arm64)   TARGET="linux-arm64" ;;
+    case "$BACKEND-$(uname -s)-$(uname -m)" in
+        docker-Darwin-arm64|docker-Darwin-aarch64)       TARGET="linux-arm64" ;;
+        docker-Darwin-x86_64)                            TARGET="linux-x64" ;;
+        docker-Linux-x86_64|docker-Linux-amd64)          TARGET="linux-x64" ;;
+        docker-Linux-aarch64|docker-Linux-arm64)         TARGET="linux-arm64" ;;
+        multipass-Darwin-arm64|multipass-Darwin-aarch64) TARGET="linux-arm64" ;;
+        multipass-Darwin-x86_64)                         TARGET="linux-x64" ;;
+        multipass-Linux-x86_64|multipass-Linux-amd64)    TARGET="linux-x64" ;;
+        multipass-Linux-aarch64|multipass-Linux-arm64)   TARGET="linux-arm64" ;;
+        tart-Darwin-arm64|tart-Darwin-aarch64)           TARGET="darwin-arm64" ;;
+        tart-Darwin-x86_64)                              TARGET="darwin-x64" ;;
         *) err "Could not infer target — specify --target"; exit 1 ;;
     esac
 fi
 
-case "$TARGET" in
-    linux-x64|linux-arm64) ;;
-    *) err "Docker backend only supports linux-x64 + linux-arm64 targets (Docker engine is Linux)."; exit 1 ;;
+# Backend-target compatibility.
+case "$BACKEND-$TARGET" in
+    docker-linux-*|multipass-linux-*) ;;
+    tart-darwin-*)
+        warn "Tart backend isn't fully wired yet — printing manual recipe and exiting."
+        cat <<EOF >&2
+
+  # ─── Manual Tart recipe (until --backend tart is automated) ───────
+  brew install cirruslabs/cli/tart
+  tart clone ghcr.io/cirruslabs/macos-sonoma-base:latest sc-install-test
+  tart run sc-install-test --no-graphics &
+  sleep 30   # wait for VM to boot
+  SC_VM_IP=\$(tart ip sc-install-test)
+  scp scripts/install.sh admin@\$SC_VM_IP:/tmp/install.sh
+  scp dist-release/smartchats-${TARGET}.tar.gz admin@\$SC_VM_IP:/tmp/smartchats.tar.gz
+  ssh admin@\$SC_VM_IP "SMARTCHATS_TARBALL_URL=file:///tmp/smartchats.tar.gz \\
+    bash /tmp/install.sh --non-interactive"
+  ssh admin@\$SC_VM_IP "~/.smartchats/bin/smartchats start"
+  ssh admin@\$SC_VM_IP "curl -sf http://localhost:3000/local-api/health"
+  # When done:
+  tart stop sc-install-test && tart delete sc-install-test
+EOF
+        exit 1
+        ;;
+    docker-darwin-*|multipass-darwin-*)
+        err "$BACKEND backend can only test Linux targets (the guest VM is Linux)."
+        exit 1
+        ;;
+    *)
+        err "Unsupported backend-target combo: $BACKEND on $TARGET"
+        exit 1
+        ;;
 esac
 
 cd "$REPO_ROOT"
@@ -106,7 +132,84 @@ fi
 TARBALL="$REPO_ROOT/dist-release/smartchats-${TARGET}.tar.gz"
 [[ -f "$TARBALL" ]] || { err "Tarball missing: $TARBALL"; exit 1; }
 
-# ─── 2. Prep server root + start HTTP server ──────────────────────────
+# ─── Multipass backend ────────────────────────────────────────────────
+# Linux VM via Canonical's Multipass. Real kernel, not a container.
+# Apple Silicon hosts → arm64 guest by default; Intel hosts → x64 guest.
+if [[ "$BACKEND" == "multipass" ]]; then
+    check_command multipass || { err "Install: brew install --cask multipass"; exit 1; }
+
+    VM_NAME="sc-install-test-$$"
+
+    mp_cleanup() {
+        if ! $KEEP_RUNNING; then
+            info "Deleting VM $VM_NAME..."
+            multipass delete "$VM_NAME" --purge 2>/dev/null || true
+        fi
+    }
+    trap mp_cleanup EXIT INT TERM
+
+    header "Launching Multipass VM: $VM_NAME (Ubuntu 22.04, 2 cpus, 4G ram, 10G disk)"
+    multipass launch 22.04 --name "$VM_NAME" --cpus 2 --memory 4G --disk 10G
+    ok "VM launched"
+
+    header "Transferring install.sh + tarball into VM"
+    multipass transfer scripts/install.sh "${VM_NAME}:/tmp/install.sh"
+    multipass transfer "$TARBALL" "${VM_NAME}:/tmp/smartchats.tar.gz"
+
+    header "Running install.sh inside VM (file:// tarball, --non-interactive)"
+    multipass exec "$VM_NAME" -- bash -c "
+        export SMARTCHATS_TARBALL_URL=file:///tmp/smartchats.tar.gz
+        bash /tmp/install.sh --non-interactive --no-path
+    "
+
+    header "Starting the stack inside VM"
+    # Run detached: smartchats start writes its own PID file + logs.
+    multipass exec "$VM_NAME" -- bash -c "
+        /home/ubuntu/.smartchats/bin/smartchats start --no-prompt
+    "
+
+    header "Waiting for /local-api/health (up to 60s)"
+    ready=false
+    for i in {1..60}; do
+        if multipass exec "$VM_NAME" -- curl -sf "http://localhost:3000/local-api/health" -o /dev/null 2>&1; then
+            ready=true
+            break
+        fi
+        sleep 1
+    done
+
+    if ! $ready; then
+        err "Stack didn't respond inside VM within 60s"
+        echo "  ── ~/.smartchats/logs/server.log (last 60 lines) ───"
+        multipass exec "$VM_NAME" -- tail -n 60 /home/ubuntu/.smartchats/logs/server.log 2>&1 | sed 's/^/    /' || true
+        echo "  ── ~/.smartchats/logs/surreal.log (last 30 lines) ───"
+        multipass exec "$VM_NAME" -- tail -n 30 /home/ubuntu/.smartchats/logs/surreal.log 2>&1 | sed 's/^/    /' || true
+        exit 1
+    fi
+
+    ok "Stack up inside VM"
+    info "  /local-api/health → $(multipass exec "$VM_NAME" -- curl -sf "http://localhost:3000/local-api/health" 2>&1 | head -c 200)"
+
+    echo
+    header "smartchats start output (from VM)"
+    multipass exec "$VM_NAME" -- tail -n 40 /home/ubuntu/.smartchats/logs/server.log 2>&1 | sed 's/^/    /' || true
+
+    if $KEEP_RUNNING; then
+        VM_IP="$(multipass info "$VM_NAME" --format json 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['info']['$VM_NAME']['ipv4'][0])" 2>/dev/null || echo 'unknown')"
+        echo
+        ok "VM left running: $VM_NAME (IP: $VM_IP)"
+        info "  Shell in:        multipass shell $VM_NAME"
+        info "  From host (HTTP):curl http://${VM_IP}:3000/local-api/health"
+        info "  Tear down:       multipass delete $VM_NAME --purge"
+        trap - EXIT INT TERM
+    fi
+
+    echo
+    ok "Install + Multipass end-to-end test passed."
+    exit 0
+fi
+
+# ─── 2. Prep server root + start HTTP server (Docker only past here) ──
 SERVER_ROOT="$(mktemp -d)"
 trap 'cleanup' EXIT INT TERM
 
