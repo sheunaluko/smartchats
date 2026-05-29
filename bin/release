@@ -1,0 +1,136 @@
+#!/usr/bin/env bash
+# bin/release — prepare a SmartChats release tag.
+#
+# Steps the script handles:
+#   1. Validates the version arg (semver-ish, with optional `v` prefix).
+#   2. Verifies the working tree is clean + the tag doesn't already exist
+#      (locally or on origin).
+#   3. Bumps packages/smartchats-cli/package.json to the new version (so
+#      `smartchats --version` matches the tag in the compiled binary).
+#   4. Commits the bump as `checkpoint: bump smartchats-cli X.Y.Z → A.B.C
+#      for v<TAG>`.
+#   5. Creates an annotated tag.
+#
+# DOES NOT auto-push (per the standing project rule). Prints the exact
+# `git push` commands at the end.
+#
+# Usage:
+#   bin/release v0.3.0           # explicit
+#   bin/release 0.3.0            # `v` prefix added automatically
+#   bin/release v1.0.0-beta.1    # pre-release suffixes are accepted
+#
+# Tagging fires .github/workflows/release.yml on push, which builds the
+# 5-platform tarball matrix and uploads to GitHub Releases.
+
+set -euo pipefail
+source "$(dirname "$0")/_lib.sh"
+
+[[ $# -eq 1 ]] || { err "Usage: bin/release <version>  (e.g. bin/release v0.3.0)"; exit 1; }
+
+# ─── Normalize tag ────────────────────────────────────────────────────
+VERSION_ARG="$1"
+if [[ "$VERSION_ARG" =~ ^[0-9] ]]; then
+    TAG="v$VERSION_ARG"
+else
+    TAG="$VERSION_ARG"
+fi
+NUM_VERSION="${TAG#v}"
+
+if ! [[ "$NUM_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$ ]]; then
+    err "Invalid version: $TAG"
+    err "Expected: v<major>.<minor>.<patch>[-<suffix>]  (e.g. v0.3.0, v1.0.0-beta.1)"
+    exit 1
+fi
+
+cd "$REPO_ROOT"
+
+# ─── Preflight ────────────────────────────────────────────────────────
+header "Preflight"
+
+# Clean tree
+if ! git diff --quiet || ! git diff --cached --quiet; then
+    err "Working tree has uncommitted changes."
+    err "Commit, stash, or discard before releasing."
+    git status --short
+    exit 1
+fi
+ok "Working tree clean"
+
+# Tag must not exist anywhere yet
+if git rev-parse "$TAG" >/dev/null 2>&1; then
+    err "Tag $TAG already exists locally."
+    info "Remove with: git tag -d $TAG"
+    exit 1
+fi
+if git ls-remote --tags origin "$TAG" 2>/dev/null | grep -q "$TAG"; then
+    err "Tag $TAG already exists on origin."
+    info "Choose a different version or delete the remote tag:"
+    info "  git push origin :refs/tags/$TAG  (irreversible)"
+    exit 1
+fi
+ok "Tag $TAG available"
+
+# ─── Version bump ─────────────────────────────────────────────────────
+CLI_PKG="packages/smartchats-cli/package.json"
+[[ -f "$CLI_PKG" ]] || { err "$CLI_PKG not found"; exit 1; }
+
+CURRENT_VERSION=$(grep -E '^\s*"version":' "$CLI_PKG" | head -1 | sed 's/.*"version": *"\([^"]*\)".*/\1/')
+[[ -n "$CURRENT_VERSION" ]] || { err "Could not parse version from $CLI_PKG"; exit 1; }
+
+header "Version bump"
+info "Current smartchats-cli version: $CURRENT_VERSION"
+info "New smartchats-cli version:     $NUM_VERSION"
+
+if [[ "$CURRENT_VERSION" == "$NUM_VERSION" ]]; then
+    warn "Already at $NUM_VERSION — skipping package.json bump and commit."
+    SKIP_BUMP=true
+else
+    # In-place sed differs between BSD/GNU.
+    if [[ "$(uname)" == "Darwin" ]]; then
+        sed -i '' "s/\"version\": *\"$CURRENT_VERSION\"/\"version\": \"$NUM_VERSION\"/" "$CLI_PKG"
+    else
+        sed -i "s/\"version\": *\"$CURRENT_VERSION\"/\"version\": \"$NUM_VERSION\"/" "$CLI_PKG"
+    fi
+
+    # Verify the substitution took.
+    NEW=$(grep -E '^\s*"version":' "$CLI_PKG" | head -1 | sed 's/.*"version": *"\([^"]*\)".*/\1/')
+    if [[ "$NEW" != "$NUM_VERSION" ]]; then
+        err "Failed to bump $CLI_PKG to $NUM_VERSION"
+        err "Check the file manually and retry."
+        exit 1
+    fi
+    ok "Bumped $CLI_PKG to $NUM_VERSION"
+    SKIP_BUMP=false
+fi
+
+# ─── Commit + tag ─────────────────────────────────────────────────────
+header "Commit + tag"
+
+if ! $SKIP_BUMP; then
+    git add "$CLI_PKG"
+    git commit -m "checkpoint: bump smartchats-cli $CURRENT_VERSION → $NUM_VERSION for $TAG"
+    ok "Committed version bump"
+fi
+
+git tag -a "$TAG" -m "Release $TAG"
+ok "Tagged $TAG"
+
+# ─── Push instructions ────────────────────────────────────────────────
+echo
+header "Release prepared (NOT pushed)"
+info "Per project policy, this script does not auto-push. To ship:"
+echo
+echo "    git push origin main && git push origin $TAG"
+echo
+info "That sequence:"
+info "  1. Publishes the version-bump commit (no-op if you skipped it)."
+info "  2. Pushes the tag, which fires .github/workflows/release.yml."
+info "  3. CI matrix builds 5 platform tarballs + casts (~15 min)."
+info "  4. Once the workflow completes, smartchats.ai/install bash works"
+info "     for real on a fresh VM."
+echo
+info "To undo locally before pushing:"
+echo "    git tag -d $TAG"
+if ! $SKIP_BUMP; then
+    echo "    git reset --hard HEAD~1   # drop the version-bump commit"
+fi
