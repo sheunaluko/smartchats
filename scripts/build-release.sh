@@ -18,9 +18,15 @@
 set -euo pipefail
 source "$(dirname "$0")/../bin/_lib.sh"
 
+# Self-bootstrap PATH so bun is findable even when invoked from a non-login
+# shell or CI step that hasn't sourced ~/.zshrc / ~/.bashrc yet.
+if [[ -d "$HOME/.bun/bin" ]]; then
+    export PATH="$HOME/.bun/bin:$PATH"
+fi
+
 # ─── Args ─────────────────────────────────────────────────────────────
 TARGET=""
-SURREAL_VERSION="v3.1.2"
+SURREAL_VERSION="v3.0.5"  # latest tagged release as of 2026-05-29; override with --surreal
 SKIP_BUILD=false
 KEEP_DIST=false
 

@@ -7,6 +7,7 @@
 
 import consola from 'consola';
 import { detectContext, describeContext } from '../lib/context.js';
+import { detectBinaryInstall } from '../lib/install_root.js';
 
 export function homeHelp(): string {
     return `smartchats home — show the resolved smartchats source root + how we found it
@@ -41,13 +42,26 @@ export function parseHomeArgs(rest: string[]): HomeArgs {
 
 export async function runHome(args: HomeArgs): Promise<number> {
     const ctx = detectContext();
+    const install = detectBinaryInstall();
+
     if (args.pathOnly) {
-        if (ctx.root) console.log(ctx.root);
-        return ctx.root ? 0 : 1;
+        // Prefer install root when in binary mode — that's the canonical
+        // "smartchats lives here" answer for binary users.
+        const target = install?.root ?? ctx.root;
+        if (target) console.log(target);
+        return target ? 0 : 1;
+    }
+
+    if (install) {
+        consola.info(`Binary install at ${install.root}`);
+        consola.info(`  server:  ${install.serverBin}`);
+        consola.info(`  surreal: ${install.surrealBin || '(not bundled — using system surreal)'}`);
+        consola.info(`  spa:     ${install.staticDir}`);
     }
     consola.info(describeContext(ctx));
-    if (!ctx.root) {
-        consola.info('Run `smartchats setup` to clone the source and persist its location.');
+
+    if (!install && !ctx.root) {
+        consola.info('Run `smartchats setup` to install or locate the smartchats source.');
         return 1;
     }
     return 0;

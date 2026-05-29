@@ -60,26 +60,26 @@ function looksLikeInstallRoot(candidate: string): BinaryInstall | null {
  * Returns null in source mode (dev / npm install / contributor checkout).
  */
 export function detectBinaryInstall(): BinaryInstall | null {
-    // process.argv[0] when bun-compiled is the path to the binary itself.
-    // When running via `bun src/cli.ts` it's the path to bun.
-    const exe = process.argv[0];
-    if (!exe) return null;
-
-    // Walk up from the executable's directory looking for the layout.
-    let dir = path.dirname(path.resolve(exe));
-    for (let i = 0; i < 6; i++) {
-        const hit = looksLikeInstallRoot(dir);
-        if (hit) return hit;
-        // Try one level up.
-        const parent = path.dirname(dir);
-        if (parent === dir) break;
-        dir = parent;
+    // Use process.execPath (the real on-disk path to the running executable),
+    // not process.argv[0] — in a bun-compiled binary, argv[0] is just "bun"
+    // and argv[1] is a virtual bunfs path, but execPath is the actual binary
+    // location (e.g. /Users/oluwa/.smartchats/bin/smartchats).
+    const exe = process.execPath;
+    if (exe) {
+        let dir = path.dirname(path.resolve(exe));
+        for (let i = 0; i < 6; i++) {
+            const hit = looksLikeInstallRoot(dir);
+            if (hit) return hit;
+            const parent = path.dirname(dir);
+            if (parent === dir) break;
+            dir = parent;
+        }
     }
 
     // Fallback: check the conventional install location explicitly. Catches
     // cases where the CLI is invoked via a symlink (e.g. /usr/local/bin/smartchats
-    // → ~/.smartchats/bin/smartchats) and argv[0] is the symlink, not the
-    // resolved target.
+    // → ~/.smartchats/bin/smartchats) and execPath happens to be elsewhere,
+    // and the source-mode case where execPath is the bun runtime itself.
     const conventional = path.join(process.env.HOME ?? '', '.smartchats');
     return looksLikeInstallRoot(conventional);
 }
