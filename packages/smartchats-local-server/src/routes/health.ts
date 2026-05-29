@@ -5,10 +5,24 @@
  * delegate directly. Each sub-probe runs independently with its own
  * try/catch so one failure doesn't mask the rest.
  *
+ * HTTP status semantics:
+ *   200 — server is running and can accept traffic. The SPA may still
+ *         need configuration (no keys, etc.), but the listener is alive.
+ *         The client inspects per-probe `ok` fields to gate UI.
+ *   503 — server cannot serve. Only the `data` probe gates this — if
+ *         SurrealDB is unreachable, no request can be answered.
+ *
  * Probes:
- *   - data      — DB reachable + every required table responds
- *   - providers — at least one LLM provider key is configured
- *   - tts       — OpenAI key is configured (required for TTS)
+ *   - data      — DB reachable + every required table responds (HARD gate)
+ *   - providers — at least one LLM provider key is configured (soft)
+ *   - tts       — OpenAI key is configured (soft)
+ *
+ * Why providers is soft: `smartchats start` polls this endpoint to detect
+ * boot readiness. A fresh install (no .env yet) has no provider keys but
+ * the server is still alive — the user is about to point their browser at
+ * the SPA and configure keys via the settings UI. Treating "no keys" as
+ * "service unavailable" would cause start to kill the server before the
+ * user ever gets a chance to configure it.
  */
 
 import type { Router, Request, Response } from 'express';
@@ -44,6 +58,9 @@ export function healthRoutes(config: ServerConfig): Router {
         }
 
         // ─── providers (any LLM provider configured counts as ok) ──
+        // Soft check — see file header. The probe is reported so the SPA can
+        // gate UI ("Configure an LLM provider to start chatting"), but a
+        // missing key doesn't fail aggregate readiness.
         {
             const start = Date.now();
             try {
@@ -53,14 +70,12 @@ export function healthRoutes(config: ServerConfig): Router {
                     if (resolved) configured.push(p);
                 }
                 const providersOk = configured.length > 0;
-                if (!providersOk) ok = false;
                 checks.providers = {
                     ok: providersOk,
                     latency_ms: Date.now() - start,
                     ...(providersOk ? {} : { error: 'no LLM provider key configured' }),
                 };
             } catch (err) {
-                ok = false;
                 checks.providers = { ok: false, latency_ms: Date.now() - start, error: (err as Error).message };
             }
         }
