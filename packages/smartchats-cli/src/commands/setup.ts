@@ -269,6 +269,7 @@ export async function runSetup(args: SetupArgs): Promise<number> {
     // 5. Persist .env.
     writeDotenv(dotenv, resolved);
     consola.success(`Wrote ${Object.keys(resolved).length} entries to ${path.relative(process.cwd(), dotenv)}`);
+    consola.info('Add, rotate, or remove provider keys later with: `smartchats env`');
 
     // 6. Hand off to start.
     if (args.noStart) {
