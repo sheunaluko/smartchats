@@ -161,21 +161,33 @@ kill_tree() {
 }
 
 cleanup() {
+  # Ignore further signals — prevents recursive trap firing when we
+  # process-group-kill ourselves at the end. SIGKILL can't be trapped,
+  # so the final kill -9 -- -$$ takes us down cleanly regardless.
+  trap '' SIGINT SIGTERM EXIT
   echo "" >&2
   info "Shutting down dev services (SurrealDB container left running — use --clean to wipe)..."
-  for pid in "${PIDS[@]}"; do
+
+  # Stage 1: graceful SIGTERM to tracked PIDs.
+  for pid in "${PIDS[@]+"${PIDS[@]}"}"; do
     if kill -0 "$pid" 2>/dev/null; then
       kill_tree "$pid" TERM
     fi
   done
-  sleep 2
-  for pid in "${PIDS[@]}"; do
+  sleep 1
+
+  # Stage 2: SIGKILL tracked PIDs that survived.
+  for pid in "${PIDS[@]+"${PIDS[@]}"}"; do
     if kill -0 "$pid" 2>/dev/null; then
       kill_tree "$pid" 9
     fi
   done
-  ok "All services stopped."
-  exit 0
+
+  # Stage 3: belt-and-suspenders — SIGKILL the entire process group.
+  # Catches detached / double-forked / daemonized descendants that
+  # escaped PIDS tracking (e.g. npm exec → node → next-server chains
+  # where some link in the chain reset its own parent). Kills us too.
+  kill -9 -- -$$ 2>/dev/null
 }
 
 trap cleanup SIGINT SIGTERM EXIT
