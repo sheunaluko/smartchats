@@ -29,12 +29,13 @@
 import React, { useEffect } from 'react';
 import type { ShellProps } from '../../core/types/shell';
 import { useInsights } from '@/context/InsightsContext';
-import { Spectrogram } from './components/Spectrogram';
+import { SpectrogramPanel } from './components/SpectrogramPanel';
 import { EventTracePanel } from './components/EventTracePanel';
 import { AudioContextInspector } from './components/AudioContextInspector';
 import { LabPoc } from './components/LabPoc';
 import { ExperimentControls } from './components/ExperimentControls';
 import { ExperimentRunner } from './components/ExperimentRunner';
+import { Collapsible } from './components/Collapsible';
 
 export function SailShell({ voice, actions }: ShellProps) {
     const { client } = useInsights();
@@ -110,15 +111,16 @@ export function SailShell({ voice, actions }: ShellProps) {
                     overflow: 'hidden',
                 }}
             >
-                {/* Left column: spectrogram + ctx inspector + lab POC */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 12, overflow: 'hidden' }}>
-                    <div style={{ flex: 1, minHeight: 0 }}>
-                        <Spectrogram height={300} label="Microphone" />
+                {/* Left column: spectrogram (fills available space) + collapsible
+                    diagnostics + always-on experiment controls. */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12, overflow: 'hidden', minHeight: 0 }}>
+                    <div style={{ flex: 1, minHeight: 200 }}>
+                        <SpectrogramPanel label="Microphone" />
                     </div>
-                    <AudioContextInspector />
                     <ExperimentControls />
                     <ExperimentRunner />
-                    <LabPoc />
+                    <Collapsible title="audio context inspector"><AudioContextInspector /></Collapsible>
+                    <Collapsible title="lab poc"><LabPoc /></Collapsible>
                 </div>
 
                 {/* Right column: event trace */}
