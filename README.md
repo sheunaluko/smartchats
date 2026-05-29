@@ -1,5 +1,11 @@
 # SmartChats
 
+<p align="center">
+  <img src="data/SMARTCHATS/app_screen_cumulative_chart.png" width="49%" alt="SmartChats cumulative chart demo" />
+  &nbsp;
+  <img src="data/SMARTCHATS/landing_page.png"               width="49%" alt="SmartChats landing page" />
+</p>
+
 **The future of agentic voice experiences. Now.**
 
 Get started in 2 minutes — install with `curl | sh`.
