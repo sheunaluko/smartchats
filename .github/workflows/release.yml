@@ -35,6 +35,16 @@ jobs:
           - target: darwin-x64
             runner: macos-13            # Intel
             native: true
+            # macos-13 runners are severely capacity-constrained on
+            # GitHub-hosted infrastructure (queue times routinely > 1 h).
+            # Intel Macs were also discontinued by Apple in 2023, so the
+            # affected user base is tiny and shrinking. Mark this target
+            # non-blocking so `needs: build` downstream (npm publish +
+            # mark-latest) can fire when the other 4 platforms succeed
+            # even if darwin-x64 fails or never gets a runner. ARM Mac
+            # users (vast majority) and everyone else are unaffected. If
+            # darwin-x64 succeeds, the tarball ships normally.
+            continue_on_error: true
           - target: linux-x64
             runner: ubuntu-22.04
             native: true
@@ -48,6 +58,9 @@ jobs:
             # windows-latest as Git Bash by default.
             shell: bash
     runs-on: ${{ matrix.runner }}
+    # When matrix.continue_on_error is true, a failed job is treated as
+    # success for the purpose of `needs:` chains downstream.
+    continue-on-error: ${{ matrix.continue_on_error || false }}
     defaults:
       run:
         shell: ${{ matrix.shell || 'bash' }}
