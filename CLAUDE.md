@@ -4,6 +4,10 @@ Public, MIT-licensed open-source voice AI agent. End users clone this repo and r
 
 **This is the only doc guaranteed to land in every agent's context.** Per-subtree CLAUDE.md files auto-load inside their directories.
 
+## Prerequisites
+
+Node 24+ (current Active LTS through April 2028 — bumped from `>=20` on 2026-05-29). Enforced via `engines.node` in every package; CI installs Node 24 in `.github/workflows/release.yml`. Verify locally with `node --version`.
+
 ## First port of call
 
 | You're trying to… | Start here |

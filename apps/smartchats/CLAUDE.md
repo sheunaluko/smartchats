@@ -18,9 +18,10 @@
 - Full architecture: `smartchats_architecture_guide.md`
 
 ## Commands
-- Dev server: `npm run dev` (port 3000)
+- Dev server: `npm run dev` (port 3000) — requires Node 24+
 - Type check: `npm run type-check`
-- Build: `npm run build` (prebuild copies ONNX wasm files)
+- Build: `npm run build` (prebuild via `scripts/prebuild.mjs` — cross-platform Node, replaces the old Bash-flavored npm scripts so Windows CI works. Subcommands: `site`, `assets`, `cleanup-onnx`, `all`)
+- E2E: `bin/test-e2e` from repo root — boots bin/test-bun-deploy, auto-bootstraps `.auth/test-profile/` via `setup-test-profile.spec.ts` if missing, runs the simi suite in parallel against the bun stack, tears down cleanly
 
 ## Key Patterns
 
