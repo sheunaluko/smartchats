@@ -16,7 +16,7 @@
     "ramda": "^0.29.1"
   },
   "devDependencies": {
-    "@types/node": "^20.0.0",
+    "@types/node": "^24.0.0",
     "typescript": "^5.4.5",
     "@types/ramda": "^0.29.12"
   },

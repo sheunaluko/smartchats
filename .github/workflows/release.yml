@@ -12,6 +12,16 @@ on:
 permissions:
   contents: write   # for uploading release assets
 
+# Opt into Node.js 24 for the runtime that *executes* JS actions
+# (actions/checkout, actions/setup-node, etc). Node 20 is being
+# deprecated; GitHub forces this default on 2026-06-16 and removes
+# Node 20 entirely on 2026-09-16. See:
+#   https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+# This is independent of the `node-version` we pass to setup-node below
+# (that controls what Node our *workspace* scripts run on).
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   build:
     name: build (${{ matrix.target }})
@@ -54,7 +64,7 @@ jobs:
       - name: Install Node (for npm install in workspaces + build scripts)
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '24'
 
       - name: Install workspace deps
         run: npm install --no-fund --no-audit
@@ -158,7 +168,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '24'
           registry-url: 'https://registry.npmjs.org'
 
       - name: Install workspace deps (so CLI's workspace imports resolve)

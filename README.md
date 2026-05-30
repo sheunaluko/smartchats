@@ -28,7 +28,7 @@ smartchats setup
 
 That's it. The wizard walks you through your API keys, builds what it needs, and opens [http://localhost:3000](http://localhost:3000). No Docker, no Node, no prereqs — the installer bundles the runtime.
 
-**Other install paths:** `npm install -g smartchats-ai` (if you already have Node 22+), `npx smartchats-ai` (no install), `git clone + npm link` (contributors). Full options at [docs/install](https://smartchats.ai/docs/install).
+**Other install paths:** `npm install -g smartchats-ai` (if you already have Node 24+), `npx smartchats-ai` (no install), `git clone + npm link` (contributors). Full options at [docs/install](https://smartchats.ai/docs/install).
 
 ## What you get
 

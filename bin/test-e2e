@@ -1,0 +1,200 @@
+#!/usr/bin/env bash
+# bin/test-e2e — chain bin/test-bun-deploy + the simi e2e suite.
+#
+# What this does, in order:
+#   1. Pre-flight: refuse to start if :3000 is already taken (avoids the
+#      zombie-process collision that bit us before).
+#   2. Boot bin/test-bun-deploy in the background, redirecting all output
+#      to data/logs/test-e2e-deploy.log.
+#   3. Poll http://127.0.0.1:3000/local-api/health until the stack is up
+#      (or fail after 120s and surface the tail of the deploy log).
+#   4. If apps/smartchats/.auth/test-profile/Default is missing, run
+#      `npx playwright test setup-test-profile.spec.ts` headlessly to
+#      materialize the template chrome profile that the worker fixtures
+#      clone from. Idempotent — subsequent runs skip this step.
+#   5. Run `npx smartchats-test e2e [forwarded args]` against the local
+#      stack. Playwright workers handle the parallelism per simi.spec.ts's
+#      "simi parallel" describe (mode: 'parallel').
+#   6. Capture the e2e exit code, SIGTERM the deploy process (its trap
+#      tears down surreal + bun cleanly), and exit with the e2e code.
+#
+# Usage:
+#   bin/test-e2e                            # full simi suite, default workers
+#   bin/test-e2e --pick                     # interactive workflow picker
+#   bin/test-e2e --workers 8                # bump parallel workers (PW_WORKERS)
+#   bin/test-e2e --headed                   # forces workers=1, visible browser
+#   bin/test-e2e --rebuild                  # force test-bun-deploy rebuild
+#   bin/test-e2e --keep-data                # preserve test-bun-deploy data dir
+#   bin/test-e2e --rebuild-profile          # force re-bootstrap the test profile
+#   bin/test-e2e -- --grep agent_input      # arbitrary playwright passthrough
+#
+# Flag → destination:
+#   --pick, --headed, --workers N, -- ...   → smartchats-test e2e
+#   --rebuild, --keep-data                  → bin/test-bun-deploy
+#   --rebuild-profile                       → wipe + re-create the test profile
+#
+# Env:
+#   E2E_DEPLOY_TIMEOUT=120                  health-poll timeout in seconds
+#   E2E_LOG_DIR=data/logs                   where the deploy log lands
+
+set -uo pipefail
+source "$(dirname "$0")/_lib.sh"
+
+# ── Args ──────────────────────────────────────────────────────────────
+DEPLOY_ARGS=()
+E2E_ARGS=()
+PW_WORKERS_VAL=""
+HEADED=false
+REBUILD_PROFILE=false
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --rebuild)          DEPLOY_ARGS+=("$1"); shift ;;
+        --keep-data)        DEPLOY_ARGS+=("$1"); shift ;;
+        --rebuild-profile)  REBUILD_PROFILE=true; shift ;;
+        --pick)             E2E_ARGS+=("$1"); shift ;;
+        --headed)           HEADED=true; shift ;;
+        --workers)          PW_WORKERS_VAL="$2"; shift 2 ;;
+        --)                 shift; E2E_ARGS+=("--" "$@"); break ;;
+        --help|-h)
+            sed -n '2,/^$/p' "$0" | sed 's/^# \?//'
+            exit 0
+            ;;
+        *)  err "Unknown option: $1 (use -- to forward to playwright)"; exit 1 ;;
+    esac
+done
+
+# ── Pre-flight: port :3000 must be free ───────────────────────────────
+header "Pre-flight"
+if lsof -nP -iTCP:3000 -sTCP:LISTEN >/dev/null 2>&1; then
+    err "Port 3000 is already in use."
+    err "Something else is bound — likely a stale dev server or a previous bin/test-bun-deploy."
+    err "Investigate with:  lsof -nP -iTCP:3000 -sTCP:LISTEN"
+    err "Then kill the offender and retry."
+    exit 1
+fi
+ok "Port 3000 free"
+
+# ── Boot test-bun-deploy in the background ────────────────────────────
+LOG_DIR="${E2E_LOG_DIR:-$REPO_ROOT/data/logs}"
+mkdir -p "$LOG_DIR"
+DEPLOY_LOG="$LOG_DIR/test-e2e-deploy.log"
+: > "$DEPLOY_LOG"
+
+header "Booting bin/test-bun-deploy in background"
+info "Log: $DEPLOY_LOG"
+
+# Run test-bun-deploy detached enough that we can signal it, but still
+# under our process so EXIT trap reaches it. Its own trap propagates
+# cleanup to surreal + bun children.
+"$REPO_ROOT/bin/test-bun-deploy" "${DEPLOY_ARGS[@]+"${DEPLOY_ARGS[@]}"}" \
+    >"$DEPLOY_LOG" 2>&1 &
+DEPLOY_PID=$!
+info "Deploy PID: $DEPLOY_PID"
+
+# Cleanup is registered ONCE, fires on any exit path (success, fail, Ctrl-C).
+DEPLOY_KILLED=false
+cleanup_deploy() {
+    $DEPLOY_KILLED && return
+    DEPLOY_KILLED=true
+    if kill -0 "$DEPLOY_PID" 2>/dev/null; then
+        info "Stopping bin/test-bun-deploy (PID $DEPLOY_PID)..."
+        kill -TERM "$DEPLOY_PID" 2>/dev/null || true
+        # Give its own trap a moment to tear down surreal+bun.
+        for _ in {1..10}; do
+            kill -0 "$DEPLOY_PID" 2>/dev/null || break
+            sleep 0.5
+        done
+        if kill -0 "$DEPLOY_PID" 2>/dev/null; then
+            warn "Deploy didn't exit on SIGTERM — sending SIGKILL"
+            kill -KILL "$DEPLOY_PID" 2>/dev/null || true
+        fi
+    fi
+}
+trap cleanup_deploy INT TERM EXIT
+
+# ── Poll for readiness ────────────────────────────────────────────────
+TIMEOUT="${E2E_DEPLOY_TIMEOUT:-120}"
+header "Waiting for stack (timeout ${TIMEOUT}s)"
+START_TIME=$SECONDS
+READY=false
+while (( SECONDS - START_TIME < TIMEOUT )); do
+    if ! kill -0 "$DEPLOY_PID" 2>/dev/null; then
+        err "bin/test-bun-deploy exited before becoming healthy."
+        echo
+        info "Last 40 lines of $DEPLOY_LOG:"
+        tail -n 40 "$DEPLOY_LOG"
+        exit 1
+    fi
+    if curl -sf "http://127.0.0.1:3000/local-api/health" >/dev/null 2>&1; then
+        READY=true
+        break
+    fi
+    sleep 1
+done
+
+if ! $READY; then
+    err "Stack didn't come up within ${TIMEOUT}s."
+    echo
+    info "Last 40 lines of $DEPLOY_LOG:"
+    tail -n 40 "$DEPLOY_LOG"
+    exit 1
+fi
+ok "Stack ready at http://127.0.0.1:3000"
+
+# ── Bootstrap test profile (first run, or --rebuild-profile) ──────────
+# fixtures.ts clones from .auth/test-profile/ into per-worker dirs. If
+# the template is missing, simi tests fail at the first fixture. We run
+# setup-test-profile.spec.ts here so first-time setup is invisible.
+APP_DIR="$REPO_ROOT/apps/smartchats"
+PROFILE_DIR="$APP_DIR/.auth/test-profile"
+
+if $REBUILD_PROFILE; then
+    info "Wiping existing test profile (--rebuild-profile)"
+    rm -rf "$PROFILE_DIR"
+fi
+
+if [[ ! -d "$PROFILE_DIR/Default" ]]; then
+    header "Bootstrapping test profile (first run)"
+    info "This runs once; subsequent invocations skip it."
+    cd "$APP_DIR"
+    set +e
+    npx playwright test setup-test-profile.spec.ts
+    SETUP_CODE=$?
+    set -e
+    cd "$REPO_ROOT"
+    if [[ $SETUP_CODE -ne 0 ]]; then
+        err "Test profile bootstrap failed (exit $SETUP_CODE)."
+        err "Cannot proceed — the simi suite needs the profile template."
+        exit 1
+    fi
+    ok "Test profile bootstrapped at $PROFILE_DIR"
+else
+    info "Test profile already present (use --rebuild-profile to recreate)"
+fi
+
+# ── Run the simi e2e suite ────────────────────────────────────────────
+header "Running simi e2e suite"
+if [[ -n "$PW_WORKERS_VAL" ]]; then
+    info "PW_WORKERS=$PW_WORKERS_VAL"
+    export PW_WORKERS="$PW_WORKERS_VAL"
+fi
+if $HEADED; then
+    info "HEADED=1 (forces workers=1)"
+    export HEADED=1
+fi
+
+set +e
+npx smartchats-test e2e "${E2E_ARGS[@]+"${E2E_ARGS[@]}"}"
+E2E_CODE=$?
+set -e
+
+echo
+if [[ $E2E_CODE -eq 0 ]]; then
+    ok "Simi suite: PASS"
+else
+    err "Simi suite: FAIL (exit $E2E_CODE)"
+fi
+
+# cleanup_deploy fires from the trap; exit with the e2e code.
+exit $E2E_CODE

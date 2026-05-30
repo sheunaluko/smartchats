@@ -175,7 +175,7 @@ All called via `firebase/functions` `httpsCallable`. Defined in `src/firebase_ut
 The `llmCall` Cloud Function routes to providers via `ts_node/apis/llm_service`:
 - **OpenAI**: `gpt-5-mini`, `gpt-5.2`, `gpt-4o-mini-*`
 - **Anthropic**: `claude-sonnet-4-5-*`
-- **Google Gemini**: `gemini-3-flash-preview`, `gemini-3-pro-preview`
+- **Google Gemini**: `gemini-3-flash-preview`, `gemini-3.1-pro-preview`, `gemini-3.5-flash`
 
 ## Billing System
 

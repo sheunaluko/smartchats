@@ -8,7 +8,7 @@ If you're reading this for the first time, the ten minutes you spend on the [Qui
 
 ## Quick Start
 
-You'll need: Node 22+, Docker, and ~2GB free disk for the all-in-one (AIO) container.
+You'll need: Node 24+, Docker, and ~2GB free disk for the all-in-one (AIO) container.
 
 ```bash
 git clone https://github.com/sheunaluko/smartchats.git

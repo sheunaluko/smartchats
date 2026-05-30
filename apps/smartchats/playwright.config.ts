@@ -21,7 +21,12 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
   workers: resolveWorkers(),
-  reporter: 'html',
+  // `open: 'never'` prevents Playwright's HTML reporter from auto-launching
+  // a browser + report server when tests finish in a TTY context. The
+  // auto-open hangs orchestrated runs like bin/test-e2e (the parent script
+  // can't exit until the user closes the browser). View the report
+  // explicitly via `npx playwright show-report` when wanted.
+  reporter: [['html', { open: 'never' }]],
   use: {
     baseURL: 'http://localhost:3000',
     trace: 'on-first-retry',

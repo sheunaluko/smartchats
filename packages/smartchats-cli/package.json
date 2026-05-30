@@ -30,7 +30,7 @@
   "homepage": "https://github.com/sheunaluko/smartchats#readme",
   "bugs": "https://github.com/sheunaluko/smartchats/issues",
   "engines": {
-    "node": ">=20"
+    "node": ">=24"
   },
   "scripts": {
     "build": "tsc",
@@ -48,7 +48,7 @@
     "surrealdb": "^2.0.3"
   },
   "devDependencies": {
-    "@types/node": "^20.0.0",
+    "@types/node": "^24.0.0",
     "smartchats-backend": "*",
     "smartchats-cloud-client": "*",
     "smartchats-database": "*",

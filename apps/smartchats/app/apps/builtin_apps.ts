@@ -122,6 +122,19 @@ export async function seedBuiltinApps(getEmbedding: (text: string) => Promise<nu
                 seeded.push(manifest.id)
             }
         } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err)
+            // Concurrent-writer race: another tab / Playwright worker beat us
+            // to the insert. The seeder is single-writer-safe by design (line
+            // 74); this catch makes it concurrent-safe at the cost of one
+            // wasted embedding call per race. Architecturally, seeding belongs
+            // server-side at boot — tracked as a project followup.
+            // TODO: replace error-string matching with a typed BackendError
+            // code once smartchats-database surfaces one.
+            if (msg.includes('Database index') && msg.includes('already contains')) {
+                console.log(`${LOG_PREFIX} ${manifest.id} — already seeded (concurrent writer); skipping`)
+                skipped.push(manifest.id)
+                continue
+            }
             console.error(`${LOG_PREFIX} ${manifest.id} — FAILED:`, err)
         }
     }

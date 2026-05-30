@@ -127,16 +127,19 @@ export const MODEL_REGISTRY: Record<string, ModelInfo> = {
   // ============================================
   // GOOGLE GEMINI MODELS
   // ============================================
-  "gemini-3-pro-preview": {
-    id: "gemini-3-pro-preview",
-    provider: "gemini",
-    inputPricePer1M: 2,         // $4/MTok for >200k tokens
-    outputPricePer1M: 12,       // $18/MTok for >200k tokens
-    contextWindow: 1000000,
-    maxOutputTokens: 64000,
-    description: "Best for complex tasks requiring broad world knowledge and advanced reasoning",
-    tiktokenEncoding: "cl100k_base",
-  },
+  // Retired by Google (2026-05): `models/gemini-3-pro-preview` returns 404
+  // "no longer available". Successor on the same pricing tier is
+  // gemini-3.1-pro-preview (defined below). Kept commented for grep-history.
+  // "gemini-3-pro-preview": {
+  //   id: "gemini-3-pro-preview",
+  //   provider: "gemini",
+  //   inputPricePer1M: 2,         // $4/MTok for >200k tokens
+  //   outputPricePer1M: 12,       // $18/MTok for >200k tokens
+  //   contextWindow: 1000000,
+  //   maxOutputTokens: 64000,
+  //   description: "Best for complex tasks requiring broad world knowledge and advanced reasoning",
+  //   tiktokenEncoding: "cl100k_base",
+  // },
   "gemini-3-flash-preview": {
     id: "gemini-3-flash-preview",
     provider: "gemini",

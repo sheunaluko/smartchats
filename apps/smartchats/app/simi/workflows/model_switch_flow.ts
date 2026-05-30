@@ -19,8 +19,8 @@ export const modelSwitchFlow = defineWorkflow({
     { assert: 'state.chatHistory.some(m => m.role === "assistant")', message: 'GPT should have an assistant message' },
     { assert: 'state.lastAiMessage.toLowerCase().includes("gpt")', message: 'GPT response should contain "gpt"' },
 
-    // ── Round 2: Google (gemini-3-pro-preview) ──
-    { action: 'updateSettings', args: [{ aiModel: 'gemini-3-pro-preview' }], wait: 500 },
+    // ── Round 2: Google (gemini-3.1-pro-preview) ──
+    { action: 'updateSettings', args: [{ aiModel: 'gemini-3.1-pro-preview' }], wait: 500 },
     { action: 'saveSettings', args: [], timeout: 10000, wait: 500 },
     { waitFor: 'state.agent !== null && !state.llmRunning && state.settingsLoaded', timeout: 15000 },
     { action: 'sendMessageAsync', args: ['Reply with exactly: gemini ok'], timeout: 60000, wait: 500 },

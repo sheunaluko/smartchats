@@ -41,7 +41,7 @@ test('gemini basic chat', async () => {
 
     // Switch to Gemini
     await page.evaluate(() => {
-      (window as any).__smartchats__.dispatch('updateSettings', { aiModel: 'gemini-3-pro-preview' });
+      (window as any).__smartchats__.dispatch('updateSettings', { aiModel: 'gemini-3.1-pro-preview' });
     });
     await page.waitForTimeout(1000);
 

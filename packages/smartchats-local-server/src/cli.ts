@@ -8,6 +8,23 @@ import { createApp } from './app.js';
 import { connectSurreal, initSchema } from './surreal.js';
 import { log } from './logger.js';
 
+// Keep the process alive on provider-level failures we can't reach from the
+// route handlers. Background pumps inside @google/genai (and similar SDKs)
+// can throw on fire-and-forget code paths that don't propagate to our
+// `for await` try/catch in routes/llm.ts; those manifest as
+// uncaughtException / unhandledRejection at the process level. Default
+// Node behavior would terminate; we log and continue so a single bad
+// upstream response can't take the whole local-server down. The route
+// handlers still surface the error to the client via the NDJSON `error`
+// frame — this only catches the leak.
+process.on('uncaughtException', (err) => {
+    log.error(`uncaughtException (process survived): ${err?.stack || err}`);
+});
+process.on('unhandledRejection', (reason) => {
+    const msg = reason instanceof Error ? (reason.stack || reason.message) : String(reason);
+    log.error(`unhandledRejection (process survived): ${msg}`);
+});
+
 async function main() {
     const config = loadConfig();
 

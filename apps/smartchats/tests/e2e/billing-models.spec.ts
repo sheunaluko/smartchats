@@ -15,7 +15,7 @@ const RESULTS_DIR = path.join(__dirname, '../../test-results');
 
 const MODELS = [
   { name: 'gpt-5.2', provider: 'openai', inputPricePer1M: 1.75, outputPricePer1M: 14 },
-  { name: 'gemini-3-pro-preview', provider: 'gemini', inputPricePer1M: 2, outputPricePer1M: 12 },
+  { name: 'gemini-3.1-pro-preview', provider: 'gemini', inputPricePer1M: 2, outputPricePer1M: 12 },
   { name: 'claude-opus-4-5', provider: 'anthropic', inputPricePer1M: 5, outputPricePer1M: 25 },
 ];
 
