@@ -6,6 +6,7 @@ import {
     deleteTodoById,
     rescheduleTodo,
     editTodo,
+    insertTodo,
 } from '../../src/queries/index.js';
 
 describe('getTodos', () => {
@@ -84,5 +85,34 @@ describe('editTodo', () => {
         const spec = editTodo({ recordId: 'user_data:x', updates: { due_date: '2026-07-01T09:00:00Z' } })!;
         expect(spec.query).toContain('timestamp = <datetime> $due_date_top');
         expect(spec.variables.due_date_top).toBe('2026-07-01T09:00:00Z');
+    });
+});
+
+describe('insertTodo', () => {
+    const args = {
+        title: 'water plants',
+        description: null,
+        priority: 'normal',
+        category: 'home',
+        due_date: null,
+        recurrence: null,
+        metric_link: null,
+        source_text: 'remind me to water plants',
+        timestamp: '2026-07-01T09:00:00Z',
+        lts: '2026-07-01T09:00:00Z',
+        local_tz: 'UTC',
+        tags: [],
+    };
+
+    it('tags the row as an active todo under user_data', () => {
+        const spec = insertTodo(args);
+        expect(spec.query).toContain("type: 'todo'");
+        expect(spec.query).toContain("status: 'active'");
+    });
+
+    it('casts both timestamp and lts to datetime (dual-timestamp invariant)', () => {
+        const spec = insertTodo(args);
+        expect(spec.query).toContain('timestamp: <datetime> $timestamp');
+        expect(spec.query).toContain('lts: <datetime> $lts');
     });
 });

@@ -4,6 +4,7 @@ import {
     searchLogsSemantic,
     updateLog,
     getLogCategories,
+    insertLog,
 } from '../../src/queries/index.js';
 
 describe('listLogs', () => {
@@ -82,5 +83,18 @@ describe('getLogCategories', () => {
         expect(getLogCategories().query).toBe(
             'SELECT category, count() AS count FROM logs GROUP BY category ORDER BY count DESC',
         );
+    });
+});
+
+describe('insertLog', () => {
+    it('binds the embedding as a parameter so the vector never inlines into the query', () => {
+        const spec = insertLog({ content: 'felt good today', category: 'mood', embedding: [0.1, 0.2], lts: '2026-05-30T12:00:00Z', local_tz: 'UTC' });
+        expect(spec.query).toContain('embedding: $embedding');
+        expect(spec.variables.embedding).toEqual([0.1, 0.2]);
+    });
+
+    it('casts lts to datetime', () => {
+        const spec = insertLog({ content: 'x', category: 'c', embedding: [0.1], lts: '2026-05-30T12:00:00Z', local_tz: 'UTC' });
+        expect(spec.query).toContain('lts: <datetime> $lts');
     });
 });

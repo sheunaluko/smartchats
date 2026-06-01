@@ -6,6 +6,8 @@ import {
     searchProceduralInstructions,
     getInitInstructions,
     updateInitInstruction,
+    insertProceduralInstruction,
+    insertInitInstruction,
 } from '../../src/queries/index.js';
 
 // Both instruction kinds live in the `cortex` table, separated by a type
@@ -68,5 +70,17 @@ describe('searchProceduralInstructions', () => {
 describe('deleteProceduralInstruction', () => {
     it('strips the record-id prefix before deleting', () => {
         expect(deleteProceduralInstruction('cortex:abc').variables.key).toBe('abc');
+    });
+});
+
+describe('insert builders', () => {
+    it('tags a procedural instruction with its cortex type', () => {
+        const spec = insertProceduralInstruction({ content: 'always greet warmly', category: null, embedding: [0.1] });
+        expect(spec.query).toContain("type: 'procedural_instruction'");
+    });
+
+    it('tags an init instruction with its cortex type', () => {
+        const spec = insertInitInstruction({ content: 'load the weather', category: null, embedding: [0.1] });
+        expect(spec.query).toContain("type: 'init'");
     });
 });
