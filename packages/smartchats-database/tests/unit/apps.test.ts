@@ -7,6 +7,8 @@ import {
     incrementAppInstallCount,
     updateInstall,
     getInstallByAppId,
+    insertApp,
+    insertInstall,
 } from '../../src/queries/index.js';
 
 describe('getAppByAppId', () => {
@@ -85,5 +87,66 @@ describe('install records', () => {
         expect(getInstallByAppId('a').query).toBe(
             'SELECT * FROM smartchats_app_installs WHERE app_id = $app_id LIMIT 1',
         );
+    });
+});
+
+describe('insertApp', () => {
+    const args = {
+        app_id: 'com.example.app',
+        name: 'Example',
+        version: '1.0.0',
+        description: 'an example app',
+        author: null,
+        icon: null,
+        source: 'official',
+        categories: [],
+        tags: [],
+        embedding: [0.1],
+        modules: null,
+        interaction_mode: 'voice',
+        html_templates: null,
+        display_mode: 'inline',
+        state_schema: null,
+        permissions: null,
+        requested_functions: [],
+        voice_hooks: null,
+        on_activate: null,
+        on_deactivate: null,
+        external_scripts: null,
+        migrations: null,
+        min_tier: 'free',
+        version_history: [],
+        forked_from: null,
+        _content_hash: null,
+        published_at: null,
+    };
+
+    it('initializes the install/rating/flag counters to their defaults', () => {
+        const spec = insertApp(args);
+        expect(spec.query).toContain('install_count: 0');
+        expect(spec.query).toContain('featured: false');
+        expect(spec.query).toContain('verified: false');
+    });
+
+    it('server-stamps created_at and updated_at on insert', () => {
+        const spec = insertApp(args);
+        expect(spec.query).toContain('created_at: time::now()');
+        expect(spec.query).toContain('updated_at: time::now()');
+    });
+});
+
+describe('insertInstall', () => {
+    it('server-stamps installed_at and updated_at on insert', () => {
+        const spec = insertInstall({
+            app_id: 'com.example.app',
+            installed_version: '1.0.0',
+            granted_permissions: null,
+            app_state: null,
+            config: null,
+            last_activated_at: null,
+            activation_count: 0,
+        });
+        expect(spec.query).toContain('installed_at: time::now()');
+        expect(spec.query).toContain('updated_at: time::now()');
     });
 });

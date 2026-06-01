@@ -5,6 +5,7 @@ import {
     getMetricsSummary,
     buildMetricsLtsFilter,
     buildMetricsQuery,
+    insertMetric,
 } from '../../src/queries/index.js';
 import type { MetricsLtsFilterCtx } from '../../src/queries/index.js';
 
@@ -133,5 +134,42 @@ describe('buildMetricsQuery', () => {
             ctx,
         );
         expect(spec.query).toContain('GROUP BY bucket, metric_name, unit');
+    });
+
+    it('weekly aggregation buckets by year + week (SurrealDB time::group has no week unit)', () => {
+        const spec = buildMetricsQuery({ metric_name: 'steps', aggregation: 'weekly_avg', date: '2026-03-23' }, 'UTC', ctx);
+        expect(spec.query).toContain('time::year(lts) AS yr');
+        expect(spec.query).toContain('time::week(lts) AS wk');
+        expect(spec.query).toContain('math::mean(value)');
+        expect(spec.query).toContain('GROUP BY yr, wk, unit');
+    });
+});
+
+describe('insertMetric', () => {
+    const args = {
+        metric_name: 'steps',
+        value: 100,
+        unit: 'count',
+        metric_type: 'numeric',
+        timestamp: '2026-03-23T10:00:00Z',
+        lts: '2026-03-23T10:00:00Z',
+        local_tz: 'UTC',
+        source: 'manual',
+        source_text: 'walked 100 steps',
+        source_log_id: null,
+        category: 'fitness',
+        time_shift_quantity: null,
+        time_shift_unit: null,
+        note: null,
+    };
+
+    it('casts both timestamp and lts to datetime so the dual-timestamp invariant holds', () => {
+        const spec = insertMetric(args);
+        expect(spec.query).toContain('timestamp: <datetime> $timestamp');
+        expect(spec.query).toContain('lts: <datetime> $lts');
+    });
+
+    it('server-stamps created_at on insert', () => {
+        expect(insertMetric(args).query).toContain('created_at: time::now()');
     });
 });

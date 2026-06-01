@@ -4,6 +4,7 @@ import {
     listDynamicFunctions,
     updateDynamicFunction,
     deleteDynamicFunction,
+    insertDynamicFunction,
 } from '../../src/queries/index.js';
 
 describe('loadDynamicFunction', () => {
@@ -43,5 +44,14 @@ describe('deleteDynamicFunction', () => {
         const spec = deleteDynamicFunction('myFn');
         expect(spec.query).toContain('DELETE FROM cortex_dynamic_functions');
         expect(spec.variables).toEqual({ name: 'myFn' });
+    });
+});
+
+describe('insertDynamicFunction', () => {
+    it('tags the row type and server-stamps both timestamps', () => {
+        const spec = insertDynamicFunction({ name: 'myFn', description: 'd', code: 'return 1', params_schema: {}, embedding: [0.1] });
+        expect(spec.query).toContain("type: 'dynamic_function'");
+        expect(spec.query).toContain('created_at: time::now()');
+        expect(spec.query).toContain('updated_at: time::now()');
     });
 });
