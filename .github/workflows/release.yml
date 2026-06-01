@@ -193,8 +193,20 @@ jobs:
           fi
           echo "Publishing smartchats-ai@$PKG_VERSION"
 
+      - name: Build workspace packages (so tsup can resolve CLI imports)
+        # The CLI's source imports from workspace packages (smartchats-database,
+        # smartchats-cloud-client, etc). Each package's package.json points
+        # `main` at `./dist/index.js`, which only exists after `tsc` runs.
+        # `npm install` creates the workspace symlinks but does NOT build
+        # anything. Without this step, the prepack tsup bundle fails with
+        # "Could not resolve 'smartchats-database'" when it tries to follow
+        # those imports through node_modules.
+        run: npm run build
+
       - name: Build + publish (Trusted Publishing OIDC)
-        # prepack runs `npm run build:bundle` (tsup) automatically.
+        # prepack runs `npm run build:bundle` (tsup) automatically. tsup
+        # bundles the CLI's TS source, following imports into the workspace
+        # packages' dist/ directories built in the previous step.
         # No token — npm uses the GHA OIDC token via id-token write.
         run: npm publish --access public --provenance
         working-directory: packages/smartchats-cli
