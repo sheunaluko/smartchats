@@ -32,19 +32,6 @@ jobs:
           - target: darwin-arm64
             runner: macos-14            # M-series
             native: true
-          - target: darwin-x64
-            runner: macos-13            # Intel
-            native: true
-            # macos-13 runners are severely capacity-constrained on
-            # GitHub-hosted infrastructure (queue times routinely > 1 h).
-            # Intel Macs were also discontinued by Apple in 2023, so the
-            # affected user base is tiny and shrinking. Mark this target
-            # non-blocking so `needs: build` downstream (npm publish +
-            # mark-latest) can fire when the other 4 platforms succeed
-            # even if darwin-x64 fails or never gets a runner. ARM Mac
-            # users (vast majority) and everyone else are unaffected. If
-            # darwin-x64 succeeds, the tarball ships normally.
-            continue_on_error: true
           - target: linux-x64
             runner: ubuntu-22.04
             native: true
@@ -57,10 +44,19 @@ jobs:
             # bash shell required for build-release.sh; available on
             # windows-latest as Git Bash by default.
             shell: bash
+        # darwin-x64 (Intel Mac) is intentionally NOT in the matrix.
+        # GitHub-hosted macos-13 runners are severely capacity-constrained;
+        # release builds routinely hit the 24h queue cancellation limit,
+        # which propagates up `needs: build` and blocks npm publish + mark-
+        # latest. Apple discontinued Intel Mac sales in 2023 — the user
+        # base is small and shrinking. Intel Mac users have a fully-
+        # supported path via `npm install -g smartchats-ai` (scripts/
+        # install.sh detects darwin-x64 and points users there).
+        # If you ever need a darwin-x64 tarball: run
+        #   scripts/build-release.sh --target darwin-x64
+        # locally (bun supports cross-compilation from any host) and
+        # attach it to the release manually with `gh release upload`.
     runs-on: ${{ matrix.runner }}
-    # When matrix.continue_on_error is true, a failed job is treated as
-    # success for the purpose of `needs:` chains downstream.
-    continue-on-error: ${{ matrix.continue_on_error || false }}
     defaults:
       run:
         shell: ${{ matrix.shell || 'bash' }}

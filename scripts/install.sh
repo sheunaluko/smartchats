@@ -103,6 +103,26 @@ esac
 PLATFORM="${OS}-${ARCH}"
 info "Platform: ${PLATFORM}"
 
+# Intel Mac fallback. GitHub-hosted macos-13 (Intel) runners are severely
+# capacity-constrained — release builds for darwin-x64 routinely hit the
+# 24h queue limit on GHA and get cancelled. Rather than ship a flaky
+# binary path for an Apple-discontinued platform (Intel Mac sales ended
+# 2023), we don't build a darwin-x64 tarball. Intel Mac users have a
+# fully-supported alternative via npm.
+if [ "${PLATFORM}" = "darwin-x64" ]; then
+    err "No darwin-x64 binary release available."
+    err ""
+    err "Intel Macs aren't built into the release tarballs (CI capacity"
+    err "constraints; see https://github.com/sheunaluko/smartchats for context)."
+    err ""
+    err "Install via npm instead — fully supported, same CLI:"
+    err ""
+    err "    npm install -g smartchats-ai"
+    err ""
+    err "Requires Node 24+. Then run: smartchats setup"
+    exit 1
+fi
+
 # ─── Find a downloader ────────────────────────────────────────────────
 if command -v curl >/dev/null 2>&1; then
     DOWNLOAD_CMD="curl -fsSL"
