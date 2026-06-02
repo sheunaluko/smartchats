@@ -3,24 +3,40 @@
  *
  * Single-user trusted mode — all rows are owned by the running user.
  *
- * ─── Dual-field timestamp invariant ───────────────────────────────
+ * ─── Three-field event-time convention ────────────────────────────
  *
  *   created_at / updated_at   — physical row lifecycle in *this* database.
  *                               DB-stamped via `VALUE time::now() READONLY`.
  *                               Authoritative for audit, GC, debugging.
  *                               Never user-supplied. Never migrated across DBs.
  *
- *   lts (logical timestamp)   — when the *thing this row represents* actually
- *                               happened in the user's life. App-stamped at
- *                               write time as fake-UTC local wall-clock (i.e.
- *                               `toLocalTimestamp(now, tz)` with a `Z` suffix).
- *                               No VALUE, no READONLY. Preserved across export,
- *                               import, replication, migration. Every UI read
- *                               that wants user-time sorts/filters by `lts`.
+ *   ts (event timestamp)      — real UTC instant when the thing happened.
+ *                               App-stamped at write time. Used for ordering
+ *                               (`ORDER BY ts DESC`) and cross-system comparison.
+ *                               Preserved across export/import/migration.
  *
- * Tables that carry `lts`: logs, metrics, user_data, sessions, user_entities,
- * user_relations, usage_records. The MCP import tool strips created_at and
- * updated_at unconditionally on every payload; lts rides through unchanged.
+ *   local_date (bucket key)   — YYYY-MM-DD string in the user's tz at the
+ *                               moment of the event. App-computed at write time
+ *                               from `(ts, local_tz)`. Used for indexed daily
+ *                               aggregation (`GROUP BY local_date`). Survives
+ *                               migration unchanged.
+ *
+ *   local_tz                  — IANA tz the user was in when the row was
+ *                               written (e.g. "America/Chicago"). Lets us
+ *                               re-derive `local_date` if the bucket needs
+ *                               to change.
+ *
+ * Tables that carry the event-time triple: logs, sessions, user_entities,
+ * user_relations, user_data, usage_records. `metrics` is the same shape but
+ * keeps its existing `timestamp` field as the real-UTC instant (instead of
+ * adding `ts`) — historical compatibility, no behavior difference.
+ *
+ * Legacy: `lts` (fake-UTC local wall-clock with a `Z` suffix) is still in
+ * the schema during the 1.5.0 → 1.6.0 migration window. Dual-written by
+ * the app. Dropped in 1.6.0 after readers have switched to `ts`/`local_date`.
+ *
+ * The MCP import tool strips created_at and updated_at unconditionally on
+ * every payload; event-time fields ride through unchanged.
  *
  * Versioned: bump `LOCAL_SCHEMA_VERSION` when you change the DDL.
  * `applyLocalSchema` runs the DDL plus any cumulative `LOCAL_SCHEMA_MIGRATIONS`
@@ -49,7 +65,7 @@ export interface LocalSchemaLogger {
     success?: (msg: string) => void;
 }
 
-export const LOCAL_SCHEMA_VERSION = '1.4.0';
+export const LOCAL_SCHEMA_VERSION = '1.5.0';
 
 export const LOCAL_DDL = `
 -- ─── schema version marker ────────────────────────────────────────
@@ -62,25 +78,41 @@ DEFINE TABLE IF NOT EXISTS logs SCHEMALESS;
 DEFINE FIELD IF NOT EXISTS created_at ON logs TYPE datetime VALUE time::now() READONLY;
 DEFINE FIELD IF NOT EXISTS updated_at ON logs TYPE datetime VALUE time::now();
 DEFINE FIELD IF NOT EXISTS lts ON logs TYPE option<datetime>;
+DEFINE FIELD IF NOT EXISTS ts ON logs TYPE option<datetime>;
+DEFINE FIELD IF NOT EXISTS local_date ON logs TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS local_tz ON logs TYPE option<string>;
 DEFINE INDEX IF NOT EXISTS logs_created_at ON logs FIELDS created_at;
 DEFINE INDEX IF NOT EXISTS logs_lts ON logs FIELDS lts;
+DEFINE INDEX IF NOT EXISTS logs_ts ON logs FIELDS ts;
+DEFINE INDEX IF NOT EXISTS logs_local_date ON logs FIELDS local_date;
 DEFINE INDEX IF NOT EXISTS logs_embedding ON logs FIELDS embedding HNSW DIMENSION 1536 DIST COSINE;
 
 -- ─── sessions: saved conversation transcripts ─────────────────────
--- Sorted by lts in list/search UIs so original timing survives migration.
+-- Sorted by ts (real UTC) in list/search UIs; bucketed by local_date.
+-- lts kept during 1.5.0 → 1.6.0 dual-write window.
 DEFINE TABLE IF NOT EXISTS sessions SCHEMALESS;
 DEFINE FIELD IF NOT EXISTS created_at ON sessions TYPE datetime VALUE time::now() READONLY;
 DEFINE FIELD IF NOT EXISTS updated_at ON sessions TYPE datetime VALUE time::now();
 DEFINE FIELD IF NOT EXISTS lts ON sessions TYPE option<datetime>;
+DEFINE FIELD IF NOT EXISTS ts ON sessions TYPE option<datetime>;
+DEFINE FIELD IF NOT EXISTS local_date ON sessions TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS local_tz ON sessions TYPE option<string>;
 DEFINE INDEX IF NOT EXISTS sessions_lts ON sessions FIELDS lts;
+DEFINE INDEX IF NOT EXISTS sessions_ts ON sessions FIELDS ts;
+DEFINE INDEX IF NOT EXISTS sessions_local_date ON sessions FIELDS local_date;
 
 -- ─── user_entities: knowledge graph nodes ─────────────────────────
 DEFINE TABLE IF NOT EXISTS user_entities SCHEMALESS;
 DEFINE FIELD IF NOT EXISTS created_at ON user_entities TYPE datetime VALUE time::now() READONLY;
 DEFINE FIELD IF NOT EXISTS updated_at ON user_entities TYPE datetime VALUE time::now();
 DEFINE FIELD IF NOT EXISTS lts ON user_entities TYPE option<datetime>;
+DEFINE FIELD IF NOT EXISTS ts ON user_entities TYPE option<datetime>;
+DEFINE FIELD IF NOT EXISTS local_date ON user_entities TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS local_tz ON user_entities TYPE option<string>;
 DEFINE INDEX IF NOT EXISTS user_entities_created_at ON user_entities FIELDS created_at;
 DEFINE INDEX IF NOT EXISTS user_entities_lts ON user_entities FIELDS lts;
+DEFINE INDEX IF NOT EXISTS user_entities_ts ON user_entities FIELDS ts;
+DEFINE INDEX IF NOT EXISTS user_entities_local_date ON user_entities FIELDS local_date;
 DEFINE INDEX IF NOT EXISTS user_entities_embedding ON user_entities FIELDS embedding HNSW DIMENSION 1536 DIST COSINE;
 
 -- ─── user_relations: knowledge graph edges ────────────────────────
@@ -88,7 +120,12 @@ DEFINE TABLE IF NOT EXISTS user_relations TYPE RELATION SCHEMALESS;
 DEFINE FIELD IF NOT EXISTS created_at ON user_relations TYPE datetime VALUE time::now() READONLY;
 DEFINE FIELD IF NOT EXISTS updated_at ON user_relations TYPE datetime VALUE time::now();
 DEFINE FIELD IF NOT EXISTS lts ON user_relations TYPE option<datetime>;
+DEFINE FIELD IF NOT EXISTS ts ON user_relations TYPE option<datetime>;
+DEFINE FIELD IF NOT EXISTS local_date ON user_relations TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS local_tz ON user_relations TYPE option<string>;
 DEFINE INDEX IF NOT EXISTS user_relations_lts ON user_relations FIELDS lts;
+DEFINE INDEX IF NOT EXISTS user_relations_ts ON user_relations FIELDS ts;
+DEFINE INDEX IF NOT EXISTS user_relations_local_date ON user_relations FIELDS local_date;
 DEFINE INDEX IF NOT EXISTS user_relations_embedding ON user_relations FIELDS embedding HNSW DIMENSION 1536 DIST COSINE;
 DEFINE INDEX IF NOT EXISTS user_relations_name ON user_relations FIELDS name;
 
@@ -107,21 +144,34 @@ DEFINE TABLE IF NOT EXISTS user_data SCHEMALESS;
 DEFINE FIELD IF NOT EXISTS created_at ON user_data TYPE datetime VALUE time::now() READONLY;
 DEFINE FIELD IF NOT EXISTS updated_at ON user_data TYPE datetime VALUE time::now();
 DEFINE FIELD IF NOT EXISTS lts ON user_data TYPE option<datetime>;
+DEFINE FIELD IF NOT EXISTS ts ON user_data TYPE option<datetime>;
+DEFINE FIELD IF NOT EXISTS local_date ON user_data TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS local_tz ON user_data TYPE option<string>;
 DEFINE FIELD IF NOT EXISTS type ON user_data TYPE option<string>;
 DEFINE FIELD IF NOT EXISTS status ON user_data TYPE option<string>;
 DEFINE INDEX IF NOT EXISTS user_data_type_status ON user_data FIELDS type, status;
 DEFINE INDEX IF NOT EXISTS user_data_type_lts ON user_data FIELDS type, lts;
+DEFINE INDEX IF NOT EXISTS user_data_type_ts ON user_data FIELDS type, ts;
+DEFINE INDEX IF NOT EXISTS user_data_type_local_date ON user_data FIELDS type, local_date;
 
 -- ─── metrics: quantifiable activity tracking ──────────────────────
+-- Note: this table keeps its existing 'timestamp' field as the real-UTC
+-- instant (the 'ts' slot in the convention) rather than adding a new
+-- 'ts' column. 'local_date' is the daily-bucket key. 'local_tz' is
+-- formalized as a schema field (it was already written by app code).
+-- 'lts' kept during 1.5.0 to 1.6.0 dual-write window.
 DEFINE TABLE IF NOT EXISTS metrics SCHEMALESS;
 DEFINE FIELD IF NOT EXISTS created_at ON metrics TYPE datetime VALUE time::now() READONLY;
 DEFINE FIELD IF NOT EXISTS updated_at ON metrics TYPE datetime VALUE time::now();
 DEFINE FIELD IF NOT EXISTS timestamp ON metrics TYPE option<datetime>;
 DEFINE FIELD IF NOT EXISTS metric_name ON metrics TYPE option<string>;
 DEFINE FIELD IF NOT EXISTS lts ON metrics TYPE option<datetime>;
+DEFINE FIELD IF NOT EXISTS local_date ON metrics TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS local_tz ON metrics TYPE option<string>;
 DEFINE INDEX IF NOT EXISTS metrics_created_at ON metrics FIELDS created_at;
 DEFINE INDEX IF NOT EXISTS metrics_name_timestamp ON metrics FIELDS metric_name, timestamp;
 DEFINE INDEX IF NOT EXISTS metrics_name_lts ON metrics FIELDS metric_name, lts;
+DEFINE INDEX IF NOT EXISTS metrics_name_local_date ON metrics FIELDS metric_name, local_date;
 
 -- ─── smartchats_apps: installed "mini-apps" catalog ───────────────
 DEFINE TABLE IF NOT EXISTS smartchats_apps SCHEMALESS;
@@ -175,10 +225,17 @@ DEFINE INDEX IF NOT EXISTS byo_api_keys_provider ON byo_api_keys FIELDS provider
 
 -- ─── usage_records: per-call LLM/TTS/tool tracking ────────────────
 -- Records real tokens + USD cost; credits_charged is always 0 in this mode.
--- 'lts' replaces the legacy 'timestamp' field — see LOCAL_SCHEMA_MIGRATIONS for the
--- 1.0.0 → 1.1.0 backfill that copies timestamp → lts and drops the old field.
+-- Server-side writes stamp 'ts = time::now()' (real UTC). 'local_tz' is
+-- 'UTC' for server-stamped rows since the local server has no user-tz
+-- context — daily buckets for usage_records are UTC days, documented
+-- intentional. Client-side writes (if added) should pass user-tz.
+-- Legacy 'lts' was server-stamped real UTC (not fake-UTC like other tables)
+-- and is kept during the 1.5.0 to 1.6.0 dual-write window.
 DEFINE TABLE IF NOT EXISTS usage_records SCHEMAFULL;
 DEFINE FIELD IF NOT EXISTS lts ON usage_records TYPE option<datetime>;
+DEFINE FIELD IF NOT EXISTS ts ON usage_records TYPE option<datetime>;
+DEFINE FIELD IF NOT EXISTS local_date ON usage_records TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS local_tz ON usage_records TYPE option<string>;
 DEFINE FIELD IF NOT EXISTS model ON usage_records TYPE string;
 DEFINE FIELD IF NOT EXISTS provider ON usage_records TYPE string;
 DEFINE FIELD IF NOT EXISTS input_tokens ON usage_records TYPE int DEFAULT 0;
@@ -190,6 +247,8 @@ DEFINE FIELD IF NOT EXISTS charged_from ON usage_records TYPE string;
 DEFINE FIELD IF NOT EXISTS session_id ON usage_records TYPE option<string>;
 DEFINE FIELD IF NOT EXISTS request_type ON usage_records TYPE option<string>;
 DEFINE INDEX IF NOT EXISTS usage_records_lts ON usage_records FIELDS lts;
+DEFINE INDEX IF NOT EXISTS usage_records_ts ON usage_records FIELDS ts;
+DEFINE INDEX IF NOT EXISTS usage_records_local_date ON usage_records FIELDS local_date;
 DEFINE INDEX IF NOT EXISTS usage_records_model ON usage_records FIELDS model;
 DEFINE INDEX IF NOT EXISTS usage_records_provider ON usage_records FIELDS provider;
 `;
@@ -242,6 +301,43 @@ UPDATE cortex_dynamic_functions SET created_at = createdAt WHERE created_at IS N
 UPDATE cortex_dynamic_functions SET updated_at = updatedAt WHERE updated_at IS NONE AND updatedAt IS NOT NONE;
 REMOVE FIELD IF EXISTS createdAt ON TABLE cortex_dynamic_functions;
 REMOVE FIELD IF EXISTS updatedAt ON TABLE cortex_dynamic_functions;
+`,
+    },
+    {
+        version: '1.5.0',
+        statements: `
+-- Introduce the three-field event-time convention (ts, local_date, local_tz)
+-- on every table that previously carried 'lts'. Additive — lts stays in the
+-- schema during the 1.5.0 → 1.6.0 dual-write window. App writes all four
+-- fields. PR 4 of the refactor drops lts.
+--
+-- Backfill derivation:
+--   ts         := lts   (preserves chronological order. For tables where lts
+--                        was fake-UTC local, this value is off by the user's
+--                        tz offset — accepted as honest-best-effort since the
+--                        original tz wasn't recorded. For usage_records, lts
+--                        was server-stamped real UTC so the copy is exact.)
+--
+--   local_date := time::format(lts, '%Y-%m-%d')
+--                       (extracts the YYYY-MM-DD prefix. For fake-UTC lts
+--                        this is exactly the user-local date. For real-UTC
+--                        lts on usage_records this is the UTC date, matching
+--                        the documented usage_records convention.)
+--
+--   local_tz   := 'America/Chicago' on user-data tables (developer's tz —
+--                        this is a single-user self-hosted deploy; if you
+--                        fork into a multi-user product, replace with the
+--                        tz captured at write time).
+--                'UTC' on usage_records (server-stamped, no user-tz context).
+--
+-- Idempotent via WHERE local_date IS NONE — only touches unbackfilled rows.
+UPDATE logs           SET ts = lts, local_date = time::format(lts, '%Y-%m-%d'), local_tz = 'America/Chicago' WHERE local_date IS NONE AND lts IS NOT NONE;
+UPDATE sessions       SET ts = lts, local_date = time::format(lts, '%Y-%m-%d'), local_tz = 'America/Chicago' WHERE local_date IS NONE AND lts IS NOT NONE;
+UPDATE user_entities  SET ts = lts, local_date = time::format(lts, '%Y-%m-%d'), local_tz = 'America/Chicago' WHERE local_date IS NONE AND lts IS NOT NONE;
+UPDATE user_relations SET ts = lts, local_date = time::format(lts, '%Y-%m-%d'), local_tz = 'America/Chicago' WHERE local_date IS NONE AND lts IS NOT NONE;
+UPDATE user_data      SET ts = lts, local_date = time::format(lts, '%Y-%m-%d'), local_tz = 'America/Chicago' WHERE local_date IS NONE AND lts IS NOT NONE;
+UPDATE metrics        SET local_date = time::format(lts, '%Y-%m-%d'), local_tz = 'America/Chicago' WHERE local_date IS NONE AND lts IS NOT NONE;
+UPDATE usage_records  SET ts = lts, local_date = time::format(lts, '%Y-%m-%d'), local_tz = 'UTC' WHERE local_date IS NONE AND lts IS NOT NONE;
 `,
     },
 ];
