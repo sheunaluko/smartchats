@@ -11,7 +11,7 @@
 import { logger, debug } from 'smartchats-common';
 import { queries } from 'smartchats-database';
 import { embed_vector, getBackend } from '@/lib/backend';
-import { getUserTimezone, toLocalTimestamp } from './modules/system';
+import { nowEventTime } from './modules/system';
 
 // Logger setup
 const log = logger.get_logger({ id: 'graph_utils' });
@@ -237,15 +237,10 @@ export async function store_knowledge(triples: Triple[]): Promise<StoreKnowledge
 
     // 7. Insert all in single query
     if (entitiesToInsert.length > 0 || relationsToInsert.length > 0) {
-        // lts (logical timestamp): when this fact was added in the user's local time.
-        // Preserved across export/import. See schema.ts dual-field invariant.
-        const tz = getUserTimezone();
-        const lts = toLocalTimestamp(new Date(), tz);
-
         const spec = queries.buildKnowledgeInsertQuery({
             entities: entitiesToInsert,
             relations: relationsToInsert,
-            lts,
+            ...nowEventTime(),
         });
 
         log(`Built insert query with ${entitiesToInsert.length} entities and ${relationsToInsert.length} relations`);
@@ -591,9 +586,7 @@ export function build_insert_query(
     entities: { name: string; embedding: number[] }[],
     relations: { name: string; sourceName: string; targetName: string; kind: string; embedding: number[] }[]
 ): string {
-    const tz = getUserTimezone();
-    const lts = toLocalTimestamp(new Date(), tz);
-    const spec = queries.buildKnowledgeInsertQuery({ entities, relations, lts });
+    const spec = queries.buildKnowledgeInsertQuery({ entities, relations, ...nowEventTime() });
     log(`Built insert query with ${entities.length} entities and ${relations.length} relations`);
     debug.add('insert_query', spec.query);
     return spec.query;

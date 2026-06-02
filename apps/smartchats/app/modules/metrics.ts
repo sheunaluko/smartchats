@@ -4,7 +4,7 @@
  * The agent acts as the extractor — recognizing metrics in conversation and saving structured data.
  */
 
-import { getUserTimezone, toLocalTimestamp, getCurrentLocalDate } from "./system"
+import { getUserTimezone, toLocalTimestamp, eventTimeAt, getCurrentLocalDate } from "./system"
 import { getBackend } from '@/lib/backend';
 import { queries } from 'smartchats-database';
 import type { MetricsQuerySpec, MetricsLtsFilterCtx } from 'smartchats-database';
@@ -691,22 +691,18 @@ export function createMetricsModule() {
 
                     log(`Saving metric: ${metric_name} = ${resolvedValue} ${resolvedUnit} (${resolvedMetricType})`)
 
-                    // Both `timestamp` (UTC event time) and `lts` (user-local event
-                    // time, fake-UTC formatted) derive from the same anchor moment.
-                    // See computeAnchor() for resolution priority.
+                    // All event-time fields derive from the same anchor.
+                    // For metrics, the legacy `timestamp` column is populated
+                    // from the bundle's `ts` inside the builder.
                     const tz = getUserTimezone()
                     const anchor = computeAnchor({ timestamp, time_shift_quantity, time_shift_unit })
-                    const realTimestamp = anchor.toISOString()
-                    const lts = toLocalTimestamp(anchor, tz)
 
                     const response = await getBackend().data.query(queries.insertMetric({
                         metric_name: metric_name || '',
                         value: resolvedValue,
                         unit: resolvedUnit,
                         metric_type: resolvedMetricType,
-                        timestamp: realTimestamp,
-                        lts,
-                        local_tz: tz,
+                        ...eventTimeAt(anchor, tz),
                         source: source || 'user_conversation',
                         source_text: source_text || '',
                         source_log_id: source_log_id || null,
@@ -788,8 +784,12 @@ export function createMetricsModule() {
                                 time_shift_quantity: m.time_shift_quantity,
                                 time_shift_unit: m.time_shift_unit,
                             })
-                            const lts = m.lts ? m.lts : toLocalTimestamp(anchor, tz)
-                            const realTimestamp = anchor.toISOString()
+                            // m.lts may be pre-set by the review UI from the
+                            // source-log's date — keep that as an override for
+                            // the legacy lts column. ts/local_date/local_tz
+                            // still derive from the anchor (the bundle).
+                            const eventTime = eventTimeAt(anchor, tz)
+                            const lts = m.lts ? m.lts : eventTime.lts
 
                             const isBool = m.metric_type === 'boolean'
 
@@ -798,9 +798,8 @@ export function createMetricsModule() {
                                 value: isBool ? (m.value === 0 ? 0 : 1) : (Number(m.value) || 0),
                                 unit: isBool ? 'done' : (m.unit || ''),
                                 metric_type: isBool ? 'boolean' : 'numeric',
-                                timestamp: realTimestamp,
+                                ...eventTime,
                                 lts,
-                                local_tz: tz,
                                 source: m.source || 'user_log',
                                 source_text: m.source_text || '',
                                 source_log_id: m.source_log_id || null,

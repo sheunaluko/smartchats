@@ -7,7 +7,7 @@
  * day boundaries align with the user's local time.
  */
 
-import type { QuerySpec, AuditFields } from '../types.js';
+import type { QuerySpec, AuditFields, EventTimeFields } from '../types.js';
 
 export interface LogRow extends AuditFields {
     id: string;
@@ -45,18 +45,17 @@ export function getPreparedLogCategories(): QuerySpec {
 
 // ── Insert a log ────────────────────────────────────────────────────────────
 
-export interface InsertLogArgs {
+export interface InsertLogArgs extends EventTimeFields {
     content: string;
     category: string;
     embedding: unknown;
-    /** Fake-UTC local-wall-clock ISO with `Z` suffix. */
-    lts: string;
-    local_tz: string;
 }
 
 /**
  * INSERT a new log row. Embedding is parameter-bound so vectors don't
- * inline into the query string.
+ * inline into the query string. Dual-writes `lts` (legacy fake-UTC) and
+ * `ts`/`local_date`/`local_tz` (the 1.5.0 event-time convention) during
+ * the migration window; `lts` is dropped in 1.6.0.
  */
 export function insertLog(args: InsertLogArgs): QuerySpec {
     return {
@@ -65,6 +64,8 @@ export function insertLog(args: InsertLogArgs): QuerySpec {
                         category: $category,
                         embedding: $embedding,
                         lts: <datetime> $lts,
+                        ts: <datetime> $ts,
+                        local_date: $local_date,
                         local_tz: $local_tz
                     }`,
         variables: { ...args },
@@ -81,8 +82,12 @@ export interface UpdateLogPatch {
     content?: string;
     embedding?: unknown;
     category?: string;
-    /** Fake-UTC ISO datetime (`YYYY-MM-DDTHH:MM:00Z`). When set, `local_tz` should also be set. */
+    /** Fake-UTC ISO datetime (`YYYY-MM-DDTHH:MM:00Z`). When set, `ts`/`local_date`/`local_tz` should be set together. */
     lts?: string;
+    /** Real-UTC ISO datetime. */
+    ts?: string;
+    /** YYYY-MM-DD in the user's tz. */
+    local_date?: string;
     local_tz?: string;
 }
 
@@ -111,6 +116,14 @@ export function updateLog(args: { recordId: string; patch: UpdateLogPatch }): Qu
     if (args.patch.lts !== undefined) {
         setClauses.push('lts = <datetime> $lts');
         variables.lts = args.patch.lts;
+    }
+    if (args.patch.ts !== undefined) {
+        setClauses.push('ts = <datetime> $ts');
+        variables.ts = args.patch.ts;
+    }
+    if (args.patch.local_date !== undefined) {
+        setClauses.push('local_date = $local_date');
+        variables.local_date = args.patch.local_date;
     }
     if (args.patch.local_tz !== undefined) {
         setClauses.push('local_tz = $local_tz');

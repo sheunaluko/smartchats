@@ -23,16 +23,11 @@
  *   DEFINE INDEX idx_ud_timestamp ON user_data FIELDS timestamp;
  */
 
-import { getUserTimezone } from "./system"
+import { getUserTimezone, nowEventTime } from "./system"
 import { getBackend } from '@/lib/backend';
 import { queries } from 'smartchats-database';
 
-/** Convert a UTC timestamp to a fake-UTC local datetime string */
-function toLocalTimestamp(utcTimestamp: string | Date, tz: string): string {
-    const d = typeof utcTimestamp === 'string' ? new Date(utcTimestamp) : utcTimestamp
-    const local = d.toLocaleString('sv-SE', { timeZone: tz })
-    return local.replace(' ', 'T') + 'Z'
-}
+// Event-time bundle helpers live in ./system (nowEventTime / eventTimeAt).
 
 // ── Recurrence logic ─────────────────────────────────────────────────────────
 
@@ -351,9 +346,9 @@ export function createTodosModule() {
 
                     log(`Saving todo: ${title}`)
 
-                    const tz = getUserTimezone()
-                    const now = new Date()
-                    const lts = toLocalTimestamp(now, tz)
+                    const eventTime = nowEventTime()
+                    // Due date is a separate semantic from creation time;
+                    // falls back to creation `ts` when no due_date was given.
                     const dueTs = due_date && due_date.trim() ? due_date.trim() : null
 
                     const response = await getBackend().data.query(queries.insertTodo({
@@ -365,9 +360,8 @@ export function createTodosModule() {
                         recurrence: recurrence || null,
                         metric_link: metric_link || null,
                         source_text: source_text || '',
-                        timestamp: dueTs || now.toISOString(),
-                        lts,
-                        local_tz: tz,
+                        timestamp: dueTs || eventTime.ts,
+                        ...eventTime,
                         tags: tags || [],
                     })) as any
                     log(`save_todo response received`)
@@ -418,9 +412,7 @@ export function createTodosModule() {
                         } catch { /* best effort */ }
                     }
 
-                    const tz = getUserTimezone()
-                    const now = new Date()
-                    const lts = toLocalTimestamp(now, tz)
+                    const eventTime = nowEventTime()
 
                     log(`manage_todo: ${action} on ${id}`)
 
@@ -438,9 +430,7 @@ export function createTodosModule() {
                             await getBackend().data.query(queries.insertTodoCompletion({
                                 parent_id: id,
                                 note: note || null,
-                                timestamp: now.toISOString(),
-                                lts,
-                                local_tz: tz,
+                                ...eventTime,
                             }))
 
                             // For non-recurring: mark the todo itself as completed

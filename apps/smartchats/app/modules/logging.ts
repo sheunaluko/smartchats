@@ -19,7 +19,7 @@
 
 import { embed_vector, getBackend } from '@/lib/backend';
 import { queries } from 'smartchats-database';
-import { getUserTimezone, toLocalTimestamp, getCurrentLocalDate } from './system';
+import { getUserTimezone, toLocalTimestamp, nowEventTime, getCurrentLocalDate } from './system';
 
 /** Fetch log categories with counts — reusable by prefetch and module fn */
 export async function fetchLogCategories(): Promise<any[]> {
@@ -129,17 +129,11 @@ export function createLoggingModule() {
                         embedding = null
                     }
 
-                    // Compute local timestamp
-                    const tz = getUserTimezone()
-                    const now = new Date()
-                    const lts = toLocalTimestamp(now, tz)
-
                     const response = await getBackend().data.query(queries.insertLog({
                         content: text,
                         category: cat,
                         embedding: embedding,
-                        lts: lts,
-                        local_tz: tz,
+                        ...nowEventTime(),
                     })) as any
                     const rows = response.rows
                     log(`Log saved`)

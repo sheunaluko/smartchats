@@ -8,7 +8,7 @@
  * field is retained for reference but `lts` is the canonical sort key.
  */
 
-import type { QuerySpec, AuditFields } from '../types.js';
+import type { QuerySpec, AuditFields, EventTimeFields } from '../types.js';
 
 export interface MetricRow extends AuditFields {
     id: string;
@@ -117,16 +117,11 @@ export function getPreparedMetricDefinitions(): QuerySpec {
 
 // ── Insert metric ──────────────────────────────────────────────────────────
 
-export interface InsertMetricArgs {
+export interface InsertMetricArgs extends EventTimeFields {
     metric_name: string;
     value: number;
     unit: string;
     metric_type: string;
-    /** Real-UTC ISO datetime — when the metric event happened. */
-    timestamp: string;
-    /** Fake-UTC local-wall-clock ISO. App-stamped. */
-    lts: string;
-    local_tz: string;
     source: string;
     source_text: string;
     source_log_id: string | null;
@@ -137,9 +132,10 @@ export interface InsertMetricArgs {
 }
 
 /**
- * INSERT a new metric row. `timestamp` and `lts` are passed as ISO strings
- * and cast server-side to datetime; the dual-field invariant is preserved
- * (real UTC `timestamp` for cross-DB references, `lts` for user-time sort).
+ * INSERT a new metric row. The legacy `timestamp` column is populated
+ * from the bundle's `$ts` (real-UTC instant — same semantics, kept under
+ * the historical column name for backward compat with readers). `lts` is
+ * dual-written during the 1.5.0 → 1.6.0 window.
  */
 export function insertMetric(args: InsertMetricArgs): QuerySpec {
     return {
@@ -148,8 +144,9 @@ export function insertMetric(args: InsertMetricArgs): QuerySpec {
                         value: $value,
                         unit: $unit,
                         metric_type: $metric_type,
-                        timestamp: <datetime> $timestamp,
+                        timestamp: <datetime> $ts,
                         lts: <datetime> $lts,
+                        local_date: $local_date,
                         local_tz: $local_tz,
                         source: $source,
                         source_text: $source_text,

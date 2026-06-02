@@ -2,6 +2,8 @@
  * Static system-message-only modules: intro, values, platform, response_guidance
  */
 
+import type { EventTimeFields } from 'smartchats-database'
+
 export function createValuesModule() {
     return {
         id: 'values',
@@ -50,6 +52,39 @@ export function toLocalTimestamp(utcTimestamp: string | Date, tz: string): strin
 /** Get current local date as YYYY-MM-DD in the given IANA timezone. */
 export function getCurrentLocalDate(tz: string): string {
     return new Date().toLocaleDateString('sv-SE', { timeZone: tz })
+}
+
+/**
+ * Convert a real-UTC timestamp to the YYYY-MM-DD string in the user's tz.
+ * Canonical `local_date` value for the 1.5.0 event-time convention — the
+ * indexed bucket key used by `GROUP BY local_date` aggregations.
+ */
+export function toLocalDate(ts: string | Date, tz: string): string {
+    const d = typeof ts === 'string' ? new Date(ts) : ts
+    return d.toLocaleDateString('sv-SE', { timeZone: tz })
+}
+
+/**
+ * The canonical event-time field bundle: ts (real UTC) + lts (legacy
+ * fake-UTC) + local_date (indexed bucket key) + local_tz (IANA). Built
+ * once at each insert callsite and spread into the builder args.
+ *
+ * When 1.6.0 drops `lts`, remove it from `EventTimeFields` in
+ * smartchats-database/types — every builder and every callsite spreading
+ * the result of this function auto-updates.
+ */
+export function nowEventTime(): EventTimeFields {
+    return eventTimeAt(new Date())
+}
+
+/** Same as `nowEventTime()` but anchored to an explicit moment. */
+export function eventTimeAt(anchor: Date, tz: string = getUserTimezone()): EventTimeFields {
+    return {
+        ts: anchor.toISOString(),
+        lts: toLocalTimestamp(anchor, tz),
+        local_date: toLocalDate(anchor, tz),
+        local_tz: tz,
+    }
 }
 
 export function createPlatformModule() {

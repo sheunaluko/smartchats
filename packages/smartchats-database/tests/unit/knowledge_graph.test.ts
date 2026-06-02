@@ -1,17 +1,31 @@
 import { describe, it, expect } from 'vitest';
 import { buildKnowledgeInsertQuery, searchEntitiesByName } from '../../src/queries/index.js';
+import type { EventTimeFields } from '../../src/types.js';
 
 describe('buildKnowledgeInsertQuery', () => {
-    const spec = buildKnowledgeInsertQuery({
+    const eventTime: EventTimeFields = {
+        lts: '2026-05-30T12:00:00Z',
+        ts: '2026-05-30T17:00:00Z',
+        local_date: '2026-05-30',
+        local_tz: 'America/Chicago',
+    };
+    const args = {
         entities: [{ name: 'Alice', embedding: [0.1, 0.2] }],
         relations: [{ name: 'knows', sourceName: 'Alice', targetName: 'Bob', kind: 'social', embedding: [0.3] }],
-        lts: '2026-05-30T12:00:00Z',
-    });
+        ...eventTime,
+    };
+    const spec = buildKnowledgeInsertQuery(args);
 
-    it('creates entities with inlined embedding and a fake-UTC lts', () => {
+    it('creates entities with inlined embedding', () => {
         expect(spec.query).toContain('CREATE user_entities CONTENT { name: "Alice"');
         expect(spec.query).toContain('embedding: [0.1,0.2]');
+    });
+
+    it('dual-writes legacy lts and the 1.5.0 event-time triple on entities', () => {
         expect(spec.query).toContain("lts: d'2026-05-30T12:00:00Z'");
+        expect(spec.query).toContain("ts: d'2026-05-30T17:00:00Z'");
+        expect(spec.query).toContain('local_date: "2026-05-30"');
+        expect(spec.query).toContain('local_tz: "America/Chicago"');
     });
 
     it('denormalizes both endpoint names onto the relation edge', () => {
@@ -22,12 +36,23 @@ describe('buildKnowledgeInsertQuery', () => {
         expect(spec.query).toContain('kind: "social"');
     });
 
+    it('dual-writes the event-time triple on relations too', () => {
+        // The RELATE statement is appended after the CREATE; both should
+        // carry the same time fields.
+        const relateIdx = spec.query.indexOf('RELATE');
+        const after = spec.query.slice(relateIdx);
+        expect(after).toContain("lts: d'2026-05-30T12:00:00Z'");
+        expect(after).toContain("ts: d'2026-05-30T17:00:00Z'");
+        expect(after).toContain('local_date: "2026-05-30"');
+        expect(after).toContain('local_tz: "America/Chicago"');
+    });
+
     it('inlines embeddings rather than binding them (variables stay empty)', () => {
         expect(spec.variables).toEqual({});
     });
 
     it('emits just a terminator when there is nothing to insert', () => {
-        expect(buildKnowledgeInsertQuery({ entities: [], relations: [], lts: '2026-05-30T12:00:00Z' }).query).toBe(';');
+        expect(buildKnowledgeInsertQuery({ entities: [], relations: [], ...eventTime }).query).toBe(';');
     });
 });
 

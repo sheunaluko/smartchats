@@ -10,14 +10,9 @@ import { getBackend } from '@/lib/backend';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function toLocalTimestamp(date: Date, tz: string): string {
-    const local = date.toLocaleString('sv-SE', { timeZone: tz })
-    return local.replace(' ', 'T') + 'Z'
-}
-
-function getUserTimezone(): string {
-    try { return Intl.DateTimeFormat().resolvedOptions().timeZone } catch { return 'UTC' }
-}
+// Event-time bundle imported from the shared helper so this file uses
+// the same convention as every other write site.
+import { nowEventTime } from '../modules/system';
 
 function formatDueDate(iso: string): string {
     const d = new Date(iso)
@@ -137,20 +132,21 @@ export function TodoList({ overdue, due_today, upcoming_7d, no_date, total_activ
         if (completedIds.has(id)) return
         setCompletedIds(prev => new Set(prev).add(id))
 
-        const tz = getUserTimezone()
-        const now = new Date()
-        const lts = toLocalTimestamp(now, tz)
+        const eventTime = nowEventTime()
 
         try {
-            // Create completion record
+            // Create completion record. Dual-writes legacy lts and the 1.5.0
+            // event-time triple (ts/local_date/local_tz).
             const compQuery = `INSERT INTO user_data {
                 type: 'todo_completion',
                 status: 'completed',
                 data: { note: NONE },
                 source_text: '',
                 parent_id: $parent_id,
-                timestamp: d'${now.toISOString()}',
-                lts: d'${lts}',
+                timestamp: d'${eventTime.ts}',
+                lts: d'${eventTime.lts}',
+                ts: d'${eventTime.ts}',
+                local_date: $local_date,
                 local_tz: $local_tz,
                 tags: [],
                 created_at: time::now(),
@@ -158,7 +154,7 @@ export function TodoList({ overdue, due_today, upcoming_7d, no_date, total_activ
             }`
             await getBackend().data.query({
                 query: compQuery,
-                variables: { parent_id: id, local_tz: tz }
+                variables: { parent_id: id, local_date: eventTime.local_date, local_tz: eventTime.local_tz }
             })
 
             // For non-recurring: mark the todo as completed

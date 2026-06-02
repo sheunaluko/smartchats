@@ -20,7 +20,7 @@
  */
 
 // Wire types (vendor-neutral)
-export type { QuerySpec, AuditFields } from './types.js';
+export type { QuerySpec, AuditFields, EventTimeFields } from './types.js';
 
 // Query builders (re-exported from ./queries for direct top-level access)
 export * from './queries/index.js';

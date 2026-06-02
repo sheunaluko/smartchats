@@ -7,7 +7,7 @@
  * for the dual-field timestamp invariant.
  */
 
-import type { QuerySpec, AuditFields } from '../types.js';
+import type { QuerySpec, AuditFields, EventTimeFields } from '../types.js';
 
 export interface SessionSummaryRow extends AuditFields {
     id: string;
@@ -76,7 +76,7 @@ function sessionKey(sessionId: string): string {
  * Fields written on every session save (both insert + update). Mirrored as a
  * type so callers don't drift from the schema.
  */
-export interface SessionWriteFields {
+export interface SessionWriteFields extends EventTimeFields {
     label: string;
     message_count: number;
     chat_history: unknown[];
@@ -84,13 +84,13 @@ export interface SessionWriteFields {
     thought_history: unknown[];
     execution_history: unknown[];
     settings: unknown;
-    /** Logical timestamp (fake-UTC local wall-clock, ISO with `Z`). App-stamped. */
-    lts: string;
 }
 
 /**
  * INSERT a new session row. Returns the created row (including `id`) on
  * the first statement so the caller can capture the new record id.
+ * Dual-writes legacy `lts` and the 1.5.0 event-time triple during the
+ * migration window.
  */
 export function insertSession(data: SessionWriteFields): QuerySpec {
     return {
@@ -102,7 +102,10 @@ export function insertSession(data: SessionWriteFields): QuerySpec {
             thought_history: $thought_history,
             execution_history: $execution_history,
             settings: $settings,
-            lts: <datetime> $lts
+            lts: <datetime> $lts,
+            ts: <datetime> $ts,
+            local_date: $local_date,
+            local_tz: $local_tz
         }`,
         variables: { ...data },
     };
@@ -123,7 +126,10 @@ export function updateSession(sessionId: string, data: SessionWriteFields): Quer
             thought_history = $thought_history,
             execution_history = $execution_history,
             settings = $settings,
-            lts = <datetime> $lts`,
+            lts = <datetime> $lts,
+            ts = <datetime> $ts,
+            local_date = $local_date,
+            local_tz = $local_tz`,
         variables: { key: sessionKey(sessionId), ...data },
     };
 }

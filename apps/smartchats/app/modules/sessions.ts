@@ -22,7 +22,7 @@
 
 import { getBackend } from '@/lib/backend';
 import { queries } from 'smartchats-database';
-import { getUserTimezone, toLocalTimestamp } from './system';
+import { nowEventTime } from './system';
 
 // ── Session ID state (module-level, not in Zustand) ──────────────────────────
 
@@ -68,8 +68,6 @@ export async function saveSessionToSurreal(session: {
     try {
 
 
-        const tz = getUserTimezone()
-        const lts = toLocalTimestamp(new Date(), tz)
         const writeFields = {
             label: session.label,
             message_count: session.message_count,
@@ -78,7 +76,7 @@ export async function saveSessionToSurreal(session: {
             thought_history: session.thought_history,
             execution_history: session.execution_history,
             settings: session.settings,
-            lts,
+            ...nowEventTime(),
         }
 
         if (_currentSessionId) {

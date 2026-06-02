@@ -10,7 +10,7 @@
  * legacy in-MCP query.
  */
 
-import type { QuerySpec, AuditFields } from '../types.js';
+import type { QuerySpec, AuditFields, EventTimeFields } from '../types.js';
 
 export type TodoStatus = 'active' | 'completed' | 'cancelled' | 'deferred';
 
@@ -99,7 +99,12 @@ export function getTodoById(recordId: string): QuerySpec {
  * the logical fake-UTC local-wall-clock at write time. Both are passed in
  * pre-stringified ISO form; the cast happens server-side.
  */
-export interface InsertTodoArgs {
+/**
+ * `timestamp` (real UTC due time) is distinct from the bundle's `ts`
+ * (real UTC creation time) for this builder — a todo can be created
+ * today with a due date next week. Both are passed explicitly.
+ */
+export interface InsertTodoArgs extends EventTimeFields {
     title: string;
     description: string | null;
     priority: string;
@@ -108,11 +113,8 @@ export interface InsertTodoArgs {
     recurrence: unknown | null;
     metric_link: string | null;
     source_text: string;
-    /** Real UTC ISO datetime — due time if set, else now. */
+    /** Real-UTC ISO datetime — due time if set, else equals `ts` (creation). */
     timestamp: string;
-    /** Fake-UTC local wall-clock ISO. App-stamped. */
-    lts: string;
-    local_tz: string;
     tags: unknown[];
 }
 export function insertTodo(args: InsertTodoArgs): QuerySpec {
@@ -133,6 +135,8 @@ export function insertTodo(args: InsertTodoArgs): QuerySpec {
             parent_id: NONE,
             timestamp: <datetime> $timestamp,
             lts: <datetime> $lts,
+            ts: <datetime> $ts,
+            local_date: $local_date,
             local_tz: $local_tz,
             tags: $tags,
             created_at: time::now(),
@@ -146,12 +150,14 @@ export function insertTodo(args: InsertTodoArgs): QuerySpec {
  * INSERT a completion record linked to a todo. `parent_id` is the full
  * todo record id (e.g. `user_data:abc123`).
  */
-export interface InsertTodoCompletionArgs {
+/**
+ * For completion records, `timestamp` is always "now" (when the
+ * completion was recorded), so it's a synonym for the bundle's `ts`.
+ * The SurrealQL writes the legacy `timestamp` column from `$ts`.
+ */
+export interface InsertTodoCompletionArgs extends EventTimeFields {
     parent_id: string;
     note: string | null;
-    timestamp: string;
-    lts: string;
-    local_tz: string;
 }
 export function insertTodoCompletion(args: InsertTodoCompletionArgs): QuerySpec {
     return {
@@ -161,8 +167,10 @@ export function insertTodoCompletion(args: InsertTodoCompletionArgs): QuerySpec 
             data: { note: $note },
             source_text: '',
             parent_id: $parent_id,
-            timestamp: <datetime> $timestamp,
+            timestamp: <datetime> $ts,
             lts: <datetime> $lts,
+            ts: <datetime> $ts,
+            local_date: $local_date,
             local_tz: $local_tz,
             tags: [],
             created_at: time::now(),

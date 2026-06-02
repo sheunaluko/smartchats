@@ -11,7 +11,7 @@
  * available on existing rows via the migration backfill).
  */
 
-import type { QuerySpec, AuditFields } from '../types.js';
+import type { QuerySpec, AuditFields, EventTimeFields } from '../types.js';
 
 export interface EntityRow extends AuditFields {
     id: string;
@@ -100,32 +100,36 @@ export interface RelationInsertSpec {
 /**
  * Build a single multi-statement query that creates all new entities
  * (CREATE user_entities ...) and relations (RELATE ...->user_relations->...)
- * in one round-trip. The `lts` is provided by the caller as a fake-UTC
- * local-wall-clock ISO string (with `Z` suffix) — same value applied
- * to every statement.
+ * in one round-trip. The same event-time fields are applied to every
+ * statement.
+ *
+ * `lts` is the legacy fake-UTC local-wall-clock ISO (dropped in 1.6.0).
+ * `ts` is the real-UTC instant. `local_date` is YYYY-MM-DD in the user's
+ * tz. `local_tz` is the IANA name.
  *
  * Embeddings are inlined into the query string (not parameter-bound)
  * because SurrealDB's RELATE / CONTENT object literal context doesn't
  * accept array variables in all driver versions; this matches the
  * historical in-app behavior.
  */
-export function buildKnowledgeInsertQuery(args: {
+export interface BuildKnowledgeInsertQueryArgs extends EventTimeFields {
     entities: EntityInsertSpec[];
     relations: RelationInsertSpec[];
-    lts: string;
-}): QuerySpec {
+}
+export function buildKnowledgeInsertQuery(args: BuildKnowledgeInsertQueryArgs): QuerySpec {
     const statements: string[] = [];
-    const { entities, relations, lts } = args;
+    const { entities, relations, lts, ts, local_date, local_tz } = args;
+    const timeFields = `lts: d'${lts}', ts: d'${ts}', local_date: "${local_date}", local_tz: "${local_tz}"`;
 
     for (const e of entities) {
         statements.push(
-            `CREATE user_entities CONTENT { name: "${e.name}", embedding: [${e.embedding.join(',')}], lts: d'${lts}' }`
+            `CREATE user_entities CONTENT { name: "${e.name}", embedding: [${e.embedding.join(',')}], ${timeFields} }`
         );
     }
 
     for (const r of relations) {
         statements.push(
-            `RELATE (SELECT VALUE id FROM user_entities WHERE name = "${r.sourceName}" LIMIT 1)->user_relations->(SELECT VALUE id FROM user_entities WHERE name = "${r.targetName}" LIMIT 1) CONTENT { name: "${r.name}", sourceName: "${r.sourceName}", targetName: "${r.targetName}", kind: "${r.kind}", embedding: [${r.embedding.join(',')}], lts: d'${lts}' }`
+            `RELATE (SELECT VALUE id FROM user_entities WHERE name = "${r.sourceName}" LIMIT 1)->user_relations->(SELECT VALUE id FROM user_entities WHERE name = "${r.targetName}" LIMIT 1) CONTENT { name: "${r.name}", sourceName: "${r.sourceName}", targetName: "${r.targetName}", kind: "${r.kind}", embedding: [${r.embedding.join(',')}], ${timeFields} }`
         );
     }
 

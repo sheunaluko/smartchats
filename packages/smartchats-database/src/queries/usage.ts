@@ -63,6 +63,11 @@ export function insertUsageRecord(args: InsertUsageRecordArgs): QuerySpec {
     // field from SET entirely — the field stays NONE on the row.
     // Without this guard, the previous fixed SET produced an ERR for every
     // call without a sessionId (writeUsageRecord's silent try/catch hid it).
+    // Server-side stamp for all event-time fields. lts and ts are both
+    // real-UTC time::now() (lts on usage_records was always real UTC, not
+    // fake-UTC like the user-data tables). local_date is the UTC date
+    // since the local server has no user-tz context. local_tz = 'UTC'
+    // documents that bucketing for this table is UTC days.
     const setClauses: string[] = [
         'model = $model',
         'provider = $provider',
@@ -74,6 +79,9 @@ export function insertUsageRecord(args: InsertUsageRecordArgs): QuerySpec {
         "charged_from = 'local'",
         'request_type = $type',
         'lts = time::now()',
+        'ts = time::now()',
+        "local_date = time::format(time::now(), '%Y-%m-%d')",
+        "local_tz = 'UTC'",
     ];
     const variables: Record<string, unknown> = {
         model: args.model,
