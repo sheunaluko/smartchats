@@ -140,6 +140,30 @@ DEFINE INDEX IF NOT EXISTS user_data_type_status ON user_data FIELDS type, statu
 DEFINE INDEX IF NOT EXISTS user_data_type_ts ON user_data FIELDS type, ts;
 DEFINE INDEX IF NOT EXISTS user_data_type_local_date ON user_data FIELDS type, local_date;
 
+-- ─── events: life events, milestones, birthdays, anniversaries ───
+-- Stores formal time-anchored events distinct from logs (free-form
+-- journal) and todos (action items). One-time events use ts only;
+-- time-block events (vacations, work blocks) set end_ts; recurring
+-- events (birthdays) set recurrence. related_entities links to KG
+-- so the agent can answer "what events involve Leo?".
+DEFINE TABLE IF NOT EXISTS events SCHEMALESS;
+DEFINE FIELD IF NOT EXISTS created_at ON events TYPE datetime VALUE time::now() READONLY;
+DEFINE FIELD IF NOT EXISTS updated_at ON events TYPE datetime VALUE time::now();
+DEFINE FIELD IF NOT EXISTS ts ON events TYPE datetime;
+DEFINE FIELD IF NOT EXISTS end_ts ON events TYPE option<datetime>;
+DEFINE FIELD IF NOT EXISTS local_date ON events TYPE string;
+DEFINE FIELD IF NOT EXISTS local_tz ON events TYPE string;
+DEFINE FIELD IF NOT EXISTS title ON events TYPE string;
+DEFINE FIELD IF NOT EXISTS description ON events TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS category ON events TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS recurrence ON events TYPE option<object>;
+DEFINE FIELD IF NOT EXISTS related_entities ON events TYPE option<array<record<user_entities>>>;
+DEFINE FIELD IF NOT EXISTS metadata ON events TYPE option<object>;
+DEFINE INDEX IF NOT EXISTS events_ts ON events FIELDS ts;
+DEFINE INDEX IF NOT EXISTS events_local_date ON events FIELDS local_date;
+DEFINE INDEX IF NOT EXISTS events_category ON events FIELDS category;
+DEFINE INDEX IF NOT EXISTS events_embedding ON events FIELDS embedding HNSW DIMENSION 1536 DIST COSINE;
+
 -- ─── metrics: quantifiable activity tracking ──────────────────────
 DEFINE TABLE IF NOT EXISTS metrics SCHEMALESS;
 DEFINE FIELD IF NOT EXISTS created_at ON metrics TYPE datetime VALUE time::now() READONLY;

@@ -23,6 +23,7 @@ const STRICT_EVENT_TIME_TABLES = [
     'user_relations',
     'metrics',
     'usage_records',
+    'events',
 ] as const;
 
 // user_data is the type-tagged mixed table — it holds both event-time
