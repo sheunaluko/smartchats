@@ -304,24 +304,28 @@ describe('duration filter via ts (real-time math)', () => {
     });
 
     it('ts >= now - 7d returns only rows within the past 7 days of real time', async () => {
+        // SurrealDB's `d'...'` literal parses ISO datetimes; strip milliseconds
+        // to match the format used by other working tests (the existing
+        // nowIso() helper in local_crud.test.ts does the same).
+        const stripMs = (d: Date) => d.toISOString().replace(/\.\d{3}Z$/, 'Z');
         const now = new Date();
         const yesterday = new Date(now.getTime() - 86_400_000);
         const lastMonth = new Date(now.getTime() - 30 * 86_400_000);
 
         await insertMetric({
             metric_name: 'water', value: 1,
-            lts: yesterday.toISOString(), ts: yesterday.toISOString(),
+            lts: stripMs(yesterday), ts: stripMs(yesterday),
             local_date: yesterday.toISOString().slice(0, 10),
             local_tz: 'America/Chicago',
         });
         await insertMetric({
             metric_name: 'water', value: 1,
-            lts: lastMonth.toISOString(), ts: lastMonth.toISOString(),
+            lts: stripMs(lastMonth), ts: stripMs(lastMonth),
             local_date: lastMonth.toISOString().slice(0, 10),
             local_tz: 'America/Chicago',
         });
 
-        const cutoff = new Date(now.getTime() - 7 * 86_400_000).toISOString();
+        const cutoff = stripMs(new Date(now.getTime() - 7 * 86_400_000));
         const rows = await queryRows({
             query: `SELECT * FROM metrics WHERE metric_name = 'water' AND ts >= d'${cutoff}'`,
             variables: {},

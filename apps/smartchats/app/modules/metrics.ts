@@ -353,15 +353,15 @@ function mapRowValue(r: any): number | null {
 }
 
 // Date source priority for chart x-axis:
-//   1. r.lts        — user-time, canonical (raw entries)
-//   2. r.bucket     — already user-time (queries use time::group(lts, 'day'))
-//   3. iso week     — computed from yr/wk on weekly aggregations
-//   4. r.timestamp  — legacy real-UTC fallback for rows without lts (older data)
-// Without preferring lts, charts render UTC dates and gaps misalign with the
-// user's perceived day boundaries (the bug we fixed alongside the queries
-// switching from ORDER BY created_at → ORDER BY lts).
+//   1. r.local_date — YYYY-MM-DD, user-perceived day, 1.5.0 canonical
+//   2. r.lts        — legacy fake-UTC local wall-clock; back-compat for rows
+//                     written before 1.5.0
+//   3. r.bucket     — daily aggregation alias for local_date
+//   4. iso week     — computed from yr/wk on weekly aggregations
+//   5. r.ts         — real-UTC fallback (renders as UTC date — slightly wrong
+//                     for late-evening rows but acceptable as last resort)
 function rowDate(r: any): any {
-    return r.lts || r.bucket || isoWeekMonday(r.yr, r.wk) || r.timestamp
+    return r.local_date || r.lts || r.bucket || isoWeekMonday(r.yr, r.wk) || r.ts
 }
 
 function mapRowToPoint(r: any): { x: string; y: number | null; _date?: string } {
@@ -623,7 +623,7 @@ function transformToVizProps(rows: any[], spec: MetricsQuerySpec & { presentatio
         }
         case 'calendar': {
             // Extract year/month from first row's bucket
-            const firstBucket = filledRows[0]?.timestamp || filledRows[0]?.bucket || isoWeekMonday(filledRows[0]?.yr, filledRows[0]?.wk)
+            const firstBucket = filledRows[0]?.local_date || filledRows[0]?.bucket || isoWeekMonday(filledRows[0]?.yr, filledRows[0]?.wk) || filledRows[0]?.ts
             const firstDate = new Date(firstBucket)
             const calYear = firstDate.getUTCFullYear()
             const calMonth = firstDate.getUTCMonth() + 1

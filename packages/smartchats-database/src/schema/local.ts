@@ -27,9 +27,10 @@
  *                               to change.
  *
  * Tables that carry the event-time triple: logs, sessions, user_entities,
- * user_relations, user_data, usage_records. `metrics` is the same shape but
- * keeps its existing `timestamp` field as the real-UTC instant (instead of
- * adding `ts`) — historical compatibility, no behavior difference.
+ * user_relations, user_data, metrics, usage_records. All tables use the
+ * same field names (`ts`, `local_date`, `local_tz`) — there is no
+ * per-table column-name divergence. Pre-1.5.1 `metrics` had a legacy
+ * `timestamp` column instead of `ts`; the 1.5.1 migration renames it.
  *
  * Legacy: `lts` (fake-UTC local wall-clock with a `Z` suffix) is still in
  * the schema during the 1.5.0 → 1.6.0 migration window. Dual-written by
@@ -65,7 +66,7 @@ export interface LocalSchemaLogger {
     success?: (msg: string) => void;
 }
 
-export const LOCAL_SCHEMA_VERSION = '1.5.0';
+export const LOCAL_SCHEMA_VERSION = '1.5.1';
 
 export const LOCAL_DDL = `
 -- ─── schema version marker ────────────────────────────────────────
@@ -155,21 +156,20 @@ DEFINE INDEX IF NOT EXISTS user_data_type_ts ON user_data FIELDS type, ts;
 DEFINE INDEX IF NOT EXISTS user_data_type_local_date ON user_data FIELDS type, local_date;
 
 -- ─── metrics: quantifiable activity tracking ──────────────────────
--- Note: this table keeps its existing 'timestamp' field as the real-UTC
--- instant (the 'ts' slot in the convention) rather than adding a new
--- 'ts' column. 'local_date' is the daily-bucket key. 'local_tz' is
--- formalized as a schema field (it was already written by app code).
--- 'lts' kept during 1.5.0 to 1.6.0 dual-write window.
+-- Uses the same event-time triple as every other user-data table.
+-- Pre-1.5.1, this table had a legacy 'timestamp' column instead of 'ts';
+-- the 1.5.1 migration renames it (UPDATE … SET ts = timestamp; REMOVE
+-- FIELD timestamp). 'lts' kept during 1.5.0 to 1.6.0 dual-write window.
 DEFINE TABLE IF NOT EXISTS metrics SCHEMALESS;
 DEFINE FIELD IF NOT EXISTS created_at ON metrics TYPE datetime VALUE time::now() READONLY;
 DEFINE FIELD IF NOT EXISTS updated_at ON metrics TYPE datetime VALUE time::now();
-DEFINE FIELD IF NOT EXISTS timestamp ON metrics TYPE option<datetime>;
+DEFINE FIELD IF NOT EXISTS ts ON metrics TYPE option<datetime>;
 DEFINE FIELD IF NOT EXISTS metric_name ON metrics TYPE option<string>;
 DEFINE FIELD IF NOT EXISTS lts ON metrics TYPE option<datetime>;
 DEFINE FIELD IF NOT EXISTS local_date ON metrics TYPE option<string>;
 DEFINE FIELD IF NOT EXISTS local_tz ON metrics TYPE option<string>;
 DEFINE INDEX IF NOT EXISTS metrics_created_at ON metrics FIELDS created_at;
-DEFINE INDEX IF NOT EXISTS metrics_name_timestamp ON metrics FIELDS metric_name, timestamp;
+DEFINE INDEX IF NOT EXISTS metrics_name_ts ON metrics FIELDS metric_name, ts;
 DEFINE INDEX IF NOT EXISTS metrics_name_lts ON metrics FIELDS metric_name, lts;
 DEFINE INDEX IF NOT EXISTS metrics_name_local_date ON metrics FIELDS metric_name, local_date;
 
@@ -338,6 +338,19 @@ UPDATE user_relations SET ts = lts, local_date = time::format(lts, '%Y-%m-%d'), 
 UPDATE user_data      SET ts = lts, local_date = time::format(lts, '%Y-%m-%d'), local_tz = 'America/Chicago' WHERE local_date IS NONE AND lts IS NOT NONE;
 UPDATE metrics        SET local_date = time::format(lts, '%Y-%m-%d'), local_tz = 'America/Chicago' WHERE local_date IS NONE AND lts IS NOT NONE;
 UPDATE usage_records  SET ts = lts, local_date = time::format(lts, '%Y-%m-%d'), local_tz = 'UTC' WHERE local_date IS NONE AND lts IS NOT NONE;
+`,
+    },
+    {
+        version: '1.5.1',
+        statements: `
+-- Rename metrics.timestamp → metrics.ts so the event-time convention is
+-- uniform across all tables. Backfills first (idempotent via ts IS NONE
+-- guard) so no row loses its real-UTC instant; then drops the legacy
+-- field and its composite index. The new metrics_name_ts index is
+-- declared in LOCAL_DDL above and gets defined when the DDL re-runs.
+UPDATE metrics SET ts = timestamp WHERE ts IS NONE AND timestamp IS NOT NONE;
+REMOVE INDEX IF EXISTS metrics_name_timestamp ON TABLE metrics;
+REMOVE FIELD IF EXISTS timestamp ON TABLE metrics;
 `,
     },
 ];

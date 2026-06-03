@@ -9,8 +9,8 @@
  * YYYY-MM-DD in the user's tz at write time). Duration-based filters
  * ("last 4 weeks") use `ts >= cutoff` for real-time math; calendar
  * filters ("logs from 2026-05-31") use `local_date = '2026-05-31'`.
- * The legacy `timestamp` column is the same value as `ts` (kept for
- * back-compat); `lts` is dual-read during the 1.5.0 → 1.6.0 window.
+ * `lts` is dual-read during the 1.5.0 → 1.6.0 window. The legacy
+ * `timestamp` column was renamed to `ts` in 1.5.1.
  */
 
 import type { QuerySpec, AuditFields, EventTimeFields } from '../types.js';
@@ -21,8 +21,6 @@ export interface MetricRow extends AuditFields {
     value: number;
     unit?: string;
     category?: string;
-    /** Real-UTC timestamp (legacy; use lts for user-time semantics). */
-    timestamp?: string;
     source_text?: string;
     note?: string;
 }
@@ -64,7 +62,7 @@ export function getMetrics(args: GetMetricsArgs = {}): QuerySpec {
 
     const where = conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : '';
     return {
-        query: `SELECT id, metric_name, value, unit, category, timestamp, lts, ts, local_date, local_tz, source_text, note FROM metrics ${where} ORDER BY ts DESC LIMIT ${limit}`,
+        query: `SELECT id, metric_name, value, unit, category, lts, ts, local_date, local_tz, source_text, note FROM metrics ${where} ORDER BY ts DESC LIMIT ${limit}`,
         variables,
     };
 }
@@ -137,10 +135,10 @@ export interface InsertMetricArgs extends EventTimeFields {
 }
 
 /**
- * INSERT a new metric row. The legacy `timestamp` column is populated
- * from the bundle's `$ts` (real-UTC instant — same semantics, kept under
- * the historical column name for backward compat with readers). `lts` is
- * dual-written during the 1.5.0 → 1.6.0 window.
+ * INSERT a new metric row. `ts` is the real-UTC instant (the canonical
+ * event-time column name across every table since 1.5.1, replacing the
+ * legacy `timestamp` column). `lts` is dual-written during the 1.5.0 →
+ * 1.6.0 window.
  */
 export function insertMetric(args: InsertMetricArgs): QuerySpec {
     return {
@@ -149,7 +147,7 @@ export function insertMetric(args: InsertMetricArgs): QuerySpec {
                         value: $value,
                         unit: $unit,
                         metric_type: $metric_type,
-                        timestamp: <datetime> $ts,
+                        ts: <datetime> $ts,
                         lts: <datetime> $lts,
                         local_date: $local_date,
                         local_tz: $local_tz,

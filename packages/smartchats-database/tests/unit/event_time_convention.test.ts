@@ -33,8 +33,8 @@ const EVENT_TIME_TABLES = [
 ] as const;
 
 describe('event-time convention (LOCAL_SCHEMA_VERSION 1.5.0)', () => {
-    it('schema version is 1.5.0', () => {
-        expect(LOCAL_SCHEMA_VERSION).toBe('1.5.0');
+    it('schema version is 1.5.1 (metrics.timestamp → metrics.ts rename)', () => {
+        expect(LOCAL_SCHEMA_VERSION).toBe('1.5.1');
     });
 
     describe('DDL: new fields on every event-time table', () => {
@@ -49,16 +49,11 @@ describe('event-time convention (LOCAL_SCHEMA_VERSION 1.5.0)', () => {
                     new RegExp(`DEFINE FIELD IF NOT EXISTS local_tz ON ${table} TYPE option<string>`),
                 );
             });
-            // metrics intentionally keeps its existing `timestamp` field as the
-            // real-UTC instant rather than introducing a parallel `ts` field —
-            // documented in the schema header.
-            if (table !== 'metrics') {
-                it(`${table} defines ts (option<datetime>)`, () => {
-                    expect(LOCAL_DDL).toMatch(
-                        new RegExp(`DEFINE FIELD IF NOT EXISTS ts ON ${table} TYPE option<datetime>`),
-                    );
-                });
-            }
+            it(`${table} defines ts (option<datetime>)`, () => {
+                expect(LOCAL_DDL).toMatch(
+                    new RegExp(`DEFINE FIELD IF NOT EXISTS ts ON ${table} TYPE option<datetime>`),
+                );
+            });
         }
     });
 
@@ -90,8 +85,9 @@ describe('event-time convention (LOCAL_SCHEMA_VERSION 1.5.0)', () => {
             });
         }
 
-        // Tables that adopt `ts` get it backfilled too. metrics already has
-        // `timestamp` so no `ts` assignment is expected for it.
+        // 1.5.0 backfills ts from lts on every non-metrics table. metrics gets
+        // its ts in 1.5.1 (renamed from the legacy timestamp column); the
+        // 1.5.0 block only writes local_date for metrics.
         for (const table of EVENT_TIME_TABLES.filter((t) => t !== 'metrics')) {
             it(`backfills ${table}.ts from lts`, () => {
                 expect(v150!.statements).toMatch(new RegExp(`UPDATE ${table}\\s+SET[^;]*ts = lts`));
@@ -123,6 +119,23 @@ describe('event-time convention (LOCAL_SCHEMA_VERSION 1.5.0)', () => {
                     new RegExp(`UPDATE ${table}\\s+SET[^;]*local_tz = 'America/Chicago'`),
                 );
             }
+        });
+    });
+
+    describe('1.5.1 migration block (metrics.timestamp → metrics.ts rename)', () => {
+        const v151 = LOCAL_SCHEMA_MIGRATIONS.find((m) => m.version === '1.5.1');
+
+        it('is registered in LOCAL_SCHEMA_MIGRATIONS', () => {
+            expect(v151).toBeDefined();
+        });
+
+        it('backfills metrics.ts from the legacy metrics.timestamp column', () => {
+            expect(v151!.statements).toMatch(/UPDATE metrics\s+SET\s+ts = timestamp\s+WHERE ts IS NONE AND timestamp IS NOT NONE/);
+        });
+
+        it('drops the legacy metrics.timestamp field and metrics_name_timestamp index', () => {
+            expect(v151!.statements).toMatch(/REMOVE INDEX IF EXISTS metrics_name_timestamp ON TABLE metrics/);
+            expect(v151!.statements).toMatch(/REMOVE FIELD IF EXISTS timestamp ON TABLE metrics/);
         });
     });
 
