@@ -366,13 +366,33 @@ export interface ApplyLocalSchemaResult {
 }
 
 /**
- * Idempotent schema init. Checks `_schema_version:current` — if it matches
- * the expected version, returns `applied: false` immediately. Otherwise runs
- * the full DDL, the cumulative migration blocks, and stamps the new version.
+ * Idempotent schema convergence. Always runs the full DDL and every
+ * cumulative migration block on every call — they are individually
+ * idempotent (DDL: `DEFINE … IF NOT EXISTS`; migrations: `WHERE X IS
+ * NONE` guards), so re-runs touch only rows that need converging.
  *
- * Accepts the runtime DB instance directly (dependency injection) — see the
- * `LocalSchemaDb` interface comment. Phase 9.0f can swap to the typed
- * `Client` once that lands.
+ * Why no version-gate (changed 2026-06-03): previously this function
+ * early-returned when the stored `_schema_version` matched the code
+ * constant. That ASSUMED all writes go through builders that already
+ * populate the current-shape fields. The bundle importer breaks that
+ * assumption — it writes raw row payloads via UPSERT, so pre-1.5.0
+ * bundles imported into a 1.5.1-stamped DB landed with empty
+ * `ts`/`local_date` fields and the next applyLocalSchema call
+ * skipped them. Dropping the gate makes the schema layer enforce
+ * "every event-time row has the post-migration fields populated"
+ * as a true invariant regardless of how data arrived.
+ *
+ * Cost: a few index probes per call (each migration's `WHERE X IS
+ * NONE` guard hits the indexed field). On a converged DB every probe
+ * returns zero matches; the UPDATE statements are essentially free.
+ *
+ * The `_schema_version:current` row is still maintained for
+ * diagnostics ("what schema did this DB last see?") and the result's
+ * `applied: true` flag still indicates "the version actually changed
+ * this call" so callers can tell first-boot from steady-state.
+ *
+ * Accepts the runtime DB instance directly (dependency injection) — see
+ * the `LocalSchemaDb` interface comment.
  */
 export async function applyLocalSchema(
     db: LocalSchemaDb,
@@ -397,19 +417,18 @@ export async function applyLocalSchema(
     }
 
     if (previousVersion === LOCAL_SCHEMA_VERSION) {
-        log.info?.(`schema: up-to-date (v${LOCAL_SCHEMA_VERSION}), skipping init`);
-        return { applied: false, previousVersion, currentVersion: LOCAL_SCHEMA_VERSION };
-    }
-
-    if (previousVersion) {
+        log.info?.(`schema: converging at v${LOCAL_SCHEMA_VERSION} (idempotent re-apply)`);
+    } else if (previousVersion) {
         log.info?.(`schema: upgrading from v${previousVersion} → v${LOCAL_SCHEMA_VERSION}`);
     } else {
         log.info?.(`schema: fresh install, applying v${LOCAL_SCHEMA_VERSION}`);
     }
 
     await db.query(LOCAL_DDL);
-    // Migrations run AFTER DDL so the new fields (e.g. `lts`) exist before the
-    // backfill writes to them. Each block is idempotent — safe on fresh installs.
+    // Migrations run AFTER DDL so the new fields exist before the backfill
+    // writes to them. Each block is idempotent — safe on fresh installs and
+    // safe on every subsequent call (the `WHERE X IS NONE` guards return
+    // zero rows once the data is converged).
     for (const { statements } of LOCAL_SCHEMA_MIGRATIONS) {
         await db.query(statements);
     }
@@ -418,6 +437,17 @@ export async function applyLocalSchema(
         { version: LOCAL_SCHEMA_VERSION },
     );
 
-    log.success?.(`schema: v${LOCAL_SCHEMA_VERSION} applied`);
-    return { applied: true, previousVersion, currentVersion: LOCAL_SCHEMA_VERSION };
+    if (previousVersion === LOCAL_SCHEMA_VERSION) {
+        log.success?.(`schema: v${LOCAL_SCHEMA_VERSION} converged (no version change)`);
+    } else {
+        log.success?.(`schema: v${LOCAL_SCHEMA_VERSION} applied`);
+    }
+    // `applied` retains its original meaning: TRUE iff this call actually
+    // changed the stamped version. Steady-state re-applies return FALSE
+    // even though the DDL + migrations DID run.
+    return {
+        applied: previousVersion !== LOCAL_SCHEMA_VERSION,
+        previousVersion,
+        currentVersion: LOCAL_SCHEMA_VERSION,
+    };
 }

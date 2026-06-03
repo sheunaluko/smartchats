@@ -22,6 +22,19 @@ export interface Bundle {
      *  current auth controls actual ownership of imported rows (server-side
      *  schema sets owner from $auth.id on insert). */
     userId: string;
+    /**
+     * Schema version the source DB was at when the export ran (e.g. "1.5.1").
+     * Optional for back-compat with pre-2026-06-03 bundles that lack the
+     * field. The importer uses it to:
+     *   - log when bundle.schemaVersion < destination LOCAL_SCHEMA_VERSION
+     *     (the importer's post-import applyLocalSchema converges the data),
+     *   - warn loudly when bundle.schemaVersion > destination version
+     *     (data may carry fields the importer doesn't know about — stored
+     *     as ad-hoc fields on SCHEMALESS tables, not lost).
+     * This is the SCHEMA version, distinct from the bundle wire-format
+     * `version: 1` above.
+     */
+    schemaVersion?: string;
     /** Per-table arrays of row objects. Tables omitted from the bundle are
      *  skipped at import; empty arrays import to nothing (no-op). */
     tables: Record<string, unknown[]>;

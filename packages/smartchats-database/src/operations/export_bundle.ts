@@ -16,6 +16,7 @@
 
 import type { DataAPI } from 'smartchats-backend';
 import { exportTablePage } from '../queries/import_export.js';
+import { LOCAL_SCHEMA_VERSION } from '../schema/local.js';
 import {
     DEFAULT_EXPORT_TABLES,
     SENSITIVE_TABLES,
@@ -92,6 +93,15 @@ export async function exportBundle(
         exportedAt: new Date().toISOString(),
         source: opts.source,
         userId: opts.userId,
+        // Schema version stamped at export time. Distinct from the bundle
+        // wire-format `version: 1`. Lets the importer detect cross-schema
+        // imports (bundle was on a different schema than the destination).
+        // Note: for cloud sources, LOCAL_SCHEMA_VERSION here is the local
+        // schema's constant from the exporter's process — it may diverge
+        // from what the cloud DB actually has if the cloud schema is on a
+        // different track. That's a future cleanup; for in-deployment
+        // exports (local ↔ local) it's exact.
+        schemaVersion: LOCAL_SCHEMA_VERSION,
         tables: {},
     };
 

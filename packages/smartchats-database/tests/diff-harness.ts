@@ -41,8 +41,9 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createClient, type Client } from '../src/index.js';
-import { buildImportQuery } from '../src/queries/import_export.js';
-import { applyLocalSchema, LOCAL_SCHEMA_MIGRATIONS, type LocalSchemaDb } from '../src/schema/local.js';
+import { applyLocalSchema, type LocalSchemaDb } from '../src/schema/local.js';
+import { importBundle } from '../src/operations/import_bundle.js';
+import type { DataAPI } from 'smartchats-backend';
 
 // ── Layer 2: refuse in-repo paths outside gitignored zones ───────────
 
@@ -153,44 +154,25 @@ interface Bundle {
     tables: Record<string, Array<Record<string, unknown>>>;
 }
 
-async function importBundleRaw(client: Client, bundle: Bundle): Promise<{ written: number; skipped: number; perTable: Record<string, number> }> {
-    let written = 0;
-    let skipped = 0;
-    const perTable: Record<string, number> = {};
-    for (const [tableName, rows] of Object.entries(bundle.tables)) {
-        if (!Array.isArray(rows)) continue;
-        perTable[tableName] = 0;
-        for (const row of rows) {
-            const id = row.id;
-            if (typeof id !== 'string') {
-                skipped++;
-                continue;
-            }
-            const colon = id.indexOf(':');
-            if (colon < 0) {
-                skipped++;
-                continue;
-            }
-            const key = id.slice(colon + 1);
-            const spec = buildImportQuery(tableName, key, row);
-            if (!spec) {
-                skipped++;
-                continue;
-            }
-            try {
-                const stmts = (await client.runRaw(spec.query, spec.variables)) as Array<{ status: string; result: unknown }>;
-                if (stmts.every((s) => s.status === 'OK')) {
-                    written++;
-                    perTable[tableName]++;
-                } else {
-                    skipped++;
-                }
-            } catch {
-                skipped++;
-            }
-        }
-    }
-    return { written, skipped, perTable };
+/**
+ * Adapt the raw `Client.runRaw` interface into the `DataAPI` shape that
+ * `operations.importBundle` expects. Lets the harness use the production
+ * importer instead of a parallel implementation — same code path the MCP
+ * import tool exercises, with the schemaVersion warning + per-table
+ * error reporting for free.
+ */
+function makeDataAPIAdapter(client: Client): DataAPI {
+    return {
+        async query(args) {
+            const statements = (await client.runRaw(args.query, args.variables)) as Array<{ status: string; result: unknown }>;
+            const firstStmt = statements[0];
+            const rows = firstStmt && Array.isArray(firstStmt.result) ? firstStmt.result as unknown[] : [];
+            return { rows, statements };
+        },
+        async healthCheck() {
+            return { ok: true, latency_ms: 0, tables: {} };
+        },
+    };
 }
 
 // ── Paired queries ─────────────────────────────────────────────────────
@@ -447,27 +429,25 @@ async function main(): Promise<number> {
         await applyLocalSchema(schemaDb, {});
 
         console.log('importing bundle rows');
-        const importResult = await importBundleRaw(client, bundle);
-        console.log(`  wrote ${importResult.written} rows, skipped ${importResult.skipped}`);
-        for (const [t, n] of Object.entries(importResult.perTable)) {
-            console.log(`    ${t}: ${n}`);
+        const data = makeDataAPIAdapter(client);
+        const importResult = await importBundle(data, bundle, {
+            onLog: (msg) => console.log(`  [import] ${msg}`),
+        });
+        console.log(`  wrote ${importResult.rowsWritten} of ${importResult.rowsInBundle} bundle rows`);
+        for (const t of importResult.perTable) {
+            const failed = t.failed > 0 ? ` (failed=${t.failed}: ${t.firstError ?? ''})` : '';
+            console.log(`    ${t.table}: ${t.written}/${t.rows}${failed}`);
         }
 
-        // Post-import backfill — re-run every migration block. applyLocalSchema's
-        // initial pass ran on an EMPTY db (before import), so its UPDATE
-        // statements no-op'd. Now that the bundle's pre-1.5.0 rows are present
-        // we need to populate ts / local_date / local_tz on them. Migrations
-        // are idempotent (WHERE local_date IS NONE / WHERE ts IS NONE), so
-        // re-running them is safe and only touches the newly-imported rows.
-        //
-        // This is also a latent bug in production import: pre-1.5.0 bundles
-        // imported into a 1.5.1-stamped DB get the same empty fields. The
-        // production importer (operations/import_bundle.ts) should run the
-        // same post-import backfill — tracked in smartchats-cloud STATUS.
-        console.log('  post-import backfill (re-runs cumulative migrations on imported rows)');
-        for (const { statements } of LOCAL_SCHEMA_MIGRATIONS) {
-            await client.runRaw(statements);
-        }
+        // Post-import schema convergence. applyLocalSchema's first call
+        // (above) ran on an EMPTY db so its UPDATE statements no-op'd.
+        // Now that bundle rows are present, re-run it: with the version
+        // gate dropped, applyLocalSchema re-applies DDL + migrations
+        // unconditionally. Idempotent guards (`WHERE X IS NONE`) make
+        // sure only the just-imported rows missing post-1.5.0 fields
+        // get touched.
+        console.log('  post-import schema convergence (applyLocalSchema)');
+        await applyLocalSchema(schemaDb, {});
 
         console.log('');
         console.log('running paired queries');

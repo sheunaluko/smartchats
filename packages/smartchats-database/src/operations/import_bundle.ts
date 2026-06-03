@@ -17,11 +17,43 @@
  * vector writes. Sequential is ~13 min vs ~1 min parallel for ~800 rows;
  * safety wins. Override via `concurrency` if you know your bundle has no
  * embeddings.
+ *
+ * Schema convergence: importBundle does NOT call applyLocalSchema itself
+ * (it's backend-agnostic and applyLocalSchema is local-only). When
+ * importing a pre-1.5.0 bundle into a 1.5.1-stamped destination, the
+ * imported rows arrive WITHOUT the post-1.5.0 fields (ts / local_date).
+ * Callers MUST re-converge the destination's schema after import for
+ * the new fields to get backfilled — `applyLocalSchema(db)` for the
+ * local case, cloud-side server boot for the cloud case (cloud handles
+ * its own schema lifecycle). The diff harness and the local CLI's
+ * `smartchats data import` command both do this; the MCP
+ * `import_user_data` tool will once it grows a local-target hook.
+ *
+ * bundle.schemaVersion (added 2026-06-03) is informational only — used
+ * for warning logs when the bundle came from a different schema version
+ * than the importer's process knows about.
  */
 
 import type { DataAPI } from 'smartchats-backend';
 import { buildImportQuery } from '../queries/import_export.js';
+import { LOCAL_SCHEMA_VERSION } from '../schema/local.js';
 import type { Bundle } from './types.js';
+
+/** Compare two semver-ish version strings. Returns -1/0/1. Treats undefined as 0.0.0. */
+function compareSemverLike(a: string | undefined, b: string): -1 | 0 | 1 {
+    const parse = (v: string | undefined): number[] =>
+        (v ?? '0.0.0').split('.').map((p) => parseInt(p, 10) || 0);
+    const av = parse(a);
+    const bv = parse(b);
+    const max = Math.max(av.length, bv.length);
+    for (let i = 0; i < max; i++) {
+        const x = av[i] ?? 0;
+        const y = bv[i] ?? 0;
+        if (x < y) return -1;
+        if (x > y) return 1;
+    }
+    return 0;
+}
 
 export interface ImportOptions {
     /**
@@ -46,6 +78,12 @@ export interface ImportOptions {
      * minimal: caller derives totals + percentages from `rowsByTable`.
      */
     onProgress?: (info: ImportProgress) => void;
+    /**
+     * Optional log sink for informational messages (schema-version
+     * mismatches, post-import advice). Falls through to silence when
+     * omitted.
+     */
+    onLog?: (message: string) => void;
 }
 
 export interface ImportProgress {
@@ -110,6 +148,28 @@ export async function importBundle(
         throw new Error(
             `importBundle: unsupported bundle version: ${bundle.version}. Only v1 is supported.`,
         );
+    }
+
+    // Schema-version sanity check. Informational logging — does not abort.
+    if (bundle.schemaVersion === undefined) {
+        opts.onLog?.(
+            `bundle predates schemaVersion stamping (pre-2026-06-03 export). ` +
+            `Caller should run applyLocalSchema after import to converge fields.`,
+        );
+    } else {
+        const cmp = compareSemverLike(bundle.schemaVersion, LOCAL_SCHEMA_VERSION);
+        if (cmp < 0) {
+            opts.onLog?.(
+                `bundle schemaVersion ${bundle.schemaVersion} < destination ${LOCAL_SCHEMA_VERSION}. ` +
+                `Post-import applyLocalSchema will backfill new fields.`,
+            );
+        } else if (cmp > 0) {
+            opts.onLog?.(
+                `WARNING: bundle schemaVersion ${bundle.schemaVersion} > destination ${LOCAL_SCHEMA_VERSION}. ` +
+                `Bundle may carry fields the importer doesn't know about; they'll be stored as ad-hoc ` +
+                `fields on SCHEMALESS tables. Upgrade smartchats-database to read them correctly.`,
+            );
+        }
     }
 
     const wantedTables = opts.tables ?? Object.keys(bundle.tables);
