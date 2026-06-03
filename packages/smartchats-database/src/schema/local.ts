@@ -120,14 +120,20 @@ DEFINE FIELD IF NOT EXISTS created_at ON app_data TYPE datetime VALUE time::now(
 DEFINE FIELD IF NOT EXISTS updated_at ON app_data TYPE datetime VALUE time::now();
 DEFINE INDEX IF NOT EXISTS app_data_created_at ON app_data FIELDS created_at;
 
--- ─── user_data: todos, prepared metric defs, prepared log categories ──
+-- ─── user_data: todos, completions, metric defs, log category defs ──
 -- Type-tagged via the type field; queries always filter WHERE type = '...'.
+-- This table mixes event-time rows (todo, todo_completion — have ts /
+-- local_date / local_tz) and pure configuration rows (metric_definition,
+-- log_category_definition — no event-time semantic, only have data +
+-- created_at). Event-time fields are therefore OPTIONAL here, unlike on
+-- the strict event-time tables (logs / sessions / metrics / etc.) where
+-- they are required. The 'type' field disambiguates.
 DEFINE TABLE IF NOT EXISTS user_data SCHEMALESS;
 DEFINE FIELD IF NOT EXISTS created_at ON user_data TYPE datetime VALUE time::now() READONLY;
 DEFINE FIELD IF NOT EXISTS updated_at ON user_data TYPE datetime VALUE time::now();
-DEFINE FIELD IF NOT EXISTS ts ON user_data TYPE datetime;
-DEFINE FIELD IF NOT EXISTS local_date ON user_data TYPE string;
-DEFINE FIELD IF NOT EXISTS local_tz ON user_data TYPE string;
+DEFINE FIELD IF NOT EXISTS ts ON user_data TYPE option<datetime>;
+DEFINE FIELD IF NOT EXISTS local_date ON user_data TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS local_tz ON user_data TYPE option<string>;
 DEFINE FIELD IF NOT EXISTS type ON user_data TYPE option<string>;
 DEFINE FIELD IF NOT EXISTS status ON user_data TYPE option<string>;
 DEFINE INDEX IF NOT EXISTS user_data_type_status ON user_data FIELDS type, status;

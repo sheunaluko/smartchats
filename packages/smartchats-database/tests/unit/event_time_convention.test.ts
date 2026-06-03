@@ -14,15 +14,22 @@
 import { describe, it, expect } from 'vitest';
 import { LOCAL_DDL, LOCAL_SCHEMA_MIGRATIONS, LOCAL_SCHEMA_VERSION } from '../../src/schema/local.js';
 
-const EVENT_TIME_TABLES = [
+// Strict event-time tables: every row carries an event timestamp, so
+// ts / local_date / local_tz are REQUIRED (TYPE datetime / TYPE string).
+const STRICT_EVENT_TIME_TABLES = [
     'logs',
     'sessions',
     'user_entities',
     'user_relations',
-    'user_data',
     'metrics',
     'usage_records',
 ] as const;
+
+// user_data is the type-tagged mixed table — it holds both event-time
+// rows (todo, todo_completion) AND pure configuration rows
+// (metric_definition, log_category_definition) that have no event-time
+// semantic. Event-time fields are OPTIONAL on this table.
+const MIXED_TABLE = 'user_data';
 
 describe('event-time convention (LOCAL_SCHEMA_VERSION v1.0.0 baseline)', () => {
     it('schema version is 1.0.0', () => {
@@ -33,12 +40,9 @@ describe('event-time convention (LOCAL_SCHEMA_VERSION v1.0.0 baseline)', () => {
         expect(LOCAL_SCHEMA_MIGRATIONS).toEqual([]);
     });
 
-    describe('event-time fields are required (non-option) on every event-time table', () => {
-        for (const table of EVENT_TIME_TABLES) {
+    describe('event-time fields are required (non-option) on strict event-time tables', () => {
+        for (const table of STRICT_EVENT_TIME_TABLES) {
             it(`${table}.ts is TYPE datetime (not option<datetime>)`, () => {
-                // The DDL line must be `... TYPE datetime;` (not `option<datetime>`).
-                // We match exact "TYPE datetime;" — the option form would have
-                // `TYPE option<datetime>` which the negative-lookahead excludes.
                 expect(LOCAL_DDL).toMatch(
                     new RegExp(`DEFINE FIELD IF NOT EXISTS ts ON ${table} TYPE datetime(?!\\<)`),
                 );
@@ -56,6 +60,24 @@ describe('event-time convention (LOCAL_SCHEMA_VERSION v1.0.0 baseline)', () => {
         }
     });
 
+    describe(`user_data (mixed table) keeps event-time fields OPTIONAL`, () => {
+        it('user_data.ts is option<datetime> (configuration rows like metric_definition lack it)', () => {
+            expect(LOCAL_DDL).toMatch(
+                new RegExp(`DEFINE FIELD IF NOT EXISTS ts ON ${MIXED_TABLE} TYPE option<datetime>`),
+            );
+        });
+        it('user_data.local_date is option<string>', () => {
+            expect(LOCAL_DDL).toMatch(
+                new RegExp(`DEFINE FIELD IF NOT EXISTS local_date ON ${MIXED_TABLE} TYPE option<string>`),
+            );
+        });
+        it('user_data.local_tz is option<string>', () => {
+            expect(LOCAL_DDL).toMatch(
+                new RegExp(`DEFINE FIELD IF NOT EXISTS local_tz ON ${MIXED_TABLE} TYPE option<string>`),
+            );
+        });
+    });
+
     describe('legacy fields are absent from the v1.0.0 baseline', () => {
         it('no `lts` field on any table', () => {
             expect(LOCAL_DDL).not.toMatch(/DEFINE FIELD IF NOT EXISTS lts ON /);
@@ -69,7 +91,8 @@ describe('event-time convention (LOCAL_SCHEMA_VERSION v1.0.0 baseline)', () => {
     });
 
     describe('indexes on the event-time bucket key', () => {
-        for (const table of EVENT_TIME_TABLES) {
+        const ALL_TABLES = [...STRICT_EVENT_TIME_TABLES, MIXED_TABLE] as const;
+        for (const table of ALL_TABLES) {
             it(`${table} has an index covering local_date`, () => {
                 expect(LOCAL_DDL).toMatch(
                     new RegExp(`DEFINE INDEX IF NOT EXISTS \\w+local_date ON ${table} FIELDS [\\w, ]*local_date`),

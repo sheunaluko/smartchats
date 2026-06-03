@@ -165,7 +165,19 @@ export function convertLegacyBundle(
                 local_tz = typeof row.local_tz === 'string' ? row.local_tz : assumedTz;
             }
 
-            if (!ts || !local_date || !local_tz) {
+            if (!ts || !local_date) {
+                // No derivation source. For user_data this is OK — that
+                // table mixes event-time rows (todo, todo_completion) with
+                // pure configuration rows (metric_definition,
+                // log_category_definition) that have no event-time. Pass
+                // configuration rows through unchanged.
+                if (tableName === 'user_data') {
+                    delete row.lts;
+                    delete row.timestamp;
+                    outRows.push(row);
+                    convertedCount++;
+                    continue;
+                }
                 skippedCount++;
                 if (skipReasons.length < 3) {
                     skipReasons.push(`row missing event-time derivation source (id=${String(row.id ?? '?')})`);
@@ -178,7 +190,7 @@ export function convertLegacyBundle(
             delete row.timestamp;
             row.ts = ts;
             row.local_date = local_date;
-            row.local_tz = local_tz;
+            row.local_tz = local_tz!;
 
             outRows.push(row);
             convertedCount++;
