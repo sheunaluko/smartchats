@@ -435,16 +435,35 @@ export function registerTools(server: McpServer, opts: RegisterToolsOptions): vo
                 }
 
                 try {
+                    const importLogs: string[] = [];
                     const result = await operations.importBundle(activeHandle.data, bundle, {
                         tables,
                         dryRun: dry_run,
+                        onLog: (msg) => importLogs.push(msg),
                     });
+
+                    // Post-import schema convergence. Local targets carry their
+                    // own schema lifecycle (via applyLocalSchema) — call it so
+                    // any rows that arrived without post-migration fields get
+                    // backfilled by the idempotent migration block. Cloud
+                    // targets omit applySchema (cloud server manages schema).
+                    let convergenceNote = "";
+                    if (!dry_run && activeHandle.applySchema) {
+                        try {
+                            await activeHandle.applySchema();
+                            convergenceNote = "Post-import schema convergence: applied.";
+                        } catch (err) {
+                            convergenceNote = `Post-import schema convergence: FAILED — ${(err as Error).message}`;
+                        }
+                    }
 
                     const lines = [
                         dry_run
                             ? `[DRY RUN] Would import ${result.rowsInBundle} row(s) from ${fullPath}`
                             : `Imported ${result.rowsWritten}/${result.rowsInBundle} row(s) into ${targetDescription}`,
                         `Source: ${result.bundleSource}, exported: ${result.bundleExportedAt}, original userId: ${result.bundleUserId}`,
+                        ...(importLogs.length > 0 ? ["", "Import notes:", ...importLogs.map((m) => `  ${m}`)] : []),
+                        ...(convergenceNote ? ["", convergenceNote] : []),
                         ``,
                         `Per-table counts:`,
                         ...result.perTable.map((t) => {

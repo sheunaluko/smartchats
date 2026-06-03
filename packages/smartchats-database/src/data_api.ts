@@ -25,6 +25,7 @@ import {
     type CloudClientConfig,
 } from 'smartchats-cloud-client';
 import { createClient, type Client } from './client.js';
+import { applyLocalSchema, type LocalSchemaDb } from './schema/local.js';
 import type { DataAPI, DataHealthReport } from 'smartchats-backend';
 
 export type Target = 'cloud' | 'local';
@@ -50,6 +51,19 @@ export interface DataAPIHandle {
     close: () => Promise<void>;
     /** Human-readable description of the connection target (for logs). */
     description: string;
+    /**
+     * Optional schema-convergence hook. Present on backends that own their
+     * own schema lifecycle (local target — runs `applyLocalSchema`). Omitted
+     * on backends where the server manages schema (cloud target — the
+     * server's boot path applies schema, not the client).
+     *
+     * Use case: callers of `operations.importBundle` should call this after
+     * import succeeds. The importer writes raw row payloads via UPSERT,
+     * which can introduce rows that lack post-migration fields (e.g. a
+     * pre-1.5.0 bundle into a 1.5.1-stamped local DB). applySchema converges
+     * those rows via the idempotent migration backfills.
+     */
+    applySchema?: () => Promise<void>;
 }
 
 /**
@@ -89,6 +103,9 @@ export function makeCloudDataAPI(opts: CloudOptions = {}): DataAPIHandle {
             }
         },
     };
+    // applySchema intentionally omitted on cloud — schema lifecycle is the
+    // server's responsibility (cloud functions deploy with their schema),
+    // not the client's.
     return {
         data,
         getUid: () => cloudGetUid(config),
@@ -156,11 +173,27 @@ export async function makeLocalDataAPI(opts: LocalOptions = {}): Promise<DataAPI
             }
         },
     };
+    // applyLocalSchema's `LocalSchemaDb` was written against the SurrealDB
+    // SDK's `Surreal.query()` shape — `[[row1, row2, ...], ...]` (each
+    // statement's rows flattened to the outer array). `Client.runRaw`
+    // wraps each statement in `{ status, result, time }`. Adapt by
+    // unwrapping `result` per statement so applyLocalSchema's SELECT
+    // probing works correctly and previousVersion can be detected.
+    const schemaDb: LocalSchemaDb = {
+        query: async (q: string, vars?: Record<string, unknown>) => {
+            const statements = (await client.runRaw(q, vars)) as Array<{ status: string; result: unknown }>;
+            return statements.map((s) => s.result);
+        },
+    };
+
     return {
         data,
         getUid: async () => 'local',
         close: async () => { await client.close().catch(() => undefined); },
         description: `local (${url}, ${namespace}/${database})`,
+        applySchema: async () => {
+            await applyLocalSchema(schemaDb, {});
+        },
     };
 }
 
