@@ -6,8 +6,18 @@ describe('listSessions', () => {
         expect(listSessions().query).toMatch(/LIMIT 50$/);
     });
 
-    it('orders by lts DESC so original timing survives import', () => {
-        expect(listSessions().query).toContain('ORDER BY lts DESC');
+    it('orders by ts DESC (real-UTC instant, monotonic across DST and travel)', () => {
+        expect(listSessions().query).toContain('ORDER BY ts DESC');
+    });
+
+    it('projects the legacy lts alongside the 1.5.0 event-time triple', () => {
+        // Dual-read window: consumers can migrate to ts/local_date at their
+        // own pace before lts is dropped in 1.6.0.
+        const q = listSessions().query;
+        expect(q).toContain('lts');
+        expect(q).toContain('ts');
+        expect(q).toContain('local_date');
+        expect(q).toContain('local_tz');
     });
 
     it('clamps an oversized limit down to 200', () => {

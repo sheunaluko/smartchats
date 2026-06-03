@@ -4,13 +4,13 @@
  * The agent acts as the extractor — recognizing metrics in conversation and saving structured data.
  */
 
-import { getUserTimezone, toLocalTimestamp, eventTimeAt, getCurrentLocalDate } from "./system"
+import { getUserTimezone, eventTimeAt, getCurrentLocalDate } from "./system"
 import { getBackend } from '@/lib/backend';
 import { queries } from 'smartchats-database';
-import type { MetricsQuerySpec, MetricsLtsFilterCtx } from 'smartchats-database';
+import type { MetricsQuerySpec, MetricsTimeFilterCtx } from 'smartchats-database';
 
-/** Shared ctx for the lts-filter / metrics-query builders. */
-const LTS_CTX: MetricsLtsFilterCtx = { getCurrentLocalDate, toLocalTimestamp }
+/** Shared ctx for the time-filter / metrics-query builders. */
+const TIME_FILTER_CTX: MetricsTimeFilterCtx = { getCurrentLocalDate }
 
 /** Fetch metrics context (summary + recent) — reusable by prefetch and module fn */
 export async function fetchMetricsContext(): Promise<{ tracked_metrics: any[]; recent_entries: any[] }> {
@@ -148,7 +148,7 @@ When you receive the "[Extraction review submitted]" message, simply call save_r
 async function executeMetricsQuery(spec: MetricsQuerySpec, log: Function): Promise<{ rows: any[]; query: string; error?: string }> {
     let queryInfo: { query: string; variables: Record<string, any> }
     try {
-        queryInfo = queries.buildMetricsQuery(spec, getUserTimezone(), LTS_CTX) as { query: string; variables: Record<string, any> }
+        queryInfo = queries.buildMetricsQuery(spec, getUserTimezone(), TIME_FILTER_CTX) as { query: string; variables: Record<string, any> }
     } catch (err: any) {
         return { rows: [], query: '', error: err.message }
     }
@@ -1031,12 +1031,12 @@ export function createMetricsModule() {
                     log(`Computing habit summary for: ${metric_name}`)
 
                     const tz = getUserTimezone()
-                    const timeFilter = queries.buildMetricsLtsFilter({ date, from_date, to_date, recency, date_range }, tz, LTS_CTX)
+                    const timeFilter = queries.buildMetricsTimeFilter({ date, from_date, to_date, recency, date_range }, tz, TIME_FILTER_CTX)
 
                     // Only count "done" entries (value >= 1), not explicit "did not do" (value = 0)
                     const response = await getBackend().data.query(queries.getHabitDoneTimestamps({
                         metric_name,
-                        ltsFilter: timeFilter,
+                        dateFilter: timeFilter,
                     })) as any
                     const rows = response.rows
 

@@ -157,8 +157,12 @@ export function updateLog(args: { recordId: string; patch: UpdateLogPatch }): Qu
 export interface ListLogsArgs {
     /** Filter by category. Lowercased internally. */
     category?: string;
-    /** Pre-built `' AND lts >= ... AND lts <= ...'` fragment, or `''`. */
-    ltsFilter?: string;
+    /**
+     * Pre-built `' AND <predicate>'` SurrealQL fragment, or `''`. Typically
+     * a local_date range (calendar filter) or a ts >= cutoff (duration
+     * filter). Built by the caller's date-resolution helper.
+     */
+    dateFilter?: string;
     /** Optional substring search; case-insensitive across `content`. */
     searchText?: string;
     /** Cap result count. Default 20, capped at 100 for safety. */
@@ -167,13 +171,15 @@ export interface ListLogsArgs {
 
 /**
  * General-purpose log list/search builder. Supports any combination of
- * category filter, lts-range filter, and content substring search.
- * Sort is `lts DESC` so the order survives bundle export/import (matches
- * the dual-timestamp invariant: UI sorts/filters by `lts`).
+ * category filter, date filter, and content substring search.
  *
- * Sole canonical builder for log lookups — the previous `getRecentLogs`
- * and `searchLogs` helpers were trivial special cases (no searchText vs
- * searchText present) and have been collapsed into this signature.
+ * Sort is `ts DESC` — real-UTC instant, monotonic across DST and travel.
+ * The previous `ORDER BY lts DESC` was preserved here for the dual-write
+ * window; switched in 1.5.0 step 3 once every callsite populates `ts`.
+ *
+ * Projection includes both `lts` (legacy, dropped in 1.6.0) and `ts`/
+ * `local_date` (1.5.0 convention) so MCP/UI consumers can migrate at
+ * their own pace during the dual-read window.
  */
 export function listLogs(args: ListLogsArgs): QuerySpec {
     const limit = Math.min(Math.max(args.limit ?? 20, 1), 100);
@@ -197,20 +203,20 @@ export function listLogs(args: ListLogsArgs): QuerySpec {
     }
 
     let where = '';
-    if (conditions.length > 0 || args.ltsFilter) {
+    if (conditions.length > 0 || args.dateFilter) {
         where = 'WHERE ';
         if (conditions.length > 0) {
             where += conditions.join(' AND ');
         } else {
-            // ltsFilter is suffixed with " AND ..." — needs a baseline truthy
+            // dateFilter is suffixed with " AND ..." — needs a baseline truthy
             // expression on its own.
             where += 'true';
         }
-        if (args.ltsFilter) where += args.ltsFilter;
+        if (args.dateFilter) where += args.dateFilter;
     }
 
     return {
-        query: `SELECT id, content, category, created_at, lts FROM logs ${where} ORDER BY lts DESC LIMIT ${limit}`,
+        query: `SELECT id, content, category, created_at, lts, ts, local_date, local_tz FROM logs ${where} ORDER BY ts DESC LIMIT ${limit}`,
         variables,
     };
 }

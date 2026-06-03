@@ -19,7 +19,7 @@
 
 import { embed_vector, getBackend } from '@/lib/backend';
 import { queries } from 'smartchats-database';
-import { getUserTimezone, toLocalTimestamp, nowEventTime, getCurrentLocalDate } from './system';
+import { getUserTimezone, nowEventTime, getCurrentLocalDate } from './system';
 
 /** Fetch log categories with counts — reusable by prefetch and module fn */
 export async function fetchLogCategories(): Promise<any[]> {
@@ -39,26 +39,35 @@ export async function fetchLogCategories(): Promise<any[]> {
     return categories
 }
 
-/** Build an lts range filter for a date, date range, or recency duration */
-function buildLtsFilter(params: { date?: string; from_date?: string; to_date?: string; recency?: string }, tz: string): string {
+/**
+ * Build a SurrealQL date-filter fragment, prefixed with ` AND `, for the
+ * `listLogs.dateFilter` arg.
+ *
+ * Calendar filters (`date`, `from_date`/`to_date`) use `local_date` —
+ * lexicographic YYYY-MM-DD comparison, no tz arithmetic.
+ *
+ * Duration filters (`recency`) use `ts >= <real-UTC cutoff>` — real-time
+ * math, monotonic across DST and travel.
+ */
+function buildLogDateFilter(params: { date?: string; from_date?: string; to_date?: string; recency?: string }, tz: string): string {
     if (params.recency) {
-        // e.g. "5h", "2d", "1w" — compute lts cutoff
+        // e.g. "5h", "2d", "1w" — compute real-UTC ts cutoff
         const match = params.recency.match(/^(\d+)(h|d|w)$/)
         if (!match) return ''
         const amount = parseInt(match[1])
         const unit = match[2]
         const ms = unit === 'h' ? amount * 3600000 : unit === 'd' ? amount * 86400000 : amount * 604800000
-        const cutoff = toLocalTimestamp(new Date(Date.now() - ms), tz)
-        return ` AND lts >= d'${cutoff}'`
+        const cutoff = new Date(Date.now() - ms).toISOString()
+        return ` AND ts >= d'${cutoff}'`
     }
 
     if (params.date) {
-        return ` AND lts >= d'${params.date}T00:00:00Z' AND lts <= d'${params.date}T23:59:59Z'`
+        return ` AND local_date = '${params.date}'`
     }
 
     if (params.from_date) {
         const to = params.to_date || getCurrentLocalDate(tz)
-        return ` AND lts >= d'${params.from_date}T00:00:00Z' AND lts <= d'${to}T23:59:59Z'`
+        return ` AND local_date >= '${params.from_date}' AND local_date <= '${to}'`
     }
 
     return ''
@@ -221,11 +230,11 @@ export function createLoggingModule() {
                     const n = Number(limit) || 20
                     const tz = getUserTimezone()
 
-                    const ltsFilter = buildLtsFilter({ date, from_date, to_date, recency }, tz)
+                    const dateFilter = buildLogDateFilter({ date, from_date, to_date, recency }, tz)
 
                     const spec = queries.listLogs({
                         category: category ? category.toLowerCase().trim() : undefined,
-                        ltsFilter,
+                        dateFilter,
                         limit: n,
                     })
                     log(`get_recent_logs: ${spec.query}`)
@@ -260,11 +269,11 @@ export function createLoggingModule() {
                         return { error: 'text is required' }
                     }
 
-                    const ltsFilter = buildLtsFilter({ date, from_date, to_date, recency }, tz)
+                    const dateFilter = buildLogDateFilter({ date, from_date, to_date, recency }, tz)
 
                     const spec = queries.listLogs({
                         category: category ? category.toLowerCase().trim() : undefined,
-                        ltsFilter,
+                        dateFilter,
                         searchText: text.trim(),
                         limit: n,
                     })

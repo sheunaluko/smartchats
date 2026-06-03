@@ -10,29 +10,29 @@ import type { QuerySpec } from '../types.js';
 
 /**
  * Paginated list of `usage_records` rows in reverse chronological order.
- * `startAfter` is the lts of the last row from the prior page; rows
- * with `lts < $startAfter` are returned next. When omitted, returns the
- * first page.
+ * `startAfter` is the real-UTC `ts` of the last row from the prior page;
+ * rows with `ts < $startAfter` are returned next. When omitted, returns
+ * the first page.
  */
 export function listUsageRecords(args: { limit: number; startAfter?: string | null }): QuerySpec {
-    const where = args.startAfter ? 'WHERE lts < $startAfter' : '';
+    const where = args.startAfter ? 'WHERE ts < $startAfter' : '';
     const variables: Record<string, unknown> = { limit: args.limit };
     if (args.startAfter) variables.startAfter = args.startAfter;
     return {
-        query: `SELECT * FROM usage_records ${where} ORDER BY lts DESC LIMIT $limit`,
+        query: `SELECT * FROM usage_records ${where} ORDER BY ts DESC LIMIT $limit`,
         variables,
     };
 }
 
 /**
- * Fetch `usage_records` rows whose `lts` is at or after `since` (real
+ * Fetch `usage_records` rows whose `ts` is at or after `since` (real
  * UTC ISO datetime). Used to compute period-bounded summaries
  * (`/usage/summary?since=...` and the implicit 30-day rollup on the
  * `/usage/records` response).
  */
 export function getUsageRecordsSince(since: string): QuerySpec {
     return {
-        query: `SELECT * FROM usage_records WHERE lts >= <datetime> $since`,
+        query: `SELECT * FROM usage_records WHERE ts >= <datetime> $since`,
         variables: { since },
     };
 }

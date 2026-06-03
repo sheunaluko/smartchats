@@ -3,9 +3,14 @@
  *
  * Metrics rows are quantitative tracking entries (e.g. exercise reps,
  * water intake) with a metric_name, numeric value, unit, and category.
- * Queries that filter by date use `lts` (local wall-clock) so day
- * buckets align with the user's perceived timing. The legacy `timestamp`
- * field is retained for reference but `lts` is the canonical sort key.
+ *
+ * Sort by `ts` (real-UTC instant, monotonic across DST and travel).
+ * Daily/weekly aggregation groups by `local_date` (indexed bucket key,
+ * YYYY-MM-DD in the user's tz at write time). Duration-based filters
+ * ("last 4 weeks") use `ts >= cutoff` for real-time math; calendar
+ * filters ("logs from 2026-05-31") use `local_date = '2026-05-31'`.
+ * The legacy `timestamp` column is the same value as `ts` (kept for
+ * back-compat); `lts` is dual-read during the 1.5.0 → 1.6.0 window.
  */
 
 import type { QuerySpec, AuditFields, EventTimeFields } from '../types.js';
@@ -25,16 +30,17 @@ export interface MetricRow extends AuditFields {
 export interface GetMetricsArgs {
     metric_name?: string;
     category?: string;
-    /** ISO date YYYY-MM-DD; matches lts >= date 00:00 (local). */
+    /** YYYY-MM-DD calendar date — matches `local_date >= $from_date`. */
     from_date?: string;
-    /** ISO date YYYY-MM-DD; matches lts <= date 23:59:59 (local). */
+    /** YYYY-MM-DD calendar date — matches `local_date <= $to_date`. */
     to_date?: string;
     limit?: number;
 }
 
 /**
- * Tracked metrics with optional date-range and metric-name filters.
- * Sort is by `lts` so users see entries in their wall-clock order.
+ * Tracked metrics with optional date-range and metric-name filters. Date
+ * range filters use `local_date` (lexicographic YYYY-MM-DD comparison —
+ * correct without tz arithmetic). Sort is `ts DESC` (real-UTC instant).
  */
 export function getMetrics(args: GetMetricsArgs = {}): QuerySpec {
     const limit = Math.min(Math.max(args.limit ?? 50, 1), 200);
@@ -50,15 +56,15 @@ export function getMetrics(args: GetMetricsArgs = {}): QuerySpec {
         variables.category = args.category;
     }
     if (args.from_date) {
-        conditions.push(`lts >= d'${args.from_date}T00:00:00Z'`);
+        conditions.push(`local_date >= '${args.from_date}'`);
     }
     if (args.to_date) {
-        conditions.push(`lts <= d'${args.to_date}T23:59:59Z'`);
+        conditions.push(`local_date <= '${args.to_date}'`);
     }
 
     const where = conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : '';
     return {
-        query: `SELECT id, metric_name, value, unit, category, timestamp, lts, source_text, note FROM metrics ${where} ORDER BY lts DESC LIMIT ${limit}`,
+        query: `SELECT id, metric_name, value, unit, category, timestamp, lts, ts, local_date, local_tz, source_text, note FROM metrics ${where} ORDER BY ts DESC LIMIT ${limit}`,
         variables,
     };
 }
@@ -88,8 +94,7 @@ export function getMetricsSummary(): QuerySpec {
  * an LLM consumer both the structure and fresh examples in one round trip.
  * Also used by the in-app metrics-context prefetch.
  *
- * Sort is `lts DESC` (logical timestamp, app-stamped, survives bundle
- * export/import — matches the dual-timestamp invariant).
+ * Sort is `ts DESC` (real-UTC instant — monotonic across DST and travel).
  *
  * `limit`: omit to fetch all rows; pass a number to cap. The MCP tool and
  * the in-app prefetch currently omit it (full visualization needs every
@@ -98,7 +103,7 @@ export function getMetricsSummary(): QuerySpec {
 export function getRecentMetrics(opts: { limit?: number } = {}): QuerySpec {
     const limitClause = opts.limit !== undefined ? ` LIMIT ${Math.max(1, Math.floor(opts.limit))}` : '';
     return {
-        query: `SELECT * FROM metrics ORDER BY lts DESC${limitClause}`,
+        query: `SELECT * FROM metrics ORDER BY ts DESC${limitClause}`,
         variables: {},
     };
 }
@@ -164,13 +169,14 @@ export function insertMetric(args: InsertMetricArgs): QuerySpec {
 // ── Habit summary helper ──────────────────────────────────────────────────
 
 /**
- * Fetch the `lts` of every "done" entry (value >= 1) for a metric within
- * a date range. The caller pre-builds the lts filter via `buildMetricsLtsFilter`
- * (the date-literal form requires the filter to be inlined as raw SurrealQL).
+ * Fetch the `ts` of every "done" entry (value >= 1) for a metric within
+ * a date range. Caller pre-builds the date filter via
+ * `buildMetricsTimeFilter` (raw SurrealQL fragment — date literals are
+ * inlined). Returns real-UTC instants for downstream calendar math.
  */
-export function getHabitDoneTimestamps(args: { metric_name: string; ltsFilter: string }): QuerySpec {
+export function getHabitDoneTimestamps(args: { metric_name: string; dateFilter: string }): QuerySpec {
     return {
-        query: `SELECT lts FROM metrics WHERE metric_name = $metric_name AND value >= 1 AND ${args.ltsFilter} ORDER BY lts ASC`,
+        query: `SELECT ts FROM metrics WHERE metric_name = $metric_name AND value >= 1 AND ${args.dateFilter} ORDER BY ts ASC`,
         variables: { metric_name: args.metric_name },
     };
 }
@@ -260,27 +266,29 @@ const DURATION_MS: Record<string, number> = {
 };
 
 /**
- * Helpers the caller injects so the date-resolution stays tz-aware
- * without this module taking a dependency on the in-app system module.
+ * Helpers the caller injects so date-resolution stays tz-aware without
+ * this module taking a dependency on the in-app system module.
  */
-export interface MetricsLtsFilterCtx {
+export interface MetricsTimeFilterCtx {
     /** Returns "YYYY-MM-DD" for "today" in the user's tz. */
     getCurrentLocalDate: (tz: string) => string;
-    /** Stringifies a Date in the user's tz as a fake-UTC ISO with `Z`. */
-    toLocalTimestamp: (d: Date, tz: string) => string;
 }
 
 /**
- * Build an lts-based date filter for metrics queries.
- * All modes filter on lts (local fake-UTC) for correct local day/time boundaries.
+ * Build a SurrealQL time-filter fragment for metrics queries.
+ *
+ * Calendar filters (`date`, `from_date`/`to_date`) use `local_date` —
+ * lexicographic YYYY-MM-DD comparison, no tz arithmetic needed.
+ *
+ * Duration filters (`recency`, `date_range`) use `ts >= <real-UTC cutoff>`
+ * — real-time math, monotonic across DST and travel.
  *
  * Priority: date > from_date/to_date > recency > date_range
  *
- * Returned as a raw SurrealQL fragment because date literals are inlined
- * as `d'...'` (matches historical in-app behavior — switching to
- * parameter-bound `<datetime> $...` would change semantics).
+ * Returned as a raw SurrealQL fragment because the date/datetime literals
+ * are inlined (`'YYYY-MM-DD'` and `d'...'`).
  */
-export function buildMetricsLtsFilter(
+export function buildMetricsTimeFilter(
     params: {
         date?: string;
         from_date?: string;
@@ -289,7 +297,7 @@ export function buildMetricsLtsFilter(
         date_range?: string;
     },
     tz: string,
-    ctx: MetricsLtsFilterCtx,
+    ctx: MetricsTimeFilterCtx,
 ): string {
     // 1. Single date ("today", "yesterday", or "2026-03-23")
     if (params.date) {
@@ -299,22 +307,22 @@ export function buildMetricsLtsFilter(
             const y = new Date(Date.now() - 86400000);
             d = y.toLocaleDateString('sv-SE', { timeZone: tz });
         }
-        return `lts >= d'${d}T00:00:00Z' AND lts <= d'${d}T23:59:59Z'`;
+        return `local_date = '${d}'`;
     }
 
     // 2. Date range (absolute local dates)
     if (params.from_date) {
         const to = params.to_date || ctx.getCurrentLocalDate(tz);
-        return `lts >= d'${params.from_date}T00:00:00Z' AND lts <= d'${to}T23:59:59Z'`;
+        return `local_date >= '${params.from_date}' AND local_date <= '${to}'`;
     }
 
-    // 3. Recency or date_range — both parse duration to lts cutoff
+    // 3. Recency or date_range — duration to real-UTC ts cutoff
     const dur = params.recency || params.date_range || '4w';
     const match = dur.match(/^(\d+)(s|m|h|d|w|y)$/);
     if (!match) throw new Error(`Invalid duration format: "${dur}". Use e.g. "30s", "5m", "3h", "2d", "4w", "1y".`);
     const ms = parseInt(match[1]) * DURATION_MS[match[2]];
-    const cutoff = ctx.toLocalTimestamp(new Date(Date.now() - ms), tz);
-    return `lts >= d'${cutoff}'`;
+    const cutoff = new Date(Date.now() - ms).toISOString();
+    return `ts >= d'${cutoff}'`;
 }
 
 /** Map aggregation mode string to SurrealQL math function */
@@ -330,16 +338,23 @@ function getSurrealAggFn(mode: string): string {
 }
 
 /**
- * Build the SurrealQL for a metrics chart query: handles raw / daily / weekly
- * aggregation, single-vs-multi metric, and combined-vs-stacked grouping.
+ * Build the SurrealQL for a metrics chart query: handles raw / daily /
+ * weekly aggregation, single-vs-multi metric, and combined-vs-stacked
+ * grouping.
  *
- * Caller supplies the tz and the same `MetricsLtsFilterCtx` used by
- * `buildMetricsLtsFilter` (so all date math stays consistent).
+ * Daily aggregation groups by the indexed `local_date` column directly —
+ * no `time::group(ts, 'day')` (which would bucket in UTC, wrong for users
+ * not in UTC). Weekly aggregation derives ISO year/week from
+ * `<datetime> local_date` (which is midnight of the local calendar day,
+ * giving the correct local week regardless of the user's tz).
+ *
+ * Caller supplies the tz and a `MetricsTimeFilterCtx` (the same one
+ * passed to `buildMetricsTimeFilter`).
  */
 export function buildMetricsQuery(
     spec: MetricsQuerySpec,
     tz: string,
-    ctx: MetricsLtsFilterCtx,
+    ctx: MetricsTimeFilterCtx,
 ): QuerySpec {
     const variables: Record<string, unknown> = {};
 
@@ -353,8 +368,8 @@ export function buildMetricsQuery(
         metricFilter = `metric_name IN [${names.map(n => `'${n}'`).join(', ')}]`;
     }
 
-    // Time filter — all modes use lts (local fake-UTC) for correct local boundaries
-    const timeFilter = buildMetricsLtsFilter({
+    // Time filter — calendar filters on local_date, duration filters on ts
+    const timeFilter = buildMetricsTimeFilter({
         date: spec.date,
         from_date: spec.from_date,
         to_date: spec.to_date,
@@ -366,7 +381,7 @@ export function buildMetricsQuery(
     const groupMode = spec.group_mode || 'combined';
 
     if (agg === 'raw') {
-        const query = `SELECT * FROM metrics WHERE ${metricFilter} AND ${timeFilter} ORDER BY lts ASC`;
+        const query = `SELECT * FROM metrics WHERE ${metricFilter} AND ${timeFilter} ORDER BY ts ASC`;
         return { query, variables };
     }
 
@@ -380,16 +395,19 @@ export function buildMetricsQuery(
 
     let query: string;
     if (isWeekly) {
-        // SurrealDB time::group() doesn't support 'week' — use time::week() + time::year()
+        // Derive ISO year/week from local_date (cast to datetime gives
+        // midnight UTC of the local calendar day — same year/week as the
+        // user's local week).
         const groupBy = groupMode === 'stacked'
             ? 'GROUP BY yr, wk, metric_name, unit'
             : 'GROUP BY yr, wk, unit';
-        query = `SELECT time::year(lts) AS yr, time::week(lts) AS wk${selectExtra}, ${aggFn} AS value, unit FROM metrics WHERE ${metricFilter} AND ${timeFilter} ${groupBy} ORDER BY yr ASC, wk ASC`;
+        query = `SELECT time::year(<datetime> local_date) AS yr, time::week(<datetime> local_date) AS wk${selectExtra}, ${aggFn} AS value, unit FROM metrics WHERE ${metricFilter} AND ${timeFilter} ${groupBy} ORDER BY yr ASC, wk ASC`;
     } else {
+        // Daily aggregation: group on the indexed local_date column.
         const groupBy = groupMode === 'stacked'
             ? 'GROUP BY bucket, metric_name, unit'
             : 'GROUP BY bucket, unit';
-        query = `SELECT time::group(lts, 'day') AS bucket${selectExtra}, ${aggFn} AS value, unit FROM metrics WHERE ${metricFilter} AND ${timeFilter} ${groupBy} ORDER BY bucket ASC`;
+        query = `SELECT local_date AS bucket${selectExtra}, ${aggFn} AS value, unit FROM metrics WHERE ${metricFilter} AND ${timeFilter} ${groupBy} ORDER BY bucket ASC`;
     }
 
     return { query, variables };

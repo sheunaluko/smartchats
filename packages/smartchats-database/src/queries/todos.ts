@@ -31,16 +31,19 @@ export interface GetTodosArgs {
 }
 
 /**
- * Active todos (or filtered by status). Sort by `lts` so newest user-time
- * additions surface first. Consumers wanting due-date-ordered output
- * should sort the result rows client-side after filtering for ones that
- * have a due_date set.
+ * Active todos (or filtered by status). Sort by `ts DESC` (real-UTC
+ * creation time) so newest additions surface first. Consumers wanting
+ * due-date-ordered output should sort the result rows client-side after
+ * filtering for ones that have a due_date set.
+ *
+ * Projection retains legacy `lts` alongside `ts`/`local_date`/`local_tz`
+ * during the 1.5.0 → 1.6.0 dual-read window.
  */
 export function getTodos(args: GetTodosArgs = {}): QuerySpec {
     const limit = Math.min(Math.max(args.limit ?? 50, 1), 200);
     const status: TodoStatus = args.status ?? 'active';
     return {
-        query: `SELECT id, type, status, data, source_text, lts, tags, created_at, updated_at FROM user_data WHERE type = 'todo' AND status = $status ORDER BY lts DESC LIMIT ${limit}`,
+        query: `SELECT id, type, status, data, source_text, lts, ts, local_date, local_tz, tags, created_at, updated_at FROM user_data WHERE type = 'todo' AND status = $status ORDER BY ts DESC LIMIT ${limit}`,
         variables: { status },
     };
 }
@@ -57,13 +60,15 @@ export function getAllActiveTodos(): QuerySpec {
 }
 
 /**
- * Completion records for a single todo within a logical-time window.
- * Used by recurrence evaluation to determine "is this due in the current
- * period?".
+ * Completion records for a single todo within a real-time window. Used
+ * by recurrence evaluation ("is this due in the current period?").
+ * `start`/`end` are real-UTC ISO datetimes — caller computes them from
+ * the user's tz-aware period bounds. Filter is on `ts` (real-UTC instant)
+ * because the caller's bounds are real-UTC.
  */
 export function getCompletionsInPeriod(args: { parentId: string; start: string; end: string }): QuerySpec {
     return {
-        query: `SELECT * FROM user_data WHERE type = 'todo_completion' AND parent_id = $pid AND lts >= <datetime> $start AND lts <= <datetime> $end`,
+        query: `SELECT * FROM user_data WHERE type = 'todo_completion' AND parent_id = $pid AND ts >= <datetime> $start AND ts <= <datetime> $end`,
         variables: { pid: args.parentId, start: args.start, end: args.end },
     };
 }

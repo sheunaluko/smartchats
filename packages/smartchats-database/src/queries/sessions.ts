@@ -23,11 +23,15 @@ export interface ListSessionsArgs {
  * Recent sessions with summary fields (label + message count + audit
  * timestamps). Used in the session browser UI and for LLM consumers
  * picking a session to load.
+ *
+ * Sort is by `ts DESC` (real-UTC instant) — monotonic across DST and
+ * travel. Projection retains legacy `lts` alongside `ts`/`local_date`/
+ * `local_tz` during the 1.5.0 → 1.6.0 dual-read window.
  */
 export function listSessions(args: ListSessionsArgs = {}): QuerySpec {
     const limit = Math.min(Math.max(args.limit ?? 50, 1), 200);
     return {
-        query: `SELECT id, label, message_count, created_at, updated_at, lts FROM sessions ORDER BY lts DESC LIMIT ${limit}`,
+        query: `SELECT id, label, message_count, created_at, updated_at, lts, ts, local_date, local_tz FROM sessions ORDER BY ts DESC LIMIT ${limit}`,
         variables: {},
     };
 }
@@ -46,7 +50,7 @@ export interface SearchSessionsArgs {
 export function searchSessions(args: SearchSessionsArgs): QuerySpec {
     const limit = Math.min(Math.max(args.limit ?? 20, 1), 100);
     return {
-        query: `SELECT id, label, message_count, created_at, updated_at, lts FROM sessions WHERE (label != NONE AND string::lowercase(label) CONTAINS string::lowercase($q)) OR string::lowercase(<string> chat_history) CONTAINS string::lowercase($q) ORDER BY lts DESC LIMIT ${limit}`,
+        query: `SELECT id, label, message_count, created_at, updated_at, lts, ts, local_date, local_tz FROM sessions WHERE (label != NONE AND string::lowercase(label) CONTAINS string::lowercase($q)) OR string::lowercase(<string> chat_history) CONTAINS string::lowercase($q) ORDER BY ts DESC LIMIT ${limit}`,
         variables: { q: args.query },
     };
 }

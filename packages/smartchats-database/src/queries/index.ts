@@ -35,7 +35,7 @@ export type {
     InsertMetricArgs,
     InsertPreparedMetricArgs,
     MetricsQuerySpec,
-    MetricsLtsFilterCtx,
+    MetricsTimeFilterCtx,
 } from './metrics.js';
 export {
     getMetrics,
@@ -48,7 +48,7 @@ export {
     findPreparedMetric,
     insertPreparedMetric,
     buildMetricsQuery,
-    buildMetricsLtsFilter,
+    buildMetricsTimeFilter,
 } from './metrics.js';
 
 // Todos
