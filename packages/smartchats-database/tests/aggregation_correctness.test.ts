@@ -32,8 +32,9 @@
  *   - or `npx smartchats-test integration` (probes AIO, runs this suite)
  *
  * Prereqs:
- *   - AIO must be running with SurrealDB exposed on port 8000
- *     (`bin/aio --surreal-port 8000` — default)
+ *   - AIO must be running with SurrealDB exposed on port 8000.
+ *     Canonical: `smartchats launch` (or `smartchats launch --no-prompt`
+ *     non-interactively). Legacy alias: `bin/aio`.
  */
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';

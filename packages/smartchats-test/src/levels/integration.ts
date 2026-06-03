@@ -51,7 +51,7 @@ export const integrationLevel: Level = {
         if (!aioUp) {
             return {
                 status: 'SKIP',
-                note: `AIO unreachable at ${AIO_HOST}:${AIO_SURREAL_PORT} — run \`bin/aio\` first`,
+                note: `AIO unreachable at ${AIO_HOST}:${AIO_SURREAL_PORT} — run \`smartchats launch\` first`,
             };
         }
 
