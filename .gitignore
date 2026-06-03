@@ -38,3 +38,31 @@ data/logs/
 
 # Editor backup files (Emacs, vim, etc.)
 *~
+
+# ── User-data bundles — NEVER commit ──────────────────────────────────
+# Bundles produced by the MCP `export_user_data` tool, the smartchats CLI
+# `data export` command, the in-app session save (`bin/save_session`),
+# and the diff harness (packages/smartchats-database/tests/diff-harness.ts)
+# contain personal data: logs, metrics, sessions, knowledge graph, etc.
+# Treat any bundle-shaped file in the tree as PII. Patterns are
+# deliberately broad — false positives are fine; missing a real export
+# would leak personal data into the public repo.
+*.bundle.json
+*-bundle.json
+bundle.json
+*-export.json
+*-snapshot.json
+smartchats-export*.json
+smartchats-data*.json
+smartchats-backup*.json
+**/bundles/
+**/exports/
+
+# bin/save_session default output (per CLAUDE.md / bin/save_session)
+.session_data/
+**/.session_data/
+
+# Local-only bundle drop-zone. If you intentionally want a real bundle
+# inside the tree for diff-harness convenience, put it under this name
+# and it stays unstaged forever. Convention enforced by the harness too.
+**/_local_bundles/
