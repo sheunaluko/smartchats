@@ -51,7 +51,7 @@ export const integrationLevel: Level = {
         if (!aioUp) {
             return {
                 status: 'SKIP',
-                note: `AIO unreachable at ${AIO_HOST}:${AIO_SURREAL_PORT} — run \`smartchats launch\` first`,
+                note: `SurrealDB unreachable at ${AIO_HOST}:${AIO_SURREAL_PORT} — start the stack via \`bin/aio\` (Docker, forwards :8000) or \`smartchats start\` (native, no Docker)`,
             };
         }
 

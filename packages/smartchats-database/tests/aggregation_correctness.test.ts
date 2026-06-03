@@ -32,9 +32,16 @@
  *   - or `npx smartchats-test integration` (probes AIO, runs this suite)
  *
  * Prereqs:
- *   - AIO must be running with SurrealDB exposed on port 8000.
- *     Canonical: `smartchats launch` (or `smartchats launch --no-prompt`
- *     non-interactively). Legacy alias: `bin/aio`.
+ *   - SurrealDB must be reachable on `ws://localhost:8000/rpc`. Two
+ *     supported paths:
+ *       - `bin/aio` — runs the AIO Docker container and forwards both
+ *         the app port (3000) and the SurrealDB port (8000) to the host.
+ *       - `smartchats start` — runs surreal + server as native processes
+ *         on the host (no Docker), with SurrealDB directly on :8000.
+ *     Note: `smartchats launch` is the canonical end-user entry point
+ *     (browser → app on :3000 → internal SurrealDB), but does NOT
+ *     forward :8000 to the host. Use one of the two paths above for
+ *     direct-DB integration testing.
  */
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
