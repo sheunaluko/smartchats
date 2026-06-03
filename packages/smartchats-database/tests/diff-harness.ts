@@ -233,10 +233,15 @@ const PAIRS: QueryPair[] = [
     },
     {
         name: 'L2: top 20 most recent logs by id (DESC order)',
-        description: 'ORDER BY lts DESC vs ORDER BY ts DESC. Differences may indicate DST fall-back or ms-precision ties — investigate per-row.',
+        description: 'Project-then-order: keys are `lts` (old) vs `ts` (new). Differences may indicate DST fall-back or ms-precision ties — investigate per-row.',
         skipIfEmpty: 'logs',
-        oldQuery: `SELECT id FROM logs ORDER BY lts DESC LIMIT 20`,
-        newQuery: `SELECT id FROM logs ORDER BY ts DESC LIMIT 20`,
+        // Surreal v3 (the harness's in-memory backend) rejects `ORDER BY
+        // lts` when lts is option<datetime>. Workaround: sort on the
+        // string projection of the datetime (lexicographic order on ISO
+        // matches datetime order). Cloud surreal (older parser) accepts
+        // the original form too — both produce the same row order.
+        oldQuery: `SELECT id, time::format(lts, '%Y-%m-%dT%H:%M:%SZ') AS sort_key FROM logs WHERE lts IS NOT NONE ORDER BY sort_key DESC LIMIT 20`,
+        newQuery: `SELECT id, time::format(ts, '%Y-%m-%dT%H:%M:%SZ') AS sort_key FROM logs WHERE ts IS NOT NONE ORDER BY sort_key DESC LIMIT 20`,
     },
     {
         name: 'S1: total session count',
