@@ -134,6 +134,24 @@ function rowId(row: unknown): string {
 
 const nowIso = () => new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
 
+/**
+ * The 1.5.0 event-time bundle as a test fixture. Mirrors what
+ * `apps/smartchats`'s `nowEventTime()` would return — kept inline here
+ * so this test package doesn't depend on the app helper.
+ */
+function nowEventTime(): { lts: string; ts: string; local_date: string; local_tz: string } {
+    const tz = 'America/Los_Angeles';
+    const now = new Date();
+    const ts = nowIso();
+    const local = now.toLocaleString('sv-SE', { timeZone: tz });
+    return {
+        lts: local.replace(' ', 'T') + 'Z',
+        ts,
+        local_date: now.toLocaleDateString('sv-SE', { timeZone: tz }),
+        local_tz: tz,
+    };
+}
+
 // ── logs ──────────────────────────────────────────────────────────────────
 
 describe('logs lifecycle', () => {
@@ -145,8 +163,7 @@ describe('logs lifecycle', () => {
                 content: 'crud test entry — 25 pushups',
                 category: 'exercise',
                 embedding: FAKE_EMBEDDING,
-                lts: nowIso(),
-                local_tz: 'America/Los_Angeles',
+                ...nowEventTime(),
             }),
         );
         expect(rows.length).toBe(1);
@@ -278,16 +295,13 @@ describe('metrics lifecycle', () => {
     let metricId: string;
 
     it('insertMetric → returns row with auto-generated id', async () => {
-        const lts = nowIso();
         const rows = await dispatcher.run(
             queries.insertMetric({
                 metric_name: 'crud_test_pushups',
                 value: 25,
                 unit: 'reps',
                 metric_type: 'numeric',
-                timestamp: lts,
-                lts,
-                local_tz: 'America/Los_Angeles',
+                ...nowEventTime(),
                 source: 'test',
                 source_text: 'crud test entry',
                 source_log_id: null,
@@ -403,22 +417,22 @@ describe('prepared metric definitions lifecycle', () => {
     });
 });
 
-// ── buildMetricsQuery + buildMetricsLtsFilter (pure, then run rendered) ───
+// ── buildMetricsQuery + buildMetricsTimeFilter (pure, then run rendered) ──
 
-describe('buildMetricsQuery / buildMetricsLtsFilter', () => {
+describe('buildMetricsQuery / buildMetricsTimeFilter', () => {
     // Minimal ctx — just enough to render. Uses real Date in UTC.
-    const ctx: queries.MetricsLtsFilterCtx = {
+    const ctx: queries.MetricsTimeFilterCtx = {
         getCurrentLocalDate: () => new Date().toISOString().slice(0, 10),
-        toLocalTimestamp: (d) => d.toISOString().replace(/\.\d{3}Z$/, 'Z'),
     };
 
-    it('buildMetricsLtsFilter with date_range produces a runnable WHERE fragment', () => {
-        const fragment = queries.buildMetricsLtsFilter(
+    it('buildMetricsTimeFilter with date_range produces a runnable WHERE fragment', () => {
+        const fragment = queries.buildMetricsTimeFilter(
             { date_range: '4w' },
             'UTC',
             ctx,
         );
-        expect(fragment.startsWith('lts >= ')).toBe(true);
+        // Duration filter → ts >= cutoff (real-UTC math).
+        expect(fragment.startsWith('ts >= ')).toBe(true);
     });
 
     it('buildMetricsQuery (raw mode) produces an executable query', async () => {
@@ -471,7 +485,7 @@ describe('sessions lifecycle', () => {
         thought_history: [],
         execution_history: [],
         settings: {},
-        lts: nowIso(),
+        ...nowEventTime(),
     });
 
     it('insertSession returns row with id', async () => {
@@ -530,7 +544,7 @@ describe('todos lifecycle', () => {
     let completionId: string;
 
     it('insertTodo returns row with id', async () => {
-        const lts = nowIso();
+        const evt = nowEventTime();
         const rows = await dispatcher.run(
             queries.insertTodo({
                 title: 'crud test todo',
@@ -541,9 +555,8 @@ describe('todos lifecycle', () => {
                 recurrence: null,
                 metric_link: null,
                 source_text: 'crud_test',
-                timestamp: lts,
-                lts,
-                local_tz: 'UTC',
+                timestamp: evt.ts,
+                ...evt,
                 tags: [],
             }),
         );
@@ -601,14 +614,11 @@ describe('todos lifecycle', () => {
     });
 
     it('insertTodoCompletion creates a completion linked to the todo', async () => {
-        const lts = nowIso();
         const rows = await dispatcher.run(
             queries.insertTodoCompletion({
                 parent_id: todoId,
                 note: 'done',
-                timestamp: lts,
-                lts,
-                local_tz: 'UTC',
+                ...nowEventTime(),
             }),
         );
         expect(rows.length).toBe(1);
@@ -680,7 +690,7 @@ describe('knowledge graph lifecycle', () => {
                     embedding: FAKE_EMBEDDING,
                 },
             ],
-            lts: nowIso(),
+            ...nowEventTime(),
         });
         const allStmts = await dispatcher.runAll(spec);
         // 2 entity statements + 1 relation statement

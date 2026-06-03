@@ -22,7 +22,8 @@
     "test:unit": "vitest run tests/unit",
     "test:cloud": "vitest run integration.test.ts",
     "test:local": "SMARTCHATS_TEST_TARGET=local vitest run local_crud.test.ts",
-    "test:cloud-crud": "vitest run cloud_crud.test.ts"
+    "test:cloud-crud": "vitest run cloud_crud.test.ts",
+    "test:aggregation": "vitest run tests/aggregation_correctness.test.ts"
   },
   "dependencies": {
     "smartchats-backend": "*",
