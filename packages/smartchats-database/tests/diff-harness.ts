@@ -42,7 +42,7 @@ import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createClient, type Client } from '../src/index.js';
 import { buildImportQuery } from '../src/queries/import_export.js';
-import { applyLocalSchema, type LocalSchemaDb } from '../src/schema/local.js';
+import { applyLocalSchema, LOCAL_SCHEMA_MIGRATIONS, type LocalSchemaDb } from '../src/schema/local.js';
 
 // ── Layer 2: refuse in-repo paths outside gitignored zones ───────────
 
@@ -451,6 +451,22 @@ async function main(): Promise<number> {
         console.log(`  wrote ${importResult.written} rows, skipped ${importResult.skipped}`);
         for (const [t, n] of Object.entries(importResult.perTable)) {
             console.log(`    ${t}: ${n}`);
+        }
+
+        // Post-import backfill — re-run every migration block. applyLocalSchema's
+        // initial pass ran on an EMPTY db (before import), so its UPDATE
+        // statements no-op'd. Now that the bundle's pre-1.5.0 rows are present
+        // we need to populate ts / local_date / local_tz on them. Migrations
+        // are idempotent (WHERE local_date IS NONE / WHERE ts IS NONE), so
+        // re-running them is safe and only touches the newly-imported rows.
+        //
+        // This is also a latent bug in production import: pre-1.5.0 bundles
+        // imported into a 1.5.1-stamped DB get the same empty fields. The
+        // production importer (operations/import_bundle.ts) should run the
+        // same post-import backfill — tracked in smartchats-cloud STATUS.
+        console.log('  post-import backfill (re-runs cumulative migrations on imported rows)');
+        for (const { statements } of LOCAL_SCHEMA_MIGRATIONS) {
+            await client.runRaw(statements);
         }
 
         console.log('');
