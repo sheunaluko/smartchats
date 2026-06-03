@@ -275,8 +275,15 @@ export function registerTools(server: McpServer, opts: RegisterToolsOptions): vo
                 .boolean()
                 .optional()
                 .describe(`Also export sensitive/regenerable tables (${operations.SENSITIVE_TABLES.join(", ")}). Default false.`),
+            page_size: z
+                .number()
+                .int()
+                .min(1)
+                .max(500)
+                .optional()
+                .describe("Rows per paginated fetch. Default 100. Lower (e.g. 25) if a wide table (logs with embeddings) trips a response-size / timeout cap and the per-table export errors out mid-stream."),
         },
-        async ({ output_path, tables, include_sensitive }) => {
+        async ({ output_path, tables, include_sensitive, page_size }) => {
             try {
                 const userId = await handle.getUid();
                 const result = await operations.exportBundle(handle.data, {
@@ -284,6 +291,7 @@ export function registerTools(server: McpServer, opts: RegisterToolsOptions): vo
                     userId,
                     tables,
                     includeSensitive: include_sensitive,
+                    pageSize: page_size,
                 });
 
                 const fullPath = expandPath(output_path);
