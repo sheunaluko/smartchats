@@ -353,15 +353,13 @@ function mapRowValue(r: any): number | null {
 }
 
 // Date source priority for chart x-axis:
-//   1. r.local_date — YYYY-MM-DD, user-perceived day, 1.5.0 canonical
-//   2. r.lts        — legacy fake-UTC local wall-clock; back-compat for rows
-//                     written before 1.5.0
-//   3. r.bucket     — daily aggregation alias for local_date
-//   4. iso week     — computed from yr/wk on weekly aggregations
-//   5. r.ts         — real-UTC fallback (renders as UTC date — slightly wrong
-//                     for late-evening rows but acceptable as last resort)
+//   1. r.local_date — YYYY-MM-DD in the user's tz (canonical event-time bucket key)
+//   2. r.bucket     — daily aggregation alias for local_date (same shape)
+//   3. iso week     — computed from yr/wk on weekly aggregations
+//   4. r.ts         — real-UTC instant fallback (renders as UTC date — slightly
+//                     off for late-evening rows but acceptable as last resort)
 function rowDate(r: any): any {
-    return r.local_date || r.lts || r.bucket || isoWeekMonday(r.yr, r.wk) || r.ts
+    return r.local_date || r.bucket || isoWeekMonday(r.yr, r.wk) || r.ts
 }
 
 function mapRowToPoint(r: any): { x: string; y: number | null; _date?: string } {
@@ -776,20 +774,12 @@ export function createMetricsModule() {
                     const results = await Promise.allSettled(
                         toSave.map((m: any) => {
                             const tz = getUserTimezone()
-                            // Extraction path: m.lts may be pre-computed by the review UI from
-                            // the source log entry's date. Trust it when present; otherwise use
-                            // the shared anchor logic (same as conversation save_metric).
                             const anchor = computeAnchor({
                                 timestamp: m.timestamp,
                                 time_shift_quantity: m.time_shift_quantity,
                                 time_shift_unit: m.time_shift_unit,
                             })
-                            // m.lts may be pre-set by the review UI from the
-                            // source-log's date — keep that as an override for
-                            // the legacy lts column. ts/local_date/local_tz
-                            // still derive from the anchor (the bundle).
                             const eventTime = eventTimeAt(anchor, tz)
-                            const lts = m.lts ? m.lts : eventTime.lts
 
                             const isBool = m.metric_type === 'boolean'
 
@@ -799,7 +789,6 @@ export function createMetricsModule() {
                                 unit: isBool ? 'done' : (m.unit || ''),
                                 metric_type: isBool ? 'boolean' : 'numeric',
                                 ...eventTime,
-                                lts,
                                 source: m.source || 'user_log',
                                 source_text: m.source_text || '',
                                 source_log_id: m.source_log_id || null,
@@ -1040,11 +1029,12 @@ export function createMetricsModule() {
                     })) as any
                     const rows = response.rows
 
-                    // Extract distinct local dates (YYYY-MM-DD from lts)
+                    // Extract distinct local dates — query returns local_date directly.
                     const doneDatesSet = new Set<string>()
                     for (const row of rows) {
-                        const ltsStr = typeof row.lts === 'string' ? row.lts : new Date(row.lts).toISOString()
-                        doneDatesSet.add(ltsStr.slice(0, 10))
+                        if (typeof row.local_date === 'string') {
+                            doneDatesSet.add(row.local_date)
+                        }
                     }
                     const doneDates = Array.from(doneDatesSet).sort()
 

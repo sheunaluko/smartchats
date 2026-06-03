@@ -4,7 +4,6 @@ import type { EventTimeFields } from '../../src/types.js';
 
 describe('buildKnowledgeInsertQuery', () => {
     const eventTime: EventTimeFields = {
-        lts: '2026-05-30T12:00:00Z',
         ts: '2026-05-30T17:00:00Z',
         local_date: '2026-05-30',
         local_tz: 'America/Chicago',
@@ -21,11 +20,11 @@ describe('buildKnowledgeInsertQuery', () => {
         expect(spec.query).toContain('embedding: [0.1,0.2]');
     });
 
-    it('dual-writes legacy lts and the 1.5.0 event-time triple on entities', () => {
-        expect(spec.query).toContain("lts: d'2026-05-30T12:00:00Z'");
+    it('writes the v1.0.0 event-time triple on entities', () => {
         expect(spec.query).toContain("ts: d'2026-05-30T17:00:00Z'");
         expect(spec.query).toContain('local_date: "2026-05-30"');
         expect(spec.query).toContain('local_tz: "America/Chicago"');
+        expect(spec.query).not.toContain('lts:');
     });
 
     it('denormalizes both endpoint names onto the relation edge', () => {
@@ -36,12 +35,9 @@ describe('buildKnowledgeInsertQuery', () => {
         expect(spec.query).toContain('kind: "social"');
     });
 
-    it('dual-writes the event-time triple on relations too', () => {
-        // The RELATE statement is appended after the CREATE; both should
-        // carry the same time fields.
+    it('writes the same event-time triple on relations', () => {
         const relateIdx = spec.query.indexOf('RELATE');
         const after = spec.query.slice(relateIdx);
-        expect(after).toContain("lts: d'2026-05-30T12:00:00Z'");
         expect(after).toContain("ts: d'2026-05-30T17:00:00Z'");
         expect(after).toContain('local_date: "2026-05-30"');
         expect(after).toContain('local_tz: "America/Chicago"');

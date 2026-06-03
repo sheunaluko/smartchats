@@ -35,20 +35,6 @@ export function getUserTimezone(): string {
     }
 }
 
-/**
- * Convert a UTC timestamp to a fake-UTC local datetime string. The result is
- * the user's wall-clock time formatted as ISO with a `Z` suffix — semantically
- * "local time pretending to be UTC." This is the canonical `lts` (logical
- * timestamp) value: app-stamped, preserved across export/import/migration,
- * used for user-facing sort/filter where original timing must survive moves
- * between databases. See schema.ts header for the dual-field invariant.
- */
-export function toLocalTimestamp(utcTimestamp: string | Date, tz: string): string {
-    const d = typeof utcTimestamp === 'string' ? new Date(utcTimestamp) : utcTimestamp
-    const local = d.toLocaleString('sv-SE', { timeZone: tz })
-    return local.replace(' ', 'T') + 'Z'
-}
-
 /** Get current local date as YYYY-MM-DD in the given IANA timezone. */
 export function getCurrentLocalDate(tz: string): string {
     return new Date().toLocaleDateString('sv-SE', { timeZone: tz })
@@ -56,8 +42,8 @@ export function getCurrentLocalDate(tz: string): string {
 
 /**
  * Convert a real-UTC timestamp to the YYYY-MM-DD string in the user's tz.
- * Canonical `local_date` value for the 1.5.0 event-time convention — the
- * indexed bucket key used by `GROUP BY local_date` aggregations.
+ * Canonical `local_date` value — the indexed bucket key for `GROUP BY
+ * local_date` aggregations.
  */
 export function toLocalDate(ts: string | Date, tz: string): string {
     const d = typeof ts === 'string' ? new Date(ts) : ts
@@ -65,13 +51,9 @@ export function toLocalDate(ts: string | Date, tz: string): string {
 }
 
 /**
- * The canonical event-time field bundle: ts (real UTC) + lts (legacy
- * fake-UTC) + local_date (indexed bucket key) + local_tz (IANA). Built
- * once at each insert callsite and spread into the builder args.
- *
- * When 1.6.0 drops `lts`, remove it from `EventTimeFields` in
- * smartchats-database/types — every builder and every callsite spreading
- * the result of this function auto-updates.
+ * Event-time field bundle: ts (real UTC) + local_date (indexed bucket
+ * key) + local_tz (IANA). Built once at each insert callsite and spread
+ * into the builder args.
  */
 export function nowEventTime(): EventTimeFields {
     return eventTimeAt(new Date())
@@ -81,7 +63,6 @@ export function nowEventTime(): EventTimeFields {
 export function eventTimeAt(anchor: Date, tz: string = getUserTimezone()): EventTimeFields {
     return {
         ts: anchor.toISOString(),
-        lts: toLocalTimestamp(anchor, tz),
         local_date: toLocalDate(anchor, tz),
         local_tz: tz,
     }

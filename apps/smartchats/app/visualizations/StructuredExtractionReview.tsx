@@ -360,9 +360,9 @@ function ReviewContent({
               {/* Source header */}
               <div className="flex items-start gap-2 flex-wrap">
                 <span className="text-xs text-sc-text-muted shrink-0 space-x-2">
-                  {source.lts && (
-                    <span title="Local time (lts)">
-                      {new Date(source.lts).toLocaleString(undefined, { timeZone: 'UTC' })}
+                  {source.ts && (
+                    <span title="Event time (ts, real UTC)">
+                      {new Date(source.ts).toLocaleString(undefined)}
                     </span>
                   )}
                   {source.created_at && (

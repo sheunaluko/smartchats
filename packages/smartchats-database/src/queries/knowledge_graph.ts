@@ -118,8 +118,8 @@ export interface BuildKnowledgeInsertQueryArgs extends EventTimeFields {
 }
 export function buildKnowledgeInsertQuery(args: BuildKnowledgeInsertQueryArgs): QuerySpec {
     const statements: string[] = [];
-    const { entities, relations, lts, ts, local_date, local_tz } = args;
-    const timeFields = `lts: d'${lts}', ts: d'${ts}', local_date: "${local_date}", local_tz: "${local_tz}"`;
+    const { entities, relations, ts, local_date, local_tz } = args;
+    const timeFields = `ts: d'${ts}', local_date: "${local_date}", local_tz: "${local_tz}"`;
 
     for (const e of entities) {
         statements.push(

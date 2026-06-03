@@ -35,15 +35,12 @@ export interface GetTodosArgs {
  * creation time) so newest additions surface first. Consumers wanting
  * due-date-ordered output should sort the result rows client-side after
  * filtering for ones that have a due_date set.
- *
- * Projection retains legacy `lts` alongside `ts`/`local_date`/`local_tz`
- * during the 1.5.0 → 1.6.0 dual-read window.
  */
 export function getTodos(args: GetTodosArgs = {}): QuerySpec {
     const limit = Math.min(Math.max(args.limit ?? 50, 1), 200);
     const status: TodoStatus = args.status ?? 'active';
     return {
-        query: `SELECT id, type, status, data, source_text, lts, ts, local_date, local_tz, tags, created_at, updated_at FROM user_data WHERE type = 'todo' AND status = $status ORDER BY ts DESC LIMIT ${limit}`,
+        query: `SELECT id, type, status, data, source_text, ts, local_date, local_tz, tags, created_at, updated_at FROM user_data WHERE type = 'todo' AND status = $status ORDER BY ts DESC LIMIT ${limit}`,
         variables: { status },
     };
 }
@@ -105,7 +102,7 @@ export function getTodoById(recordId: string): QuerySpec {
  * pre-stringified ISO form; the cast happens server-side.
  */
 /**
- * `timestamp` (real UTC due time) is distinct from the bundle's `ts`
+ * `due_at` (real UTC due time) is distinct from the bundle's `ts`
  * (real UTC creation time) for this builder — a todo can be created
  * today with a due date next week. Both are passed explicitly.
  */
@@ -119,7 +116,7 @@ export interface InsertTodoArgs extends EventTimeFields {
     metric_link: string | null;
     source_text: string;
     /** Real-UTC ISO datetime — due time if set, else equals `ts` (creation). */
-    timestamp: string;
+    due_at: string;
     tags: unknown[];
 }
 export function insertTodo(args: InsertTodoArgs): QuerySpec {
@@ -138,8 +135,7 @@ export function insertTodo(args: InsertTodoArgs): QuerySpec {
             },
             source_text: $source_text,
             parent_id: NONE,
-            timestamp: <datetime> $timestamp,
-            lts: <datetime> $lts,
+            due_at: <datetime> $due_at,
             ts: <datetime> $ts,
             local_date: $local_date,
             local_tz: $local_tz,
@@ -156,9 +152,8 @@ export function insertTodo(args: InsertTodoArgs): QuerySpec {
  * todo record id (e.g. `user_data:abc123`).
  */
 /**
- * For completion records, `timestamp` is always "now" (when the
- * completion was recorded), so it's a synonym for the bundle's `ts`.
- * The SurrealQL writes the legacy `timestamp` column from `$ts`.
+ * For completion records, the bundle's `ts` IS the completion time —
+ * there's no separate due time to worry about.
  */
 export interface InsertTodoCompletionArgs extends EventTimeFields {
     parent_id: string;
@@ -172,8 +167,6 @@ export function insertTodoCompletion(args: InsertTodoCompletionArgs): QuerySpec 
             data: { note: $note },
             source_text: '',
             parent_id: $parent_id,
-            timestamp: <datetime> $ts,
-            lts: <datetime> $lts,
             ts: <datetime> $ts,
             local_date: $local_date,
             local_tz: $local_tz,

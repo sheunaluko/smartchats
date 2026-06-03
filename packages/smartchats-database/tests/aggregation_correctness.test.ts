@@ -9,9 +9,9 @@
  *
  *   - GROUP BY local_date produces correct daily buckets per user-local
  *     calendar day (no UTC drift)
- *   - ORDER BY ts is monotonic across DST fall-back — the canonical bug
- *     the refactor fixes: two events at "1:30 AM" on the fall-back day
- *     have identical lts but distinct ts
+ *   - ORDER BY ts is monotonic across DST fall-back: two events at the
+ *     local wall-clock "1:30 AM" on the fall-back day have distinct
+ *     real-UTC ts (CDT vs CST) and sort correctly
  *   - Date-range filters via local_date select the right rows without
  *     tz arithmetic
  *   - Duration filters via ts >= cutoff use real-time math correctly
@@ -104,7 +104,6 @@ afterAll(async () => {
 async function insertMetric(args: {
     metric_name: string;
     value: number;
-    lts: string;
     ts: string;
     local_date: string;
     local_tz: string;
@@ -117,7 +116,6 @@ async function insertMetric(args: {
         value: args.value,
         unit: args.unit ?? 'count',
         metric_type: args.metric_type ?? 'numeric',
-        lts: args.lts,
         ts: args.ts,
         local_date: args.local_date,
         local_tz: args.local_tz,
@@ -135,7 +133,6 @@ async function insertMetric(args: {
 async function insertLog(args: {
     content: string;
     category?: string;
-    lts: string;
     ts: string;
     local_date: string;
     local_tz?: string;
@@ -144,7 +141,6 @@ async function insertLog(args: {
         content: args.content,
         category: args.category ?? 'test',
         embedding: null,
-        lts: args.lts,
         ts: args.ts,
         local_date: args.local_date,
         local_tz: args.local_tz ?? 'America/Chicago',
@@ -153,7 +149,6 @@ async function insertLog(args: {
 
 async function insertSession(args: {
     label: string;
-    lts: string;
     ts: string;
     local_date: string;
     local_tz?: string;
@@ -166,7 +161,6 @@ async function insertSession(args: {
         thought_history: [],
         execution_history: [],
         settings: {},
-        lts: args.lts,
         ts: args.ts,
         local_date: args.local_date,
         local_tz: args.local_tz ?? 'America/Chicago',
@@ -175,7 +169,6 @@ async function insertSession(args: {
 
 async function insertTodo(args: {
     title: string;
-    lts: string;
     ts: string;
     local_date: string;
     local_tz?: string;
@@ -190,8 +183,7 @@ async function insertTodo(args: {
         recurrence: null,
         metric_link: null,
         source_text: '',
-        timestamp: args.ts,
-        lts: args.lts,
+        due_at: args.ts,
         ts: args.ts,
         local_date: args.local_date,
         local_tz: args.local_tz ?? 'America/Chicago',
@@ -201,7 +193,6 @@ async function insertTodo(args: {
 
 async function insertTodoCompletion(args: {
     parentId: string;
-    lts: string;
     ts: string;
     local_date: string;
     local_tz?: string;
@@ -209,7 +200,6 @@ async function insertTodoCompletion(args: {
     return runInsert(queries.insertTodoCompletion({
         parent_id: args.parentId,
         note: null,
-        lts: args.lts,
         ts: args.ts,
         local_date: args.local_date,
         local_tz: args.local_tz ?? 'America/Chicago',
@@ -266,9 +256,9 @@ describe('daily aggregation via local_date', () => {
 
     it('GROUP BY local_date with math::sum returns one bucket per local calendar day', async () => {
         // 3 entries across 2 days. Day 1 has two entries summing to 5.
-        await insertMetric({ metric_name: 'water', value: 2, lts: '2026-05-29T08:00:00Z', ts: '2026-05-29T13:00:00Z', local_date: '2026-05-29', local_tz: 'America/Chicago' });
-        await insertMetric({ metric_name: 'water', value: 3, lts: '2026-05-29T20:00:00Z', ts: '2026-05-30T01:00:00Z', local_date: '2026-05-29', local_tz: 'America/Chicago' });
-        await insertMetric({ metric_name: 'water', value: 1, lts: '2026-05-30T08:00:00Z', ts: '2026-05-30T13:00:00Z', local_date: '2026-05-30', local_tz: 'America/Chicago' });
+        await insertMetric({ metric_name: 'water', value: 2, ts: '2026-05-29T13:00:00Z', local_date: '2026-05-29', local_tz: 'America/Chicago' });
+        await insertMetric({ metric_name: 'water', value: 3, ts: '2026-05-30T01:00:00Z', local_date: '2026-05-29', local_tz: 'America/Chicago' });
+        await insertMetric({ metric_name: 'water', value: 1, ts: '2026-05-30T13:00:00Z', local_date: '2026-05-30', local_tz: 'America/Chicago' });
 
         const rows = await queryRows<{ bucket: string; total: number }>({
             query: `SELECT local_date AS bucket, math::sum(value) AS total FROM metrics WHERE metric_name = 'water' GROUP BY bucket ORDER BY bucket ASC`,
@@ -286,7 +276,6 @@ describe('daily aggregation via local_date', () => {
             const d = String(day).padStart(2, '0');
             await insertMetric({
                 metric_name: 'pushups', value: day,
-                lts: `2026-05-${d}T08:00:00Z`,
                 ts: `2026-05-${d}T13:00:00Z`,
                 local_date: `2026-05-${d}`,
                 local_tz: 'America/Chicago',
@@ -307,28 +296,26 @@ describe('DST fall-back — the canonical bug fixed by ts (real-UTC)', () => {
         await client.runRaw('DELETE FROM metrics;');
     });
 
-    it('two events at identical local 1:30 AM have identical lts but distinct ts; ORDER BY ts is correct, ORDER BY lts is ambiguous', async () => {
+    it('two events at identical local 1:30 AM have distinct ts; ORDER BY ts is correct', async () => {
         // 2026-11-01: clocks fall back at 2:00 AM CDT → 1:00 AM CST.
         // The reading "1:30 AM" happens twice in real time, ~1 hour apart:
         //   pre-fall-back:  01:30 CDT = 06:30 UTC
         //   post-fall-back: 01:30 CST = 07:30 UTC
-        // Both store local wall-clock 01:30 → identical fake-UTC lts.
+        // Both have local_date='2026-11-01' but distinct real-UTC ts.
         const id_pre = await insertMetric({
             metric_name: 'water', value: 1,
-            lts: '2026-11-01T01:30:00Z',
             ts: '2026-11-01T06:30:00Z',
             local_date: '2026-11-01',
             local_tz: 'America/Chicago',
         });
         const id_post = await insertMetric({
             metric_name: 'water', value: 1,
-            lts: '2026-11-01T01:30:00Z',
             ts: '2026-11-01T07:30:00Z',
             local_date: '2026-11-01',
             local_tz: 'America/Chicago',
         });
 
-        // The fix: ORDER BY ts distinguishes them in real-time order.
+        // ORDER BY ts distinguishes them in real-time order.
         const byTs = await queryRows<{ id: unknown; ts: string }>({
             query: `SELECT id, ts FROM metrics WHERE metric_name = 'water' ORDER BY ts ASC`,
             variables: {},
@@ -336,14 +323,6 @@ describe('DST fall-back — the canonical bug fixed by ts (real-UTC)', () => {
         expect(byTs).toHaveLength(2);
         expect(String(byTs[0].id)).toBe(id_pre);
         expect(String(byTs[1].id)).toBe(id_post);
-
-        // The bug: both rows carry identical lts strings.
-        const ltsValues = await queryRows<{ lts: string }>({
-            query: `SELECT lts FROM metrics WHERE metric_name = 'water'`,
-            variables: {},
-        });
-        const ltsStrings = ltsValues.map((r) => String(r.lts));
-        expect(ltsStrings[0]).toBe(ltsStrings[1]);
 
         // Both rows land in the same calendar-day bucket — what the user expects.
         const buckets = await queryRows<{ bucket: string; n: number }>({
@@ -364,12 +343,12 @@ describe('cross-tz rows co-bucket under local_date', () => {
         // Same local calendar day in two different zones.
         await insertMetric({
             metric_name: 'water', value: 1,
-            lts: '2026-05-31T22:00:00Z', ts: '2026-05-31T13:00:00Z',
+            ts: '2026-05-31T13:00:00Z',
             local_date: '2026-05-31', local_tz: 'Asia/Tokyo',
         });
         await insertMetric({
             metric_name: 'water', value: 2,
-            lts: '2026-05-31T20:00:00Z', ts: '2026-06-01T01:00:00Z',
+            ts: '2026-06-01T01:00:00Z',
             local_date: '2026-05-31', local_tz: 'America/Chicago',
         });
 
@@ -391,7 +370,7 @@ describe('calendar date filter via local_date (lexicographic string comparison)'
         for (const date of ['2026-05-28', '2026-05-30', '2026-06-01', '2026-06-05']) {
             await insertMetric({
                 metric_name: 'water', value: 1,
-                lts: `${date}T08:00:00Z`, ts: `${date}T13:00:00Z`,
+                ts: `${date}T13:00:00Z`,
                 local_date: date, local_tz: 'America/Chicago',
             });
         }
@@ -425,13 +404,13 @@ describe('duration filter via ts (real-time math)', () => {
 
         await insertMetric({
             metric_name: 'water', value: 1,
-            lts: stripMs(yesterday), ts: stripMs(yesterday),
+            ts: stripMs(yesterday),
             local_date: yesterday.toISOString().slice(0, 10),
             local_tz: 'America/Chicago',
         });
         await insertMetric({
             metric_name: 'water', value: 1,
-            lts: stripMs(lastMonth), ts: stripMs(lastMonth),
+            ts: stripMs(lastMonth),
             local_date: lastMonth.toISOString().slice(0, 10),
             local_tz: 'America/Chicago',
         });
@@ -454,9 +433,9 @@ describe('weekly aggregation via time::year/week(<datetime> local_date)', () => 
         // 2026 ISO weeks (Mon-Sun):
         //   Week 22: May 25-31
         //   Week 23: June 1-7
-        await insertMetric({ metric_name: 'water', value: 5, lts: '2026-05-27T08:00:00Z', ts: '2026-05-27T13:00:00Z', local_date: '2026-05-27', local_tz: 'America/Chicago' });
-        await insertMetric({ metric_name: 'water', value: 3, lts: '2026-05-29T08:00:00Z', ts: '2026-05-29T13:00:00Z', local_date: '2026-05-29', local_tz: 'America/Chicago' });
-        await insertMetric({ metric_name: 'water', value: 7, lts: '2026-06-03T08:00:00Z', ts: '2026-06-03T13:00:00Z', local_date: '2026-06-03', local_tz: 'America/Chicago' });
+        await insertMetric({ metric_name: 'water', value: 5, ts: '2026-05-27T13:00:00Z', local_date: '2026-05-27', local_tz: 'America/Chicago' });
+        await insertMetric({ metric_name: 'water', value: 3, ts: '2026-05-29T13:00:00Z', local_date: '2026-05-29', local_tz: 'America/Chicago' });
+        await insertMetric({ metric_name: 'water', value: 7, ts: '2026-06-03T13:00:00Z', local_date: '2026-06-03', local_tz: 'America/Chicago' });
 
         const rows = await queryRows<{ yr: number; wk: number; total: number }>({
             query: `SELECT time::year(<datetime> local_date) AS yr, time::week(<datetime> local_date) AS wk, math::sum(value) AS total FROM metrics WHERE metric_name = 'water' GROUP BY yr, wk ORDER BY yr ASC, wk ASC`,
@@ -475,9 +454,9 @@ describe('builder-emitted queries return correct results end-to-end', () => {
     });
 
     it('getRecentMetrics orders by ts DESC', async () => {
-        await insertMetric({ metric_name: 'water', value: 1, lts: '2026-05-29T08:00:00Z', ts: '2026-05-29T13:00:00Z', local_date: '2026-05-29', local_tz: 'America/Chicago' });
-        await insertMetric({ metric_name: 'water', value: 2, lts: '2026-05-30T08:00:00Z', ts: '2026-05-30T13:00:00Z', local_date: '2026-05-30', local_tz: 'America/Chicago' });
-        await insertMetric({ metric_name: 'water', value: 3, lts: '2026-05-28T08:00:00Z', ts: '2026-05-28T13:00:00Z', local_date: '2026-05-28', local_tz: 'America/Chicago' });
+        await insertMetric({ metric_name: 'water', value: 1, ts: '2026-05-29T13:00:00Z', local_date: '2026-05-29', local_tz: 'America/Chicago' });
+        await insertMetric({ metric_name: 'water', value: 2, ts: '2026-05-30T13:00:00Z', local_date: '2026-05-30', local_tz: 'America/Chicago' });
+        await insertMetric({ metric_name: 'water', value: 3, ts: '2026-05-28T13:00:00Z', local_date: '2026-05-28', local_tz: 'America/Chicago' });
 
         const rows = await queryRows<{ local_date: string }>(queries.getRecentMetrics({ limit: 3 }));
         expect(rows).toHaveLength(3);
@@ -486,9 +465,9 @@ describe('builder-emitted queries return correct results end-to-end', () => {
     });
 
     it('buildMetricsQuery daily_sum groups by local_date with correct totals', async () => {
-        await insertMetric({ metric_name: 'water', value: 2, lts: '2026-05-29T08:00:00Z', ts: '2026-05-29T13:00:00Z', local_date: '2026-05-29', local_tz: 'America/Chicago' });
-        await insertMetric({ metric_name: 'water', value: 3, lts: '2026-05-29T18:00:00Z', ts: '2026-05-29T23:00:00Z', local_date: '2026-05-29', local_tz: 'America/Chicago' });
-        await insertMetric({ metric_name: 'water', value: 1, lts: '2026-05-30T08:00:00Z', ts: '2026-05-30T13:00:00Z', local_date: '2026-05-30', local_tz: 'America/Chicago' });
+        await insertMetric({ metric_name: 'water', value: 2, ts: '2026-05-29T13:00:00Z', local_date: '2026-05-29', local_tz: 'America/Chicago' });
+        await insertMetric({ metric_name: 'water', value: 3, ts: '2026-05-29T23:00:00Z', local_date: '2026-05-29', local_tz: 'America/Chicago' });
+        await insertMetric({ metric_name: 'water', value: 1, ts: '2026-05-30T13:00:00Z', local_date: '2026-05-30', local_tz: 'America/Chicago' });
 
         const ctx = { getCurrentLocalDate: (_tz: string) => '2026-06-01' };
         const spec = queries.buildMetricsQuery(
@@ -519,7 +498,6 @@ describe('builder-emitted queries return correct results end-to-end', () => {
                 content,
                 category: 'test',
                 embedding: null,
-                lts: `${date}T08:00:00Z`,
                 ts: `${date}T13:00:00Z`,
                 local_date: date,
                 local_tz: 'America/Chicago',
@@ -540,9 +518,9 @@ describe('builder-emitted queries return correct results end-to-end', () => {
     });
 
     it('searchLogs substring + dateFilter end-to-end', async () => {
-        await insertLog({ content: 'drank water today', lts: '2026-05-28T08:00:00Z', ts: '2026-05-28T13:00:00Z', local_date: '2026-05-28' });
-        await insertLog({ content: 'water again later', lts: '2026-05-30T08:00:00Z', ts: '2026-05-30T13:00:00Z', local_date: '2026-05-30' });
-        await insertLog({ content: 'unrelated entry',   lts: '2026-05-30T18:00:00Z', ts: '2026-05-30T23:00:00Z', local_date: '2026-05-30' });
+        await insertLog({ content: 'drank water today', ts: '2026-05-28T13:00:00Z', local_date: '2026-05-28' });
+        await insertLog({ content: 'water again later', ts: '2026-05-30T13:00:00Z', local_date: '2026-05-30' });
+        await insertLog({ content: 'unrelated entry',   ts: '2026-05-30T23:00:00Z', local_date: '2026-05-30' });
 
         const hits = await queryRows<{ content: string }>(
             queries.listLogs({ searchText: 'water' }),
@@ -569,8 +547,8 @@ describe('buildMetricsQuery — modes not covered above', () => {
     const ctx = { getCurrentLocalDate: (_tz: string) => '2026-06-15' };
 
     it('raw mode returns every row in ts ASC order', async () => {
-        await insertMetric({ metric_name: 'water', value: 2, lts: '2026-05-29T08:00:00Z', ts: '2026-05-29T13:00:00Z', local_date: '2026-05-29', local_tz: 'America/Chicago' });
-        await insertMetric({ metric_name: 'water', value: 1, lts: '2026-05-30T08:00:00Z', ts: '2026-05-30T13:00:00Z', local_date: '2026-05-30', local_tz: 'America/Chicago' });
+        await insertMetric({ metric_name: 'water', value: 2, ts: '2026-05-29T13:00:00Z', local_date: '2026-05-29', local_tz: 'America/Chicago' });
+        await insertMetric({ metric_name: 'water', value: 1, ts: '2026-05-30T13:00:00Z', local_date: '2026-05-30', local_tz: 'America/Chicago' });
 
         const spec = queries.buildMetricsQuery(
             { metric_name: 'water', aggregation: 'raw', from_date: '2026-05-28', to_date: '2026-06-01' },
@@ -582,9 +560,9 @@ describe('buildMetricsQuery — modes not covered above', () => {
     });
 
     it('weekly_sum via the builder groups across ISO weeks', async () => {
-        await insertMetric({ metric_name: 'water', value: 5, lts: '2026-05-27T08:00:00Z', ts: '2026-05-27T13:00:00Z', local_date: '2026-05-27', local_tz: 'America/Chicago' });
-        await insertMetric({ metric_name: 'water', value: 3, lts: '2026-05-29T08:00:00Z', ts: '2026-05-29T13:00:00Z', local_date: '2026-05-29', local_tz: 'America/Chicago' });
-        await insertMetric({ metric_name: 'water', value: 7, lts: '2026-06-03T08:00:00Z', ts: '2026-06-03T13:00:00Z', local_date: '2026-06-03', local_tz: 'America/Chicago' });
+        await insertMetric({ metric_name: 'water', value: 5, ts: '2026-05-27T13:00:00Z', local_date: '2026-05-27', local_tz: 'America/Chicago' });
+        await insertMetric({ metric_name: 'water', value: 3, ts: '2026-05-29T13:00:00Z', local_date: '2026-05-29', local_tz: 'America/Chicago' });
+        await insertMetric({ metric_name: 'water', value: 7, ts: '2026-06-03T13:00:00Z', local_date: '2026-06-03', local_tz: 'America/Chicago' });
 
         const spec = queries.buildMetricsQuery(
             { metric_name: 'water', aggregation: 'weekly_sum', from_date: '2026-05-25', to_date: '2026-06-15' },
@@ -603,7 +581,7 @@ describe('buildMetricsQuery — modes not covered above', () => {
         ['daily_avg', 'math::mean', 4],
     ] as const)('%s on one day with values 1, 4, 7 returns the right aggregate', async (agg, _fn, expected) => {
         for (const [value, hour] of [[1, '08'], [4, '12'], [7, '16']] as const) {
-            await insertMetric({ metric_name: 'reps', value, lts: `2026-05-30T${hour}:00:00Z`, ts: `2026-05-30T${hour}:00:00Z`, local_date: '2026-05-30', local_tz: 'America/Chicago' });
+            await insertMetric({ metric_name: 'reps', value, ts: `2026-05-30T${hour}:00:00Z`, local_date: '2026-05-30', local_tz: 'America/Chicago' });
         }
         const spec = queries.buildMetricsQuery(
             { metric_name: 'reps', aggregation: agg, from_date: '2026-05-30', to_date: '2026-05-30' },
@@ -616,10 +594,10 @@ describe('buildMetricsQuery — modes not covered above', () => {
     });
 
     it('stacked group_mode splits the series by metric_name', async () => {
-        await insertMetric({ metric_name: 'water', value: 2, lts: '2026-05-29T08:00:00Z', ts: '2026-05-29T13:00:00Z', local_date: '2026-05-29', local_tz: 'America/Chicago' });
-        await insertMetric({ metric_name: 'sleep', value: 7, lts: '2026-05-29T08:00:00Z', ts: '2026-05-29T13:00:00Z', local_date: '2026-05-29', local_tz: 'America/Chicago', unit: 'hours' });
-        await insertMetric({ metric_name: 'water', value: 3, lts: '2026-05-30T08:00:00Z', ts: '2026-05-30T13:00:00Z', local_date: '2026-05-30', local_tz: 'America/Chicago' });
-        await insertMetric({ metric_name: 'sleep', value: 6, lts: '2026-05-30T08:00:00Z', ts: '2026-05-30T13:00:00Z', local_date: '2026-05-30', local_tz: 'America/Chicago', unit: 'hours' });
+        await insertMetric({ metric_name: 'water', value: 2, ts: '2026-05-29T13:00:00Z', local_date: '2026-05-29', local_tz: 'America/Chicago' });
+        await insertMetric({ metric_name: 'sleep', value: 7, ts: '2026-05-29T13:00:00Z', local_date: '2026-05-29', local_tz: 'America/Chicago', unit: 'hours' });
+        await insertMetric({ metric_name: 'water', value: 3, ts: '2026-05-30T13:00:00Z', local_date: '2026-05-30', local_tz: 'America/Chicago' });
+        await insertMetric({ metric_name: 'sleep', value: 6, ts: '2026-05-30T13:00:00Z', local_date: '2026-05-30', local_tz: 'America/Chicago', unit: 'hours' });
 
         const spec = queries.buildMetricsQuery(
             {
@@ -647,8 +625,8 @@ describe('buildMetricsQuery — modes not covered above', () => {
         const yesterday = new Date(now.getTime() - 86_400_000);
         const twoWeeksAgo = new Date(now.getTime() - 14 * 86_400_000);
         const stripMs = (d: Date) => d.toISOString().replace(/\.\d{3}Z$/, 'Z');
-        await insertMetric({ metric_name: 'reps', value: 10, lts: stripMs(yesterday), ts: stripMs(yesterday), local_date: yesterday.toISOString().slice(0, 10), local_tz: 'America/Chicago' });
-        await insertMetric({ metric_name: 'reps', value: 20, lts: stripMs(twoWeeksAgo), ts: stripMs(twoWeeksAgo), local_date: twoWeeksAgo.toISOString().slice(0, 10), local_tz: 'America/Chicago' });
+        await insertMetric({ metric_name: 'reps', value: 10, ts: stripMs(yesterday), local_date: yesterday.toISOString().slice(0, 10), local_tz: 'America/Chicago' });
+        await insertMetric({ metric_name: 'reps', value: 20, ts: stripMs(twoWeeksAgo), local_date: twoWeeksAgo.toISOString().slice(0, 10), local_tz: 'America/Chicago' });
 
         const spec = queries.buildMetricsQuery(
             { metric_name: 'reps', aggregation: 'daily_sum', recency: '3d' },
@@ -669,9 +647,9 @@ describe('listSessions ordering', () => {
     });
 
     it('orders by ts DESC (real-UTC instant)', async () => {
-        await insertSession({ label: 'oldest', lts: '2026-05-28T08:00:00Z', ts: '2026-05-28T13:00:00Z', local_date: '2026-05-28' });
-        await insertSession({ label: 'newest', lts: '2026-05-30T08:00:00Z', ts: '2026-05-30T13:00:00Z', local_date: '2026-05-30' });
-        await insertSession({ label: 'middle', lts: '2026-05-29T08:00:00Z', ts: '2026-05-29T13:00:00Z', local_date: '2026-05-29' });
+        await insertSession({ label: 'oldest', ts: '2026-05-28T13:00:00Z', local_date: '2026-05-28' });
+        await insertSession({ label: 'newest', ts: '2026-05-30T13:00:00Z', local_date: '2026-05-30' });
+        await insertSession({ label: 'middle', ts: '2026-05-29T13:00:00Z', local_date: '2026-05-29' });
 
         const rows = await queryRows<{ label: string }>(queries.listSessions({ limit: 10 }));
         expect(rows.map((r) => r.label)).toEqual(['newest', 'middle', 'oldest']);
@@ -684,19 +662,19 @@ describe('todos read paths', () => {
     });
 
     it('getTodos active + ts DESC ordering', async () => {
-        await insertTodo({ title: 'oldest', lts: '2026-05-28T08:00:00Z', ts: '2026-05-28T13:00:00Z', local_date: '2026-05-28' });
-        await insertTodo({ title: 'newest', lts: '2026-05-30T08:00:00Z', ts: '2026-05-30T13:00:00Z', local_date: '2026-05-30' });
-        await insertTodo({ title: 'middle', lts: '2026-05-29T08:00:00Z', ts: '2026-05-29T13:00:00Z', local_date: '2026-05-29' });
+        await insertTodo({ title: 'oldest', ts: '2026-05-28T13:00:00Z', local_date: '2026-05-28' });
+        await insertTodo({ title: 'newest', ts: '2026-05-30T13:00:00Z', local_date: '2026-05-30' });
+        await insertTodo({ title: 'middle', ts: '2026-05-29T13:00:00Z', local_date: '2026-05-29' });
 
         const rows = await queryRows<{ data: { title: string } }>(queries.getTodos({ status: 'active', limit: 10 }));
         expect(rows.map((r) => r.data.title)).toEqual(['newest', 'middle', 'oldest']);
     });
 
     it('getCompletionsInPeriod filters by real-UTC ts range', async () => {
-        const todoId = await insertTodo({ title: 'recurring', lts: '2026-05-28T08:00:00Z', ts: '2026-05-28T13:00:00Z', local_date: '2026-05-28' });
-        await insertTodoCompletion({ parentId: todoId, lts: '2026-05-28T18:00:00Z', ts: '2026-05-28T23:00:00Z', local_date: '2026-05-28' });
-        await insertTodoCompletion({ parentId: todoId, lts: '2026-05-30T18:00:00Z', ts: '2026-05-30T23:00:00Z', local_date: '2026-05-30' });
-        await insertTodoCompletion({ parentId: todoId, lts: '2026-06-02T18:00:00Z', ts: '2026-06-02T23:00:00Z', local_date: '2026-06-02' });
+        const todoId = await insertTodo({ title: 'recurring', ts: '2026-05-28T13:00:00Z', local_date: '2026-05-28' });
+        await insertTodoCompletion({ parentId: todoId, ts: '2026-05-28T23:00:00Z', local_date: '2026-05-28' });
+        await insertTodoCompletion({ parentId: todoId, ts: '2026-05-30T23:00:00Z', local_date: '2026-05-30' });
+        await insertTodoCompletion({ parentId: todoId, ts: '2026-06-02T23:00:00Z', local_date: '2026-06-02' });
 
         const spec = queries.getCompletionsInPeriod({
             parentId: todoId,

@@ -128,7 +128,7 @@ export function isDue(recurrence: Recurrence, completionsInPeriod: any[], now: D
                 const dayStart = getLocalDayStart(now, tz)
                 const dayEnd = getLocalDayEnd(now, tz)
                 const doneToday = completionsInPeriod.some(c => {
-                    const ts = new Date(c.lts || c.timestamp)
+                    const ts = new Date(c.ts)
                     return ts >= dayStart && ts <= dayEnd
                 })
                 return !doneToday
@@ -146,7 +146,7 @@ export function isDue(recurrence: Recurrence, completionsInPeriod: any[], now: D
                 const dayStart = getLocalDayStart(now, tz)
                 const dayEnd = getLocalDayEnd(now, tz)
                 const doneToday = completionsInPeriod.some(c => {
-                    const ts = new Date(c.lts || c.timestamp)
+                    const ts = new Date(c.ts)
                     return ts >= dayStart && ts <= dayEnd
                 })
                 return !doneToday
@@ -158,9 +158,9 @@ export function isDue(recurrence: Recurrence, completionsInPeriod: any[], now: D
                 if (completionsInPeriod.length === 0) return true // never completed
                 // Find the most recent completion
                 const sorted = [...completionsInPeriod].sort((a, b) =>
-                    new Date(b.timestamp || b.lts).getTime() - new Date(a.timestamp || a.lts).getTime()
+                    new Date(b.ts).getTime() - new Date(a.ts).getTime()
                 )
-                const lastCompletion = new Date(sorted[0].timestamp || sorted[0].lts)
+                const lastCompletion = new Date(sorted[0].ts)
                 const daysSince = (now.getTime() - lastCompletion.getTime()) / (1000 * 60 * 60 * 24)
                 return daysSince >= recurrence.every
             }
@@ -360,7 +360,7 @@ export function createTodosModule() {
                         recurrence: recurrence || null,
                         metric_link: metric_link || null,
                         source_text: source_text || '',
-                        timestamp: dueTs || eventTime.ts,
+                        due_at: dueTs || eventTime.ts,
                         ...eventTime,
                         tags: tags || [],
                     })) as any

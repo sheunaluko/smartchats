@@ -13,8 +13,6 @@ export interface LogRow extends AuditFields {
     id: string;
     content: string;
     category?: string;
-    /** IANA timezone the lts was stamped in. */
-    local_tz?: string;
 }
 
 /**
@@ -53,9 +51,7 @@ export interface InsertLogArgs extends EventTimeFields {
 
 /**
  * INSERT a new log row. Embedding is parameter-bound so vectors don't
- * inline into the query string. Dual-writes `lts` (legacy fake-UTC) and
- * `ts`/`local_date`/`local_tz` (the 1.5.0 event-time convention) during
- * the migration window; `lts` is dropped in 1.6.0.
+ * inline into the query string.
  */
 export function insertLog(args: InsertLogArgs): QuerySpec {
     return {
@@ -63,7 +59,6 @@ export function insertLog(args: InsertLogArgs): QuerySpec {
                         content: $content,
                         category: $category,
                         embedding: $embedding,
-                        lts: <datetime> $lts,
                         ts: <datetime> $ts,
                         local_date: $local_date,
                         local_tz: $local_tz
@@ -82,8 +77,6 @@ export interface UpdateLogPatch {
     content?: string;
     embedding?: unknown;
     category?: string;
-    /** Fake-UTC ISO datetime (`YYYY-MM-DDTHH:MM:00Z`). When set, `ts`/`local_date`/`local_tz` should be set together. */
-    lts?: string;
     /** Real-UTC ISO datetime. */
     ts?: string;
     /** YYYY-MM-DD in the user's tz. */
@@ -112,10 +105,6 @@ export function updateLog(args: { recordId: string; patch: UpdateLogPatch }): Qu
     if (args.patch.category !== undefined) {
         setClauses.push('category = $category');
         variables.category = args.patch.category;
-    }
-    if (args.patch.lts !== undefined) {
-        setClauses.push('lts = <datetime> $lts');
-        variables.lts = args.patch.lts;
     }
     if (args.patch.ts !== undefined) {
         setClauses.push('ts = <datetime> $ts');
@@ -174,12 +163,8 @@ export interface ListLogsArgs {
  * category filter, date filter, and content substring search.
  *
  * Sort is `ts DESC` — real-UTC instant, monotonic across DST and travel.
- * The previous `ORDER BY lts DESC` was preserved here for the dual-write
- * window; switched in 1.5.0 step 3 once every callsite populates `ts`.
- *
- * Projection includes both `lts` (legacy, dropped in 1.6.0) and `ts`/
- * `local_date` (1.5.0 convention) so MCP/UI consumers can migrate at
- * their own pace during the dual-read window.
+ * Projection returns `ts`, `local_date`, `local_tz` alongside content/
+ * category fields.
  */
 export function listLogs(args: ListLogsArgs): QuerySpec {
     const limit = Math.min(Math.max(args.limit ?? 20, 1), 100);
@@ -216,7 +201,7 @@ export function listLogs(args: ListLogsArgs): QuerySpec {
     }
 
     return {
-        query: `SELECT id, content, category, created_at, lts, ts, local_date, local_tz FROM logs ${where} ORDER BY ts DESC LIMIT ${limit}`,
+        query: `SELECT id, content, category, created_at, ts, local_date, local_tz FROM logs ${where} ORDER BY ts DESC LIMIT ${limit}`,
         variables,
     };
 }
@@ -244,7 +229,7 @@ export function searchLogsSemantic(args: SearchLogsSemanticArgs): QuerySpec {
         variables.category = args.category;
     }
     return {
-        query: `SELECT id, content, category, created_at, lts, vector::distance::knn() AS distance FROM logs WHERE ${conditions.join(' AND ')} ORDER BY distance LIMIT ${args.limit}`,
+        query: `SELECT id, content, category, created_at, ts, vector::distance::knn() AS distance FROM logs WHERE ${conditions.join(' AND ')} ORDER BY distance LIMIT ${args.limit}`,
         variables,
     };
 }

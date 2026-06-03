@@ -37,6 +37,15 @@ export const IMPORT_STRIP_FIELDS = new Set([
     'owner',
     'createdAt',
     'updatedAt',
+    // Legacy fields from pre-v1.0.0 schemas. Bundles exported before the
+    // v1.0.0 event-time baseline may carry these — silently drop them on
+    // import. The clean shape is ts/local_date/local_tz; legacy data
+    // requiring conversion goes through `operations/convert_legacy_bundle.ts`
+    // before being handed to the importer.
+    'lts',
+    // `metrics.timestamp` was the pre-v1.0.0 real-UTC column on metrics;
+    // renamed to `ts` to unify with every other event-time table.
+    'timestamp',
 ]);
 
 /**

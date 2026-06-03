@@ -15,7 +15,7 @@ import type { QuerySpec } from '../types.js';
  * the first page.
  */
 export function listUsageRecords(args: { limit: number; startAfter?: string | null }): QuerySpec {
-    const where = args.startAfter ? 'WHERE ts < $startAfter' : '';
+    const where = args.startAfter ? 'WHERE ts < <datetime> $startAfter' : '';
     const variables: Record<string, unknown> = { limit: args.limit };
     if (args.startAfter) variables.startAfter = args.startAfter;
     return {
@@ -63,11 +63,9 @@ export function insertUsageRecord(args: InsertUsageRecordArgs): QuerySpec {
     // field from SET entirely — the field stays NONE on the row.
     // Without this guard, the previous fixed SET produced an ERR for every
     // call without a sessionId (writeUsageRecord's silent try/catch hid it).
-    // Server-side stamp for all event-time fields. lts and ts are both
-    // real-UTC time::now() (lts on usage_records was always real UTC, not
-    // fake-UTC like the user-data tables). local_date is the UTC date
-    // since the local server has no user-tz context. local_tz = 'UTC'
-    // documents that bucketing for this table is UTC days.
+    // Server-stamped event-time fields. ts = real UTC. local_date is the
+    // UTC date — the local server has no user-tz context, so usage_records
+    // buckets are UTC days by design. local_tz = 'UTC' documents this.
     const setClauses: string[] = [
         'model = $model',
         'provider = $provider',
@@ -78,7 +76,6 @@ export function insertUsageRecord(args: InsertUsageRecordArgs): QuerySpec {
         'credits_charged = 0',
         "charged_from = 'local'",
         'request_type = $type',
-        'lts = time::now()',
         'ts = time::now()',
         "local_date = time::format(time::now(), '%Y-%m-%d')",
         "local_tz = 'UTC'",

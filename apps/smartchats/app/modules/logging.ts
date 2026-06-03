@@ -173,7 +173,8 @@ export function createLoggingModule() {
                         content?: string
                         embedding?: unknown
                         category?: string
-                        lts?: string
+                        ts?: string
+                        local_date?: string
                         local_tz?: string
                     } = {}
 
@@ -193,10 +194,18 @@ export function createLoggingModule() {
                     }
 
                     if (date) {
-                        // date/time are already local — format directly as fake-UTC lts
+                        // User provides date + time in their local zone. Derive
+                        // ts (real UTC) by interpreting the local moment, then
+                        // local_date + local_tz fall out naturally.
                         const timeStr = time || '12:00'
-                        patch.lts = `${date}T${timeStr}:00Z`
-                        patch.local_tz = getUserTimezone()
+                        const tz = getUserTimezone()
+                        // Construct a Date for "date T time" interpreted as local.
+                        // toLocaleString sv-SE produces "YYYY-MM-DD HH:MM:SS" which
+                        // we parse as if it were local, then convert back to UTC.
+                        const naive = new Date(`${date}T${timeStr}:00`)
+                        patch.ts = naive.toISOString()
+                        patch.local_date = date
+                        patch.local_tz = tz
                     }
 
                     const spec = queries.updateLog({ recordId: id, patch })

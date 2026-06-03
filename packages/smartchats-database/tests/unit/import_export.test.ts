@@ -6,6 +6,15 @@ describe('IMPORT_STRIP_FIELDS', () => {
         expect(IMPORT_STRIP_FIELDS.has('created_at')).toBe(true);
         expect(IMPORT_STRIP_FIELDS.has('updated_at')).toBe(true);
     });
+
+    it('strips legacy pre-v1.0.0 event-time fields (lts, metrics.timestamp)', () => {
+        // Pre-v1.0.0 bundles carry these legacy fields; the importer drops
+        // them silently. Conversion to the v1.0.0 shape (deriving ts +
+        // local_date + local_tz from lts/timestamp) happens BEFORE the
+        // importer, in operations/convert_legacy_bundle.ts.
+        expect(IMPORT_STRIP_FIELDS.has('lts')).toBe(true);
+        expect(IMPORT_STRIP_FIELDS.has('timestamp')).toBe(true);
+    });
 });
 
 describe('buildImportQuery — normal record table (UPSERT path)', () => {
@@ -35,8 +44,9 @@ describe('buildImportQuery — normal record table (UPSERT path)', () => {
     });
 
     it('casts ISO datetime strings with <datetime>', () => {
-        const dt = buildImportQuery('logs', 'k', { lts: '2026-05-30T12:00:00Z' })!;
-        expect(dt.query).toContain('lts = <datetime> $v0');
+        // `ts` is the v1.0.0 event-time column; legacy `lts` is now stripped.
+        const dt = buildImportQuery('logs', 'k', { ts: '2026-05-30T12:00:00Z' })!;
+        expect(dt.query).toContain('ts = <datetime> $v0');
         expect(dt.variables.v0).toBe('2026-05-30T12:00:00Z');
     });
 

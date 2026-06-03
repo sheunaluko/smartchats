@@ -31,7 +31,7 @@ export interface ListSessionsArgs {
 export function listSessions(args: ListSessionsArgs = {}): QuerySpec {
     const limit = Math.min(Math.max(args.limit ?? 50, 1), 200);
     return {
-        query: `SELECT id, label, message_count, created_at, updated_at, lts, ts, local_date, local_tz FROM sessions ORDER BY ts DESC LIMIT ${limit}`,
+        query: `SELECT id, label, message_count, created_at, updated_at, ts, local_date, local_tz FROM sessions ORDER BY ts DESC LIMIT ${limit}`,
         variables: {},
     };
 }
@@ -50,7 +50,7 @@ export interface SearchSessionsArgs {
 export function searchSessions(args: SearchSessionsArgs): QuerySpec {
     const limit = Math.min(Math.max(args.limit ?? 20, 1), 100);
     return {
-        query: `SELECT id, label, message_count, created_at, updated_at, lts, ts, local_date, local_tz FROM sessions WHERE (label != NONE AND string::lowercase(label) CONTAINS string::lowercase($q)) OR string::lowercase(<string> chat_history) CONTAINS string::lowercase($q) ORDER BY ts DESC LIMIT ${limit}`,
+        query: `SELECT id, label, message_count, created_at, updated_at, ts, local_date, local_tz FROM sessions WHERE (label != NONE AND string::lowercase(label) CONTAINS string::lowercase($q)) OR string::lowercase(<string> chat_history) CONTAINS string::lowercase($q) ORDER BY ts DESC LIMIT ${limit}`,
         variables: { q: args.query },
     };
 }
@@ -106,7 +106,6 @@ export function insertSession(data: SessionWriteFields): QuerySpec {
             thought_history: $thought_history,
             execution_history: $execution_history,
             settings: $settings,
-            lts: <datetime> $lts,
             ts: <datetime> $ts,
             local_date: $local_date,
             local_tz: $local_tz
@@ -130,7 +129,6 @@ export function updateSession(sessionId: string, data: SessionWriteFields): Quer
             thought_history = $thought_history,
             execution_history = $execution_history,
             settings = $settings,
-            lts = <datetime> $lts,
             ts = <datetime> $ts,
             local_date = $local_date,
             local_tz = $local_tz`,

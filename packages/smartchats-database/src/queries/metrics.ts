@@ -62,7 +62,7 @@ export function getMetrics(args: GetMetricsArgs = {}): QuerySpec {
 
     const where = conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : '';
     return {
-        query: `SELECT id, metric_name, value, unit, category, lts, ts, local_date, local_tz, source_text, note FROM metrics ${where} ORDER BY ts DESC LIMIT ${limit}`,
+        query: `SELECT id, metric_name, value, unit, category, ts, local_date, local_tz, source_text, note FROM metrics ${where} ORDER BY ts DESC LIMIT ${limit}`,
         variables,
     };
 }
@@ -135,10 +135,7 @@ export interface InsertMetricArgs extends EventTimeFields {
 }
 
 /**
- * INSERT a new metric row. `ts` is the real-UTC instant (the canonical
- * event-time column name across every table since 1.5.1, replacing the
- * legacy `timestamp` column). `lts` is dual-written during the 1.5.0 →
- * 1.6.0 window.
+ * INSERT a new metric row.
  */
 export function insertMetric(args: InsertMetricArgs): QuerySpec {
     return {
@@ -148,7 +145,6 @@ export function insertMetric(args: InsertMetricArgs): QuerySpec {
                         unit: $unit,
                         metric_type: $metric_type,
                         ts: <datetime> $ts,
-                        lts: <datetime> $lts,
                         local_date: $local_date,
                         local_tz: $local_tz,
                         source: $source,
@@ -167,14 +163,15 @@ export function insertMetric(args: InsertMetricArgs): QuerySpec {
 // ── Habit summary helper ──────────────────────────────────────────────────
 
 /**
- * Fetch the `ts` of every "done" entry (value >= 1) for a metric within
- * a date range. Caller pre-builds the date filter via
+ * Fetch the `local_date` of every "done" entry (value >= 1) for a
+ * metric within a date range. Caller pre-builds the date filter via
  * `buildMetricsTimeFilter` (raw SurrealQL fragment — date literals are
- * inlined). Returns real-UTC instants for downstream calendar math.
+ * inlined). Returns user-local YYYY-MM-DD strings for downstream
+ * calendar/streak math.
  */
 export function getHabitDoneTimestamps(args: { metric_name: string; dateFilter: string }): QuerySpec {
     return {
-        query: `SELECT ts FROM metrics WHERE metric_name = $metric_name AND value >= 1 AND ${args.dateFilter} ORDER BY ts ASC`,
+        query: `SELECT local_date FROM metrics WHERE metric_name = $metric_name AND value >= 1 AND ${args.dateFilter} ORDER BY local_date ASC`,
         variables: { metric_name: args.metric_name },
     };
 }

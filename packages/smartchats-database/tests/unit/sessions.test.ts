@@ -10,14 +10,13 @@ describe('listSessions', () => {
         expect(listSessions().query).toContain('ORDER BY ts DESC');
     });
 
-    it('projects the legacy lts alongside the 1.5.0 event-time triple', () => {
-        // Dual-read window: consumers can migrate to ts/local_date at their
-        // own pace before lts is dropped in 1.6.0.
+    it('projects the v1.0.0 event-time triple (ts, local_date, local_tz)', () => {
         const q = listSessions().query;
-        expect(q).toContain('lts');
         expect(q).toContain('ts');
         expect(q).toContain('local_date');
         expect(q).toContain('local_tz');
+        // Legacy lts is gone — should not appear in projection.
+        expect(q).not.toMatch(/[\s,]lts[\s,]/);
     });
 
     it('clamps an oversized limit down to 200', () => {

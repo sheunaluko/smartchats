@@ -135,16 +135,14 @@ export function TodoList({ overdue, due_today, upcoming_7d, no_date, total_activ
         const eventTime = nowEventTime()
 
         try {
-            // Create completion record. Dual-writes legacy lts and the 1.5.0
-            // event-time triple (ts/local_date/local_tz).
+            // Create completion record using the v1.0.0 event-time triple
+            // (ts/local_date/local_tz).
             const compQuery = `INSERT INTO user_data {
                 type: 'todo_completion',
                 status: 'completed',
                 data: { note: NONE },
                 source_text: '',
                 parent_id: $parent_id,
-                timestamp: d'${eventTime.ts}',
-                lts: d'${eventTime.lts}',
                 ts: d'${eventTime.ts}',
                 local_date: $local_date,
                 local_tz: $local_tz,
