@@ -108,12 +108,15 @@ async function insertMetric(args: {
     ts: string;
     local_date: string;
     local_tz: string;
+    unit?: string;
+    metric_type?: string;
+    category?: string;
 }): Promise<string> {
     const spec = queries.insertMetric({
         metric_name: args.metric_name,
         value: args.value,
-        unit: 'count',
-        metric_type: 'numeric',
+        unit: args.unit ?? 'count',
+        metric_type: args.metric_type ?? 'numeric',
         lts: args.lts,
         ts: args.ts,
         local_date: args.local_date,
@@ -121,14 +124,122 @@ async function insertMetric(args: {
         source: 'test',
         source_text: '',
         source_log_id: null,
-        category: 'test',
+        category: args.category ?? 'test',
         time_shift_quantity: null,
         time_shift_unit: null,
         note: null,
     });
+    return runInsert(spec);
+}
+
+async function insertLog(args: {
+    content: string;
+    category?: string;
+    lts: string;
+    ts: string;
+    local_date: string;
+    local_tz?: string;
+}): Promise<string> {
+    return runInsert(queries.insertLog({
+        content: args.content,
+        category: args.category ?? 'test',
+        embedding: null,
+        lts: args.lts,
+        ts: args.ts,
+        local_date: args.local_date,
+        local_tz: args.local_tz ?? 'America/Chicago',
+    }));
+}
+
+async function insertSession(args: {
+    label: string;
+    lts: string;
+    ts: string;
+    local_date: string;
+    local_tz?: string;
+}): Promise<string> {
+    return runInsert(queries.insertSession({
+        label: args.label,
+        message_count: 0,
+        chat_history: [],
+        workspace: {},
+        thought_history: [],
+        execution_history: [],
+        settings: {},
+        lts: args.lts,
+        ts: args.ts,
+        local_date: args.local_date,
+        local_tz: args.local_tz ?? 'America/Chicago',
+    }));
+}
+
+async function insertTodo(args: {
+    title: string;
+    lts: string;
+    ts: string;
+    local_date: string;
+    local_tz?: string;
+    due_date?: string | null;
+}): Promise<string> {
+    return runInsert(queries.insertTodo({
+        title: args.title,
+        description: null,
+        priority: 'medium',
+        category: 'test',
+        due_date: args.due_date ?? null,
+        recurrence: null,
+        metric_link: null,
+        source_text: '',
+        timestamp: args.ts,
+        lts: args.lts,
+        ts: args.ts,
+        local_date: args.local_date,
+        local_tz: args.local_tz ?? 'America/Chicago',
+        tags: [],
+    }));
+}
+
+async function insertTodoCompletion(args: {
+    parentId: string;
+    lts: string;
+    ts: string;
+    local_date: string;
+    local_tz?: string;
+}): Promise<string> {
+    return runInsert(queries.insertTodoCompletion({
+        parent_id: args.parentId,
+        note: null,
+        lts: args.lts,
+        ts: args.ts,
+        local_date: args.local_date,
+        local_tz: args.local_tz ?? 'America/Chicago',
+    }));
+}
+
+async function insertUsageRecord(args: {
+    model?: string;
+    provider?: string;
+    inputTokens?: number;
+    outputTokens?: number;
+    costUsd?: number;
+}): Promise<string> {
+    // usage_records is server-stamped: ts = time::now() at INSERT time.
+    return runInsert(queries.insertUsageRecord({
+        model: args.model ?? 'gpt-5.5',
+        provider: args.provider ?? 'openai',
+        inputTokens: args.inputTokens ?? 100,
+        outputTokens: args.outputTokens ?? 50,
+        cachedInputTokens: 0,
+        costUsd: args.costUsd ?? 0.01,
+        sessionId: null,
+        requestType: 'chat',
+    }));
+}
+
+async function runInsert(spec: QuerySpec): Promise<string> {
     const stmts = (await client.runRaw(spec.query, spec.variables)) as Array<{ status: string; result: unknown }>;
     if (stmts[0].status !== 'OK') {
-        throw new Error(`Insert failed: ${JSON.stringify(stmts[0].result)}`);
+        throw new Error(`Insert failed: ${JSON.stringify(stmts[0].result)}\nQuery: ${spec.query}`);
     }
     const rows = stmts[0].result as Array<{ id: unknown }>;
     return String(rows[0].id);
@@ -426,5 +537,224 @@ describe('builder-emitted queries return correct results end-to-end', () => {
         );
         expect(ranged).toHaveLength(1);
         expect(ranged[0].content).toBe('middle');
+    });
+
+    it('searchLogs substring + dateFilter end-to-end', async () => {
+        await insertLog({ content: 'drank water today', lts: '2026-05-28T08:00:00Z', ts: '2026-05-28T13:00:00Z', local_date: '2026-05-28' });
+        await insertLog({ content: 'water again later', lts: '2026-05-30T08:00:00Z', ts: '2026-05-30T13:00:00Z', local_date: '2026-05-30' });
+        await insertLog({ content: 'unrelated entry',   lts: '2026-05-30T18:00:00Z', ts: '2026-05-30T23:00:00Z', local_date: '2026-05-30' });
+
+        const hits = await queryRows<{ content: string }>(
+            queries.listLogs({ searchText: 'water' }),
+        );
+        expect(hits.map((r) => r.content).sort()).toEqual(['drank water today', 'water again later']);
+
+        const dateConstrained = await queryRows<{ content: string }>(
+            queries.listLogs({
+                searchText: 'water',
+                dateFilter: ` AND local_date = '2026-05-30'`,
+            }),
+        );
+        expect(dateConstrained.map((r) => r.content)).toEqual(['water again later']);
+    });
+});
+
+// ── New coverage: metrics builder modes not yet exercised ─────────────────
+
+describe('buildMetricsQuery — modes not covered above', () => {
+    beforeEach(async () => {
+        await client.runRaw('DELETE FROM metrics;');
+    });
+
+    const ctx = { getCurrentLocalDate: (_tz: string) => '2026-06-15' };
+
+    it('raw mode returns every row in ts ASC order', async () => {
+        await insertMetric({ metric_name: 'water', value: 2, lts: '2026-05-29T08:00:00Z', ts: '2026-05-29T13:00:00Z', local_date: '2026-05-29', local_tz: 'America/Chicago' });
+        await insertMetric({ metric_name: 'water', value: 1, lts: '2026-05-30T08:00:00Z', ts: '2026-05-30T13:00:00Z', local_date: '2026-05-30', local_tz: 'America/Chicago' });
+
+        const spec = queries.buildMetricsQuery(
+            { metric_name: 'water', aggregation: 'raw', from_date: '2026-05-28', to_date: '2026-06-01' },
+            'America/Chicago',
+            ctx,
+        );
+        const rows = await queryRows<{ value: number; local_date: string }>(spec);
+        expect(rows.map((r) => r.value)).toEqual([2, 1]);
+    });
+
+    it('weekly_sum via the builder groups across ISO weeks', async () => {
+        await insertMetric({ metric_name: 'water', value: 5, lts: '2026-05-27T08:00:00Z', ts: '2026-05-27T13:00:00Z', local_date: '2026-05-27', local_tz: 'America/Chicago' });
+        await insertMetric({ metric_name: 'water', value: 3, lts: '2026-05-29T08:00:00Z', ts: '2026-05-29T13:00:00Z', local_date: '2026-05-29', local_tz: 'America/Chicago' });
+        await insertMetric({ metric_name: 'water', value: 7, lts: '2026-06-03T08:00:00Z', ts: '2026-06-03T13:00:00Z', local_date: '2026-06-03', local_tz: 'America/Chicago' });
+
+        const spec = queries.buildMetricsQuery(
+            { metric_name: 'water', aggregation: 'weekly_sum', from_date: '2026-05-25', to_date: '2026-06-15' },
+            'America/Chicago',
+            ctx,
+        );
+        const rows = await queryRows<{ yr: number; wk: number; value: number }>(spec);
+        expect(rows).toHaveLength(2);
+        expect(rows[0]).toMatchObject({ yr: 2026, wk: 22, value: 8 });
+        expect(rows[1]).toMatchObject({ yr: 2026, wk: 23, value: 7 });
+    });
+
+    it.each([
+        ['daily_max', 'math::max', 7],
+        ['daily_min', 'math::min', 1],
+        ['daily_avg', 'math::mean', 4],
+    ] as const)('%s on one day with values 1, 4, 7 returns the right aggregate', async (agg, _fn, expected) => {
+        for (const [value, hour] of [[1, '08'], [4, '12'], [7, '16']] as const) {
+            await insertMetric({ metric_name: 'reps', value, lts: `2026-05-30T${hour}:00:00Z`, ts: `2026-05-30T${hour}:00:00Z`, local_date: '2026-05-30', local_tz: 'America/Chicago' });
+        }
+        const spec = queries.buildMetricsQuery(
+            { metric_name: 'reps', aggregation: agg, from_date: '2026-05-30', to_date: '2026-05-30' },
+            'America/Chicago',
+            ctx,
+        );
+        const rows = await queryRows<{ bucket: string; value: number }>(spec);
+        expect(rows).toHaveLength(1);
+        expect(rows[0].value).toBe(expected);
+    });
+
+    it('stacked group_mode splits the series by metric_name', async () => {
+        await insertMetric({ metric_name: 'water', value: 2, lts: '2026-05-29T08:00:00Z', ts: '2026-05-29T13:00:00Z', local_date: '2026-05-29', local_tz: 'America/Chicago' });
+        await insertMetric({ metric_name: 'sleep', value: 7, lts: '2026-05-29T08:00:00Z', ts: '2026-05-29T13:00:00Z', local_date: '2026-05-29', local_tz: 'America/Chicago', unit: 'hours' });
+        await insertMetric({ metric_name: 'water', value: 3, lts: '2026-05-30T08:00:00Z', ts: '2026-05-30T13:00:00Z', local_date: '2026-05-30', local_tz: 'America/Chicago' });
+        await insertMetric({ metric_name: 'sleep', value: 6, lts: '2026-05-30T08:00:00Z', ts: '2026-05-30T13:00:00Z', local_date: '2026-05-30', local_tz: 'America/Chicago', unit: 'hours' });
+
+        const spec = queries.buildMetricsQuery(
+            {
+                metric_name: 'water',
+                metric_names: ['water', 'sleep'],
+                aggregation: 'daily_sum',
+                group_mode: 'stacked',
+                from_date: '2026-05-28',
+                to_date: '2026-06-01',
+            },
+            'America/Chicago',
+            ctx,
+        );
+        const rows = await queryRows<{ bucket: string; metric_name: string; value: number }>(spec);
+        expect(rows).toHaveLength(4);
+        const byKey = new Map(rows.map((r) => [`${r.bucket}/${r.metric_name}`, r.value]));
+        expect(byKey.get('2026-05-29/water')).toBe(2);
+        expect(byKey.get('2026-05-29/sleep')).toBe(7);
+        expect(byKey.get('2026-05-30/water')).toBe(3);
+        expect(byKey.get('2026-05-30/sleep')).toBe(6);
+    });
+
+    it('recency mode (e.g. "3d") restricts to the past 3 days of real time', async () => {
+        const now = new Date();
+        const yesterday = new Date(now.getTime() - 86_400_000);
+        const twoWeeksAgo = new Date(now.getTime() - 14 * 86_400_000);
+        const stripMs = (d: Date) => d.toISOString().replace(/\.\d{3}Z$/, 'Z');
+        await insertMetric({ metric_name: 'reps', value: 10, lts: stripMs(yesterday), ts: stripMs(yesterday), local_date: yesterday.toISOString().slice(0, 10), local_tz: 'America/Chicago' });
+        await insertMetric({ metric_name: 'reps', value: 20, lts: stripMs(twoWeeksAgo), ts: stripMs(twoWeeksAgo), local_date: twoWeeksAgo.toISOString().slice(0, 10), local_tz: 'America/Chicago' });
+
+        const spec = queries.buildMetricsQuery(
+            { metric_name: 'reps', aggregation: 'daily_sum', recency: '3d' },
+            'America/Chicago',
+            ctx,
+        );
+        const rows = await queryRows<{ value: number }>(spec);
+        expect(rows).toHaveLength(1);
+        expect(rows[0].value).toBe(10);
+    });
+});
+
+// ── New coverage: sessions / todos / usage_records / KG read paths ───────
+
+describe('listSessions ordering', () => {
+    beforeEach(async () => {
+        await client.runRaw('DELETE FROM sessions;');
+    });
+
+    it('orders by ts DESC (real-UTC instant)', async () => {
+        await insertSession({ label: 'oldest', lts: '2026-05-28T08:00:00Z', ts: '2026-05-28T13:00:00Z', local_date: '2026-05-28' });
+        await insertSession({ label: 'newest', lts: '2026-05-30T08:00:00Z', ts: '2026-05-30T13:00:00Z', local_date: '2026-05-30' });
+        await insertSession({ label: 'middle', lts: '2026-05-29T08:00:00Z', ts: '2026-05-29T13:00:00Z', local_date: '2026-05-29' });
+
+        const rows = await queryRows<{ label: string }>(queries.listSessions({ limit: 10 }));
+        expect(rows.map((r) => r.label)).toEqual(['newest', 'middle', 'oldest']);
+    });
+});
+
+describe('todos read paths', () => {
+    beforeEach(async () => {
+        await client.runRaw('DELETE FROM user_data;');
+    });
+
+    it('getTodos active + ts DESC ordering', async () => {
+        await insertTodo({ title: 'oldest', lts: '2026-05-28T08:00:00Z', ts: '2026-05-28T13:00:00Z', local_date: '2026-05-28' });
+        await insertTodo({ title: 'newest', lts: '2026-05-30T08:00:00Z', ts: '2026-05-30T13:00:00Z', local_date: '2026-05-30' });
+        await insertTodo({ title: 'middle', lts: '2026-05-29T08:00:00Z', ts: '2026-05-29T13:00:00Z', local_date: '2026-05-29' });
+
+        const rows = await queryRows<{ data: { title: string } }>(queries.getTodos({ status: 'active', limit: 10 }));
+        expect(rows.map((r) => r.data.title)).toEqual(['newest', 'middle', 'oldest']);
+    });
+
+    it('getCompletionsInPeriod filters by real-UTC ts range', async () => {
+        const todoId = await insertTodo({ title: 'recurring', lts: '2026-05-28T08:00:00Z', ts: '2026-05-28T13:00:00Z', local_date: '2026-05-28' });
+        await insertTodoCompletion({ parentId: todoId, lts: '2026-05-28T18:00:00Z', ts: '2026-05-28T23:00:00Z', local_date: '2026-05-28' });
+        await insertTodoCompletion({ parentId: todoId, lts: '2026-05-30T18:00:00Z', ts: '2026-05-30T23:00:00Z', local_date: '2026-05-30' });
+        await insertTodoCompletion({ parentId: todoId, lts: '2026-06-02T18:00:00Z', ts: '2026-06-02T23:00:00Z', local_date: '2026-06-02' });
+
+        const spec = queries.getCompletionsInPeriod({
+            parentId: todoId,
+            start: '2026-05-29T00:00:00Z',
+            end: '2026-05-31T23:59:59Z',
+        });
+        const rows = await queryRows(spec);
+        expect(rows).toHaveLength(1);
+    });
+});
+
+describe('usage_records read paths', () => {
+    beforeEach(async () => {
+        await client.runRaw('DELETE FROM usage_records;');
+    });
+
+    it('listUsageRecords orders by ts DESC and paginates via startAfter cursor', async () => {
+        const ids: string[] = [];
+        // Server-stamps ts = time::now(), so each insert is monotonically later.
+        for (let i = 0; i < 5; i++) {
+            ids.push(await insertUsageRecord({ inputTokens: i * 100 }));
+            // Tiny delay so ts differs row-to-row (surreal's time::now() is microsecond).
+            await new Promise((r) => setTimeout(r, 5));
+        }
+
+        const firstPage = await queryRows<{ id: unknown; ts: string }>(
+            queries.listUsageRecords({ limit: 2 }),
+        );
+        expect(firstPage).toHaveLength(2);
+        // DESC: newest first → last inserted
+        expect(String(firstPage[0].id)).toBe(ids[4]);
+        expect(String(firstPage[1].id)).toBe(ids[3]);
+
+        const secondPage = await queryRows<{ id: unknown }>(
+            queries.listUsageRecords({ limit: 2, startAfter: firstPage[1].ts }),
+        );
+        expect(secondPage).toHaveLength(2);
+        expect(String(secondPage[0].id)).toBe(ids[2]);
+        expect(String(secondPage[1].id)).toBe(ids[1]);
+    });
+
+    it('getUsageRecordsSince filters by ts >= cutoff', async () => {
+        const beforeCutoff = await insertUsageRecord({ inputTokens: 10 });
+        // Capture cutoff between the two inserts. Keep millisecond precision —
+        // stripping ms would floor to the second, which on tight timing could
+        // make beforeCutoff's stamp >= cutoff and break the test.
+        await new Promise((r) => setTimeout(r, 50));
+        const cutoff = new Date().toISOString();
+        await new Promise((r) => setTimeout(r, 50));
+        const afterCutoff = await insertUsageRecord({ inputTokens: 20 });
+
+        const rows = await queryRows<{ id: unknown }>(queries.getUsageRecordsSince(cutoff));
+        expect(rows.map((r) => String(r.id))).toEqual([afterCutoff]);
+        // Sanity: the pre-cutoff row exists in the DB
+        const all = await queryRows<{ id: unknown }>({
+            query: 'SELECT id FROM usage_records',
+            variables: {},
+        });
+        expect(all.map((r) => String(r.id)).sort()).toEqual([beforeCutoff, afterCutoff].sort());
     });
 });
