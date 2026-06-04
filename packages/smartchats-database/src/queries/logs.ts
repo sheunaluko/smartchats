@@ -60,8 +60,8 @@ export function insertLog(args: InsertLogArgs): QuerySpec {
                         category: $category,
                         embedding: $embedding,
                         ts: <datetime> $ts,
-                        local_date: $local_date,
-                        local_tz: $local_tz
+                        local_date: <string> $local_date,
+                        local_tz: <string> $local_tz
                     }`,
         variables: { ...args },
     };
@@ -111,11 +111,11 @@ export function updateLog(args: { recordId: string; patch: UpdateLogPatch }): Qu
         variables.ts = args.patch.ts;
     }
     if (args.patch.local_date !== undefined) {
-        setClauses.push('local_date = $local_date');
+        setClauses.push('local_date = <string> $local_date');
         variables.local_date = args.patch.local_date;
     }
     if (args.patch.local_tz !== undefined) {
-        setClauses.push('local_tz = $local_tz');
+        setClauses.push('local_tz = <string> $local_tz');
         variables.local_tz = args.patch.local_tz;
     }
 

@@ -107,8 +107,8 @@ export function insertSession(data: SessionWriteFields): QuerySpec {
             execution_history: $execution_history,
             settings: $settings,
             ts: <datetime> $ts,
-            local_date: $local_date,
-            local_tz: $local_tz
+            local_date: <string> $local_date,
+            local_tz: <string> $local_tz
         }`,
         variables: { ...data },
     };
@@ -130,8 +130,8 @@ export function updateSession(sessionId: string, data: SessionWriteFields): Quer
             execution_history = $execution_history,
             settings = $settings,
             ts = <datetime> $ts,
-            local_date = $local_date,
-            local_tz = $local_tz`,
+            local_date = <string> $local_date,
+            local_tz = <string> $local_tz`,
         variables: { key: sessionKey(sessionId), ...data },
     };
 }

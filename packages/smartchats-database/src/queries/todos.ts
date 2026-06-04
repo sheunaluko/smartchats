@@ -137,8 +137,8 @@ export function insertTodo(args: InsertTodoArgs): QuerySpec {
             parent_id: NONE,
             due_at: <datetime> $due_at,
             ts: <datetime> $ts,
-            local_date: $local_date,
-            local_tz: $local_tz,
+            local_date: <string> $local_date,
+            local_tz: <string> $local_tz,
             tags: $tags,
             created_at: time::now(),
             updated_at: time::now()
@@ -168,8 +168,8 @@ export function insertTodoCompletion(args: InsertTodoCompletionArgs): QuerySpec 
             source_text: '',
             parent_id: $parent_id,
             ts: <datetime> $ts,
-            local_date: $local_date,
-            local_tz: $local_tz,
+            local_date: <string> $local_date,
+            local_tz: <string> $local_tz,
             tags: [],
             created_at: time::now(),
             updated_at: time::now()
