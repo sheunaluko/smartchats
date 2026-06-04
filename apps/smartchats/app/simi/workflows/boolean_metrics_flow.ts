@@ -30,11 +30,13 @@ export const booleanMetricsFlow = defineWorkflow({
     // ── Step 2: Save a negative boolean metric ──
     // Wait for LLM to finish before sending next message
     { waitFor: '!state.llmRunning', timeout: 30000 },
-    // Same explicit framing for the negation case — the agent's default
-    // behavior on an untracked metric is "ask for clarification"; the
-    // explicit instruction tells it to commit to save_metric({value: 0})
-    // instead.
-    { action: 'sendMessageAsync', args: ['use boolean metrics to note that I did not journal today'], timeout: 60000, wait: 500 },
+    // Use the canonical metric name `daily_journal` (matches the seeded
+    // metric_definition). The agent's default behavior when given an
+    // ambiguous short form like "journal" is to ask whether to map it to
+    // `daily_journal` or create a new metric, which times out the wait
+    // for a successful save_metric. Pinning the prompt to the canonical
+    // name removes the ambiguity and forces a direct save.
+    { action: 'sendMessageAsync', args: ['use boolean metrics to note that I did not daily_journal today'], timeout: 60000, wait: 500 },
 
     // Wait for save_metric to complete in this execution
     { waitFor: 'state.functionCalls.some(c => c.name === "save_metric" && c.status === "success")', timeout: 30000 },
