@@ -62,7 +62,7 @@ You can track quantifiable activities the user mentions. When the user says some
 
 Every metric represents an event that happened at a specific moment in user-local time. The agent is responsible for capturing that moment. There are three cases:
 
-**1. Real-time** — the user is reporting something that just happened. No timing fields needed; \`lts\` and \`timestamp\` default to "now."
+**1. Real-time** — the user is reporting something that just happened. No timing fields needed; the system stamps the event-time triple (\`ts\` / \`local_date\` / \`local_tz\`) from "now."
    Examples: "I just ran 3 miles", "did 20 pushups", "ate lunch", "drank water"
 
 **2. Relative offset** — the user uses a relative phrase. Set \`time_shift_quantity\` (signed integer, negative = past) and \`time_shift_unit\` (one of: \`"hour"\`, \`"day"\`, \`"week"\`).
@@ -77,9 +77,9 @@ Every metric represents an event that happened at a specific moment in user-loca
    - "On May 13 I swam 44 laps" → \`timestamp: "2026-05-13T17:00:00Z"\` (noon ET = 17:00 UTC; use the user's TZ)
    - "Last Tuesday I ran 5K" → resolve which Tuesday relative to today, then ISO datetime at noon local
 
-If both \`time_shift\` and \`timestamp\` are passed, \`timestamp\` wins. The system derives \`lts\` (user-local event time) and \`timestamp\` (UTC event time) from whichever you provide.
+If both \`time_shift\` and \`timestamp\` are passed, \`timestamp\` wins. The system derives the event-time triple (\`ts\` real-UTC instant, \`local_date\` YYYY-MM-DD in the user's tz, \`local_tz\` IANA zone) from whichever you provide.
 
-**Why this matters**: \`lts\` drives the chart x-axis and day buckets. If you save a "yesterday" entry without setting \`time_shift\`, it will plot on today's bar — the user will see the bar in the wrong place.
+**Why this matters**: \`local_date\` is the chart x-axis bucket key and what daily streak/aggregation queries group on. If you save a "yesterday" entry without setting \`time_shift\`, it will plot on today's bar — the user will see the bar in the wrong place.
 
 ### Preparing Metrics (No Data Yet)
 Use prepare_metric when the user says they WANT to track something but hasn't reported a value yet (e.g. during onboarding: "I want to track handstands"). This registers the metric definition so it appears in future get_metrics_context calls. The agent decides metric_type (boolean vs numeric) and unit based on context. Do NOT call save_metric — no data point is created.
@@ -198,8 +198,9 @@ function shiftMs(quantity: number, unit: string): number {
 /**
  * Compute the anchor moment a metric event actually represents.
  *
- * `lts` (user-local event time) and `timestamp` (UTC event time) both
- * derive from this single anchor — keeps the two fields consistent.
+ * The event-time triple (`ts` / `local_date` / `local_tz`) all derive
+ * from this single anchor via `eventTimeAt(anchor, tz)` — keeps the
+ * three fields consistent.
  *
  * Resolution priority:
  *   1. explicit `timestamp` (agent extracted a specific event datetime,
@@ -230,7 +231,7 @@ function isoWeekMonday(year: number, week: number): string {
     return monday.toISOString()
 }
 
-/** Format a timestamp or bucket for display. Uses UTC since lts-based buckets are already local pretending to be UTC */
+/** Format a timestamp or bucket for display. Uses UTC because the bucket keys arriving here are either `local_date` (a YYYY-MM-DD string that parses as midnight UTC of the local day we want to render) or `ts` (a real-UTC instant whose UTC date is close enough for chart labels). */
 function formatDateLabel(ts: string): string {
     const d = new Date(ts)
     return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })

@@ -2,8 +2,9 @@
  * Logging module: save_log, get_recent_logs, search_logs, search_logs_semantic,
  * get_log_categories, show_logs_grid
  *
- * Central log creation and retrieval. All writes compute `lts` (local timestamp)
- * automatically so day-bucketed queries use the user's wall-clock day.
+ * Central log creation and retrieval. All writes spread the event-time triple
+ * (`ts` / `local_date` / `local_tz`) from `nowEventTime()` so the user's local
+ * day is preserved without any timezone math at query time.
  *
  * Log schema (embedding omitted):
  *   id          — SurrealDB record ID (e.g. logs:abc123)
@@ -12,8 +13,9 @@
  *   embedding   — vector (auto-computed on save)
  *   created_at  — real UTC datetime (auto by DB)
  *   updated_at  — real UTC datetime (auto by DB)
- *   lts         — local timestamp as fake-UTC datetime (user's wall clock with Z suffix)
- *   local_tz    — IANA timezone name (e.g. America/Chicago)
+ *   ts          — real-UTC instant when the event happened (app-stamped)
+ *   local_date  — YYYY-MM-DD in the user's tz (app-stamped, daily bucket key)
+ *   local_tz    — IANA timezone (e.g. America/Chicago) the user was in
  *   owner       — user record ID (auto by DB)
  */
 
@@ -371,7 +373,7 @@ export function createLoggingModule() {
                     // Build interactive HTML grid
                     const tz = getUserTimezone()
                     const cards = logs.map((entry: any) => {
-                        const d = entry.lts ? new Date(entry.lts) : new Date(entry.created_at)
+                        const d = entry.ts ? new Date(entry.ts) : new Date(entry.created_at)
                         const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
                         const timeStr = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'UTC' })
                         const preview = (entry.content || '').slice(0, 80)

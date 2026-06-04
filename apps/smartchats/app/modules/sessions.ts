@@ -15,9 +15,11 @@
  *   settings        — { aiModel, speechCooldownMs, soundFeedback }
  *   created_at      — physical row creation in this DB (auto, READONLY)
  *   updated_at      — physical row last write in this DB (auto)
- *   lts             — logical session-active time (app-stamped, fake-UTC local
- *                     wall-clock). Preserved across export/import; UI lists
- *                     and search ORDER BY lts so original timing survives.
+ *   ts              — real-UTC instant the session was active (app-stamped via
+ *                     nowEventTime; preserved across export/import; UI lists
+ *                     and search ORDER BY ts so original timing survives)
+ *   local_date      — YYYY-MM-DD in the user's tz (app-stamped)
+ *   local_tz        — IANA timezone the user was in (app-stamped)
  */
 
 import { getBackend } from '@/lib/backend';

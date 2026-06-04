@@ -10,9 +10,13 @@
  *   data        — type-specific JSON payload
  *   source_text — original user phrasing
  *   parent_id   — links records (completion → todo)
- *   timestamp   — real UTC datetime
- *   lts         — local fake-UTC datetime (user's wall clock with Z suffix)
- *   local_tz    — IANA timezone
+ *   due_at      — optional real-UTC datetime the todo is due (was: `timestamp`
+ *                 pre-v1.0.0; renamed to disambiguate from row lifecycle)
+ *   ts          — real-UTC instant the row's event happened (todo creation,
+ *                 todo_completion event). OPTIONAL on user_data — config rows
+ *                 (metric_definition, log_category_definition) leave it unset.
+ *   local_date  — YYYY-MM-DD in the user's tz (paired with ts; OPTIONAL)
+ *   local_tz    — IANA timezone (paired with ts; OPTIONAL)
  *   tags        — string array
  *   created_at  — set on insert
  *   updated_at  — set on update
@@ -20,7 +24,7 @@
  * Recommended indexes (run manually in SurrealDB):
  *   DEFINE INDEX idx_ud_type_status ON user_data FIELDS type, status;
  *   DEFINE INDEX idx_ud_parent ON user_data FIELDS parent_id;
- *   DEFINE INDEX idx_ud_timestamp ON user_data FIELDS timestamp;
+ *   DEFINE INDEX idx_ud_due_at ON user_data FIELDS due_at;
  */
 
 import { getUserTimezone, nowEventTime } from "./system"
@@ -46,7 +50,11 @@ function getDayName(date: Date, tz: string): string {
 /** Get start of day in user's local timezone, returned as a real Date */
 function getLocalDayStart(date: Date, tz: string): Date {
     const localStr = date.toLocaleDateString('sv-SE', { timeZone: tz }) // "2026-03-26"
-    // Parse as midnight UTC, then offset — but we actually need the fake-UTC approach
+    // Parse the local YYYY-MM-DD as midnight UTC. Other helpers in this module
+    // do their date math entirely in UTC space (so a "local day start" is
+    // represented as midnight-UTC of that local calendar date, never converted
+    // back to real-UTC). Consistent with how event-time `local_date` is
+    // consumed elsewhere.
     return new Date(localStr + 'T00:00:00Z')
 }
 
