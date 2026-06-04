@@ -1,15 +1,15 @@
 import { defineWorkflow } from 'simi';
 
 /**
- * Verify that save_metric correctly applies time_shift to lts.
+ * Verify that save_metric correctly applies time_shift to ts.
  *
  * Saves two test rows back-to-back:
- *   - simi_shift_realtime:  no shift → lts ≈ now
- *   - simi_shift_yesterday: -1 day shift → lts ≈ now − 24h
+ *   - simi_shift_realtime:  no shift → ts ≈ now
+ *   - simi_shift_yesterday: -1 day shift → ts ≈ now − 24h
  *
- * Asserts the realtime save's lts is ~24h LATER than the yesterday save's
- * lts. Regression test for the prior bug where time_shift was stored as
- * metadata only and lts was always pinned to "now," which made charts
+ * Asserts the realtime save's ts is ~24h LATER than the yesterday save's
+ * ts. Regression test for the prior bug where time_shift was stored as
+ * metadata only and ts was always pinned to "now," which made charts
  * plot retroactive entries on the wrong day.
  *
  * Uses `id:` on each `callFunction` step + `results.<id>` in the assert —
@@ -44,14 +44,14 @@ export const timeShiftMetricFlow = defineWorkflow({
     }], id: 'yesterday', timeout: 10000 },
 
     // ── Both calls returned. save_metric returns `response.rows` which is
-    //    a 1-element array (the inserted row). Assert lts delta ≈ 24h. ──
+    //    a 1-element array (the inserted row). Assert ts delta ≈ 24h. ──
     { assert: `(() => {
-      const ltsRealtime = results.realtime?.[0]?.lts;
-      const ltsYesterday = results.yesterday?.[0]?.lts;
-      if (!ltsRealtime || !ltsYesterday) return false;
-      const deltaHours = (new Date(ltsRealtime).getTime() - new Date(ltsYesterday).getTime()) / 3600000;
+      const tsRealtime = results.realtime?.[0]?.ts;
+      const tsYesterday = results.yesterday?.[0]?.ts;
+      if (!tsRealtime || !tsYesterday) return false;
+      const deltaHours = (new Date(tsRealtime).getTime() - new Date(tsYesterday).getTime()) / 3600000;
       // realtime is "now", yesterday is "now - 24h" → diff ≈ +24h (1h tolerance for DST / clock drift)
       return deltaHours > 23 && deltaHours < 25;
-    })()`, message: 'time_shift=-1day should produce lts ~24h earlier than no-shift save (verify save_metric applies time_shift to lts, not just stores as metadata)' },
+    })()`, message: 'time_shift=-1day should produce ts ~24h earlier than no-shift save (verify save_metric applies time_shift to ts, not just stores as metadata)' },
   ],
 });
