@@ -70,7 +70,7 @@ Three steps, three files, total ~20 lines.
    ```ts
    export function findRecentByTag(args: { tag: string; limit?: number }): QuerySpec {
      return {
-       query: 'SELECT * FROM logs WHERE tags CONTAINSALL [$tag] ORDER BY lts DESC LIMIT $limit',
+       query: 'SELECT * FROM logs WHERE tags CONTAINSALL [$tag] ORDER BY ts DESC LIMIT $limit',
        variables: { tag: args.tag, limit: args.limit ?? 20 },
      };
    }
@@ -208,23 +208,26 @@ on demand using the stored refresh token via Firebase's REST API. No
 Firebase Web SDK in the auth path — pure fetch + a localhost callback
 during the browser sign-in flow.
 
-## Data model: the dual-field timestamp invariant
+## Data model: event-time vs row-lifecycle
 
-Every user-data table has two timestamp concepts that must not be
-conflated:
+Every event-time table has two distinct timestamp concepts that must not be conflated:
 
-| Field | What it means | Set by | Migrated? |
+| Field(s) | What it means | Set by | Migrated? |
 |---|---|---|---|
 | `created_at` / `updated_at` | Physical row lifecycle in *this* DB | DB (`VALUE time::now()` / `READONLY`) | **Never.** Stripped on import. |
-| `lts` | When the *thing this row represents* actually happened | App (fake-UTC local wall-clock) | **Always.** Carries through export/import unchanged. |
+| `ts` / `local_date` / `local_tz` | When the *thing this row represents* actually happened in the user's life | App (`nowEventTime()` in `app/modules/system.ts`) | **Always.** Carries through export/import unchanged. |
 
-The UI sorts and filters by `lts`. The DB's `created_at` is only for
-audit / GC. **Bundles import without `created_at` / `updated_at` so the
-destination DB stamps fresh values; `lts` carries the original user-time.**
+The event-time triple decomposes the question "when did it happen?" into the parts callers actually need:
 
-Why this matters: without the dual field, importing a year-old bundle would
-make all entries look "created today" and sort incorrectly. With it, the
-import is faithful to the original user timeline.
+- `ts: datetime` — real-UTC instant. Sort/filter for chronological order.
+- `local_date: string` — `YYYY-MM-DD` as the user perceived it in their tz, precomputed so SurrealDB `GROUP BY local_date` does daily aggregation correctly without any timezone logic at query time.
+- `local_tz: string` — IANA zone the user was in (e.g. `America/Chicago`), so any later reconstruction of "what time of day was this for them" is possible.
+
+The DB's `created_at` is only for audit / GC. **Bundles import without `created_at` / `updated_at` so the destination DB stamps fresh values; the event-time triple carries the original user timeline.**
+
+Why this matters: without separating event-time from row-lifetime, importing a year-old bundle would make all entries look "created today" and sort incorrectly. With it, the import is faithful to the original user timeline — and aggregations like "metrics per local day" work correctly across timezone boundaries.
+
+Pre-`1.0.0` data used a single `lts` field that stored fake-UTC local wall-clock with a `Z` suffix. It was retired in the `1.0.0` schema reset; legacy bundles flow through `convertLegacyBundle()` in `packages/smartchats-database/src/operations/`.
 
 ## Verification
 
