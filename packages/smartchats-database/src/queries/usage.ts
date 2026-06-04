@@ -38,10 +38,11 @@ export function getUsageRecordsSince(since: string): QuerySpec {
 }
 
 /**
- * CREATE a single `usage_records` row. Stamped server-side with
- * `time::now()` for `lts` (the local server has no user-timezone context;
- * see usage_writer.ts for the rationale on why this is real UTC rather
- * than fake-UTC local wall-clock).
+ * CREATE a single `usage_records` row. Stamped server-side with the
+ * event-time triple: `ts = time::now()` (real UTC), `local_date =
+ * time::format(time::now(), '%Y-%m-%d')` (UTC date — the local server
+ * has no user-tz context, so usage rows bucket by UTC day by design),
+ * `local_tz = 'UTC'`.
  *
  * `credits_charged = 0` and `charged_from = 'local'` are constants in
  * self-hosted mode — the table is observability-only.

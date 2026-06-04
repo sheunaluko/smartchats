@@ -247,8 +247,9 @@ const HTML = `
     return d.toLocaleDateString();
   }
 
-  function parseLts(dateStr) {
-    // lts is fake-UTC local time — strip the Z and parse as local
+  function parseLogDate(dateStr) {
+    // Accepts either a YYYY-MM-DD (local_date) or full ISO datetime (ts).
+    // Strip a trailing Z and parse — Date.parse handles both shapes.
     if (!dateStr) return new Date();
     var s = String(dateStr).replace('Z', '');
     return new Date(s);
@@ -295,7 +296,7 @@ const HTML = `
       item.className = 'log-item' + (isSelected ? ' selected' : '');
       item.innerHTML = '<div class="log-meta">'
         + '<span class="log-category">' + (log.category || 'general') + '</span>'
-        + '<span class="log-date">' + formatDate(log.lts || log.created_at) + '</span>'
+        + '<span class="log-date">' + formatDate(log.ts || log.created_at) + '</span>'
         + '</div>'
         + '<div class="log-preview">' + (log.content || '').replace(/</g, '&lt;') + '</div>';
       item.onclick = function(e) {
@@ -341,7 +342,7 @@ const HTML = `
 
   /* ── Select a log for editing ── */
   function selectLog(log) {
-    var d = parseLts(log.lts || log.created_at);
+    var d = parseLogDate(log.ts || log.created_at);
     SmartChats.app.setState({
       selected_log_id: log.id,
       _editing: {
@@ -513,7 +514,7 @@ const FN_SELECT_LOG = `async function(fnArgs, app, util) {
     }
     if (!log) return { error: 'Log not found in current list' };
 
-    var d = parseLts(log.lts || log.created_at);
+    var d = parseLogDate(log.ts || log.created_at);
     app.setState({
       selected_log_id: log.id,
       _editing: {

@@ -405,7 +405,7 @@ const HTML = `
     tbody.innerHTML = '';
     rows.forEach(function(row) {
       var tr = document.createElement('tr');
-      var dateStr = row.day || row.local_date || row.lts || row.ts || '';
+      var dateStr = row.day || row.local_date || row.ts || '';
       tr.innerHTML = '<td>' + formatDate(dateStr) + '</td>'
         + '<td>' + formatValue(row.value) + '</td>'
         + '<td>' + (row.unit || data.unit || '') + '</td>';

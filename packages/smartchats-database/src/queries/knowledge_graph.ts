@@ -6,9 +6,9 @@
  *   user_relations: directed edges (TYPE RELATION) with `name`, `kind`,
  *                   `sourceName`, `targetName`, optional `embedding`
  *
- * Both tables carry the dual-field timestamp invariant after the v1.1.0
- * schema bump (lts populated by app writes; create-time fallback
- * available on existing rows via the migration backfill).
+ * Both tables carry the v1.0.0 event-time triple (`ts` / `local_date`
+ * / `local_tz`) populated by app writes — preserved across export/import
+ * so original timing survives bundle re-import.
  */
 
 import type { QuerySpec, AuditFields, EventTimeFields } from '../types.js';
@@ -103,9 +103,11 @@ export interface RelationInsertSpec {
  * in one round-trip. The same event-time fields are applied to every
  * statement.
  *
- * `lts` is the legacy fake-UTC local-wall-clock ISO (dropped in 1.6.0).
  * `ts` is the real-UTC instant. `local_date` is YYYY-MM-DD in the user's
- * tz. `local_tz` is the IANA name.
+ * tz. `local_tz` is the IANA name. All three are inlined as literals
+ * here (string-interpolated into the query) rather than parameter-bound,
+ * which side-steps any wire-protocol coercion the host's RPC layer might
+ * apply.
  *
  * Embeddings are inlined into the query string (not parameter-bound)
  * because SurrealDB's RELATE / CONTENT object literal context doesn't

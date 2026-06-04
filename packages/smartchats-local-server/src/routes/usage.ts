@@ -21,7 +21,7 @@ import { log } from '../logger.js';
 const routeLog = log.withTag('usage');
 
 type DbUsageRow = {
-    lts: string;
+    ts: string;
     model: string;
     provider: string;
     input_tokens: number;
@@ -36,7 +36,7 @@ type DbUsageRow = {
 
 function toUsageRecord(r: DbUsageRow): UsageRecord {
     return {
-        lts: r.lts,
+        ts: r.ts,
         model: r.model,
         provider: r.provider,
         inputTokens: r.input_tokens,

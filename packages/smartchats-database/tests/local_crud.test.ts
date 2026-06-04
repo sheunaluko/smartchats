@@ -135,18 +135,15 @@ function rowId(row: unknown): string {
 const nowIso = () => new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
 
 /**
- * The 1.5.0 event-time bundle as a test fixture. Mirrors what
+ * The v1.0.0 event-time bundle as a test fixture. Mirrors what
  * `apps/smartchats`'s `nowEventTime()` would return — kept inline here
  * so this test package doesn't depend on the app helper.
  */
-function nowEventTime(): { lts: string; ts: string; local_date: string; local_tz: string } {
+function nowEventTime(): { ts: string; local_date: string; local_tz: string } {
     const tz = 'America/Los_Angeles';
     const now = new Date();
-    const ts = nowIso();
-    const local = now.toLocaleString('sv-SE', { timeZone: tz });
     return {
-        lts: local.replace(' ', 'T') + 'Z',
-        ts,
+        ts: nowIso(),
         local_date: now.toLocaleDateString('sv-SE', { timeZone: tz }),
         local_tz: tz,
     };
@@ -358,11 +355,11 @@ describe('metrics lifecycle', () => {
         expect(rows.length).toBe(1);
     });
 
-    it('getHabitDoneTimestamps with broad lts filter returns the lts of the inserted row', async () => {
+    it('getHabitDoneTimestamps with broad date filter returns the local_date of the inserted row', async () => {
         const rows = await dispatcher.run(
             queries.getHabitDoneTimestamps({
                 metric_name: 'crud_test_pushups',
-                ltsFilter: "lts >= d'2000-01-01T00:00:00Z'",
+                dateFilter: "local_date >= '2000-01-01'",
             }),
         );
         expect(rows.length).toBeGreaterThan(0);

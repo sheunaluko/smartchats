@@ -3,7 +3,7 @@
  *
  * Todos are stored under `user_data` with `type = 'todo'`. The `data`
  * field holds the structured payload (title, description, priority,
- * due_date, recurrence). Sort by `lts DESC` (most recently
+ * due_date, recurrence). Sort by `ts DESC` (most recently
  * created/updated first); `data.due_date` was the previous sort but
  * SurrealDB requires special handling for nested-field ORDER BY and
  * many todos lack a due_date entirely, which silently broke the
@@ -97,14 +97,10 @@ export function getTodoById(recordId: string): QuerySpec {
 /**
  * INSERT a new todo row into `user_data`.
  *
- * `timestamp` is the real-UTC due time (or now if no due date). `lts` is
- * the logical fake-UTC local-wall-clock at write time. Both are passed in
- * pre-stringified ISO form; the cast happens server-side.
- */
-/**
  * `due_at` (real UTC due time) is distinct from the bundle's `ts`
- * (real UTC creation time) for this builder — a todo can be created
- * today with a due date next week. Both are passed explicitly.
+ * (real UTC event-time at write — when the todo was created). A todo
+ * can be created today with a due date next week; both are passed
+ * explicitly as pre-stringified ISO and cast server-side.
  */
 export interface InsertTodoArgs extends EventTimeFields {
     title: string;

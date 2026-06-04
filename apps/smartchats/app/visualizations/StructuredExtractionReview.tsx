@@ -456,10 +456,14 @@ function MetricCard({
             >
               <span className="text-sc-text-muted">{f.label}:</span>
               <span className="text-sc-warning font-semibold">
-                {f.key === 'lts' && typeof val === 'string'
-                  // lts is a fake-UTC value (local time with Z suffix);
-                  // render with timeZone:'UTC' to prevent the browser from applying an additional offset
-                  ? new Date(val).toLocaleString(undefined, { timeZone: 'UTC' })
+                {f.key === 'ts' && typeof val === 'string'
+                  // `ts` is a real-UTC ISO instant; default `toLocaleString()`
+                  // renders it in the user's tz, which is what they want.
+                  ? new Date(val).toLocaleString()
+                  : f.key === 'local_date' && typeof val === 'string'
+                  // `local_date` is a YYYY-MM-DD string already in the user's
+                  // perceived day — render verbatim, no Date parsing.
+                  ? val
                   : String(val)}
               </span>
             </span>

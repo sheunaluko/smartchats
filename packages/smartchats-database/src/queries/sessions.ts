@@ -1,10 +1,10 @@
 /**
  * Session query builders.
  *
- * Sessions are saved conversation transcripts. Sort by `lts DESC` so
+ * Sessions are saved conversation transcripts. Sort by `ts DESC` so
  * original timing survives migration (ORDER BY updated_at would
- * re-stamp on import). See packages/smartchats-local-server/src/schema.ts
- * for the dual-field timestamp invariant.
+ * re-stamp on import). See `apps/smartchats/CLAUDE.md` for the
+ * event-time convention.
  */
 
 import type { QuerySpec, AuditFields, EventTimeFields } from '../types.js';
@@ -25,8 +25,8 @@ export interface ListSessionsArgs {
  * picking a session to load.
  *
  * Sort is by `ts DESC` (real-UTC instant) — monotonic across DST and
- * travel. Projection retains legacy `lts` alongside `ts`/`local_date`/
- * `local_tz` during the 1.5.0 → 1.6.0 dual-read window.
+ * travel. Projection returns `ts`/`local_date`/`local_tz` (legacy `lts`
+ * was dropped in v1.0.0).
  */
 export function listSessions(args: ListSessionsArgs = {}): QuerySpec {
     const limit = Math.min(Math.max(args.limit ?? 50, 1), 200);
@@ -93,8 +93,7 @@ export interface SessionWriteFields extends EventTimeFields {
 /**
  * INSERT a new session row. Returns the created row (including `id`) on
  * the first statement so the caller can capture the new record id.
- * Dual-writes legacy `lts` and the 1.5.0 event-time triple during the
- * migration window.
+ * Writes the v1.0.0 event-time triple (`ts`/`local_date`/`local_tz`).
  */
 export function insertSession(data: SessionWriteFields): QuerySpec {
     return {

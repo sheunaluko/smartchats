@@ -178,7 +178,7 @@ Don't blame "flakiness" or "pre-existing issues." Every failure has a reason. Wo
 
 ### Schema
 
-- **Dual-field timestamps**: `created_at` / `updated_at` (DB-stamped, READONLY, never migrated) vs `lts` (logical timestamp, app-stamped, preserved across export/import). UI sorts/filters by `lts`.
+- **Event-time triple vs row lifecycle**: `created_at` / `updated_at` are DB-stamped (`VALUE time::now()` / `READONLY`) and never migrate; `ts` (real-UTC) / `local_date` (YYYY-MM-DD in user tz) / `local_tz` (IANA) are app-stamped via `nowEventTime()` and preserved across export/import. UI sorts/filters by `ts` for chronological order, `local_date` for daily aggregation. Full spec: `apps/smartchats/CLAUDE.md` § "Schema: event-time convention".
 - **Snake_case audit fields with `VALUE time::now()`** — auto-bumps on update, not just insert.
 - **Bumping schema version requires a migration block** in the corresponding `LOCAL_SCHEMA_MIGRATIONS` array. Migrations must be idempotent (`IF EXISTS`, `WHERE field IS NONE`, etc.).
 

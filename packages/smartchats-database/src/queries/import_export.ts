@@ -73,10 +73,11 @@ export const RELATION_TABLES = new Set(['user_relations']);
  * no error. UPSERT explicitly creates-or-updates and returns the row.
  *
  * Why SET (not MERGE): SurrealDB MERGE's payload variable doesn't allow
- * per-field type casts. We need `<datetime>` casts on ISO datetime strings
- * — the cloud serializes datetimes as JSON strings, but the local schema
- * declares `option<datetime>` for `lts` / `timestamp` and rejects strings.
- * SET with one binding per field gives us per-field control.
+ * per-field type casts. We need `<datetime>` casts on ISO datetime
+ * strings (and `<string>` casts on `local_date` to defeat SurrealDB
+ * v3's HTTP-RPC auto-coercion of date-shaped strings into datetimes,
+ * per the 2026-06-04 prod incident). SET with one binding per field
+ * gives us per-field control.
  */
 export function buildUpsertQuery(
     tableName: string,

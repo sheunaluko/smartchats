@@ -9,7 +9,7 @@
  * YYYY-MM-DD in the user's tz at write time). Duration-based filters
  * ("last 4 weeks") use `ts >= cutoff` for real-time math; calendar
  * filters ("logs from 2026-05-31") use `local_date = '2026-05-31'`.
- * `lts` is dual-read during the 1.5.0 → 1.6.0 window. The legacy
+ * Event-time queries read `ts` / `local_date` / `local_tz` (the v1.0.0 triple). The legacy
  * `timestamp` column was renamed to `ts` in 1.5.1.
  */
 

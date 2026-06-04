@@ -3,7 +3,7 @@
  *
  * The `logs` table stores user journal entries with optional embeddings
  * for semantic search. Display sort is by `created_at` (real UTC) for
- * recency; date-range filters use `lts` (logical/wall-clock time) so
+ * recency; date-range filters use `local_date` (YYYY-MM-DD string in the user's tz) so
  * day boundaries align with the user's local time.
  */
 
@@ -130,7 +130,7 @@ export function updateLog(args: { recordId: string; patch: UpdateLogPatch }): Qu
 
 /**
  * Common filter envelope used by `get_recent_logs`, `search_logs`,
- * and `show_logs_grid` — composes category + lts-range + (optional)
+ * and `show_logs_grid` — composes category + date-range + (optional)
  * substring-content-match.
  *
  * Replaces the previous `getRecentLogs` and `searchLogs` per-consumer
@@ -138,10 +138,12 @@ export function updateLog(args: { recordId: string; patch: UpdateLogPatch }): Qu
  * is omitted this is a plain "recent N" query; when present, it adds the
  * NULL-safe substring match.
  *
- * `ltsFilter` is a SurrealQL fragment beginning with ` AND ...` (or empty)
- * — built by the caller's tz-aware date-range helper. Embedding it as raw
- * SurrealQL preserves the historical behavior where date literals are
- * `d'...'` rather than parameter-bound.
+ * `dateFilter` is a SurrealQL fragment beginning with ` AND ...` (or
+ * empty) — built by the caller's tz-aware date-range helper. Embedding
+ * it as raw SurrealQL preserves the historical behavior where date
+ * literals are `d'...'` rather than parameter-bound; for v1.0.0 the
+ * canonical filter shape is `local_date >= '<YYYY-MM-DD>' AND
+ * local_date <= '<YYYY-MM-DD>'` (calendar) or `ts >= d'<ISO>'` (duration).
  */
 export interface ListLogsArgs {
     /** Filter by category. Lowercased internally. */

@@ -124,7 +124,7 @@ describe('knowledge graph queries', () => {
 });
 
 describe('sessions queries', () => {
-    it('listSessions returns sessions ordered by lts DESC', async () => {
+    it('listSessions returns sessions ordered by ts DESC', async () => {
         const rows = await dispatcher.run(queries.listSessions({ limit: 5 }));
         expect(rows.length).toBeGreaterThan(0);
         const r = rows[0] as queries.SessionSummaryRow;

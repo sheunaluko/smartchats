@@ -256,11 +256,13 @@ describe('logs cross-user isolation', () => {
     let aliceLogId: string;
 
     it('alice writes a log', async () => {
+        const ts = nowIso();
         const rows = await runAs(aliceDb, queries.insertLog({
             content: `alice_${RUN_TAG}_log_content`,
             category: 'test',
             embedding: FAKE_EMBEDDING,
-            lts: nowIso(),
+            ts,
+            local_date: ts.slice(0, 10),
             local_tz: 'UTC',
         }));
         expect(rows.length).toBe(1);
@@ -308,7 +310,7 @@ describe('logs cross-user isolation', () => {
 
 describe('metrics cross-user isolation', () => {
     let aliceMetricId: string;
-    const lts = nowIso();
+    const ts = nowIso();
 
     it('alice writes a metric', async () => {
         const rows = await runAs(aliceDb, queries.insertMetric({
@@ -316,8 +318,8 @@ describe('metrics cross-user isolation', () => {
             value: 42,
             unit: 'reps',
             metric_type: 'numeric',
-            timestamp: lts,
-            lts,
+            ts,
+            local_date: ts.slice(0, 10),
             local_tz: 'UTC',
             source: 'test',
             source_text: 'cross-user iso',
@@ -353,8 +355,8 @@ describe('metrics cross-user isolation', () => {
             value: 99,
             unit: 'reps',
             metric_type: 'numeric',
-            timestamp: lts,
-            lts,
+            ts,
+            local_date: ts.slice(0, 10),
             local_tz: 'UTC',
             source: 'test',
             source_text: 'bob copy',
@@ -377,6 +379,7 @@ describe('sessions cross-user isolation', () => {
     let aliceSessionId: string;
 
     it('alice creates a session', async () => {
+        const ts = nowIso();
         const rows = await runAs(aliceDb, queries.insertSession({
             label: `alice_${RUN_TAG}_session`,
             message_count: 0,
@@ -385,7 +388,9 @@ describe('sessions cross-user isolation', () => {
             thought_history: [],
             execution_history: [],
             settings: {},
-            lts: nowIso(),
+            ts,
+            local_date: ts.slice(0, 10),
+            local_tz: 'UTC',
         }));
         expect(rows.length).toBe(1);
         aliceSessionId = String((rows[0] as { id: unknown }).id);
@@ -408,10 +413,13 @@ describe('knowledge graph cross-user isolation', () => {
     const aliceEntity = `alice_${RUN_TAG}_entity`;
 
     it('alice creates an entity', async () => {
+        const ts = nowIso();
         const spec = queries.buildKnowledgeInsertQuery({
             entities: [{ name: aliceEntity, embedding: FAKE_EMBEDDING }],
             relations: [],
-            lts: nowIso(),
+            ts,
+            local_date: ts.slice(0, 10),
+            local_tz: 'UTC',
         });
         const rows = await runAs(aliceDb, spec);
         expect(rows.length).toBeGreaterThan(0);
@@ -437,7 +445,7 @@ describe('user_data cross-user isolation (todos)', () => {
     let aliceTodoId: string;
 
     it('alice writes a todo', async () => {
-        const lts = nowIso();
+        const ts = nowIso();
         const rows = await runAs(aliceDb, queries.insertTodo({
             title: `alice_${RUN_TAG}_todo`,
             description: null,
@@ -447,8 +455,9 @@ describe('user_data cross-user isolation (todos)', () => {
             recurrence: null,
             metric_link: null,
             source_text: 'cross-user-iso',
-            timestamp: lts,
-            lts,
+            due_at: ts,
+            ts,
+            local_date: ts.slice(0, 10),
             local_tz: 'UTC',
             tags: [],
         }));

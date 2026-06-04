@@ -334,13 +334,13 @@ export const SMARTCHATS_DEFAULT_LOCAL_URL = `http://localhost:${SMARTCHATS_DEFAU
 
 export interface UsageRecord {
   /**
-   * Logical timestamp of the call. ISO datetime string. App- or
-   * server-stamped at write time. Carries through export/import — the field
-   * Firebase used to call `timestamp` is exposed here as `lts` so cloud and
-   * local backends produce structurally identical records. See the dual-field
-   * invariant doc in `smartchats-local-server/src/schema.ts`.
+   * Event-time of the call as a real-UTC ISO datetime string. Server-stamped
+   * at write time (`time::now()` in `insertUsageRecord` — the local server
+   * has no user-tz context, so usage records are bucketed by UTC days). Same
+   * field name and semantics across cloud and local backends. See the
+   * event-time convention doc in `apps/smartchats/CLAUDE.md`.
    */
-  lts: string;
+  ts: string;
   model: string;
   provider: string;
   inputTokens: number;

@@ -27,11 +27,12 @@ export interface UsageRecordWrite {
 export async function writeUsageRecord(rec: UsageRecordWrite): Promise<void> {
     try {
         const db = getDb();
-        // lts (logical timestamp) is stamped server-side via time::now() — the
-        // local server has no user-timezone context, so this is real UTC rather
-        // than the fake-UTC local wall-clock used by browser-stamped lts (logs,
-        // sessions, KG). Sort/filter still works; the wall-clock semantic
-        // arrives if/when the LLM client passes lts in the request body.
+        // ts/local_date/local_tz are all stamped server-side: ts via
+        // time::now() (real UTC), local_date via time::format(time::now(),
+        // '%Y-%m-%d') (UTC date), local_tz = 'UTC'. The local server has no
+        // user-timezone context, so usage records are bucketed by UTC days
+        // by design — distinct from the browser-stamped event-time on
+        // logs/sessions/metrics/KG which carries the user's actual tz.
         const spec = queries.insertUsageRecord({
             model: rec.model,
             provider: rec.provider,

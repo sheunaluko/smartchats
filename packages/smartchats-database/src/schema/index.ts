@@ -8,9 +8,9 @@
  *   import { schema } from 'smartchats-database';
  *   await schema.applyLocalSchema(db);
  *
- * Per-table fragment exports + the dual-field timestamp invariant
- * (`created_at`/`updated_at` physical, `lts` logical) live alongside the
- * DDL strings.
+ * Per-table fragment exports + the event-time convention
+ * (`created_at`/`updated_at` physical, `ts`/`local_date`/`local_tz`
+ * logical event-time triple) live alongside the DDL strings.
  */
 
 export {

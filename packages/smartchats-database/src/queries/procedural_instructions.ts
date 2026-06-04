@@ -13,10 +13,13 @@ const TYPE_FILTER = "type = 'procedural_instruction'";
 /**
  * Fetch all procedural instructions, optionally filtered by category.
  *
- * Sort by `lts ASC` so the agent sees them in registration order — and
- * that order survives bundle export/import (matches the dual-timestamp
- * invariant). `lts` is app-stamped at insert time; `created_at` resets
- * when rows are re-inserted into a new database.
+ * Sort by `id ASC` because cortex IDs are ULID-encoded (time-monotonic
+ * within a session) AND survive bundle export/import unchanged — so the
+ * agent sees them in stable registration order whether reading from the
+ * original DB or a re-imported copy. Pre-v1.0.0 this sorted by `lts`,
+ * but `insertProceduralInstruction` never actually wrote `lts`, so the
+ * ORDER BY was sorting by NONE (arbitrary). `created_at` would work
+ * within one DB but resets on bundle re-import — id wins on both axes.
  */
 export function getProceduralInstructions(args: { category?: string } = {}): QuerySpec {
     const variables: Record<string, unknown> = {};
@@ -26,7 +29,7 @@ export function getProceduralInstructions(args: { category?: string } = {}): Que
         variables.category = args.category;
     }
     return {
-        query: `SELECT id, content, category, created_at, updated_at, lts FROM cortex ${where} ORDER BY lts ASC`,
+        query: `SELECT id, content, category, created_at, updated_at FROM cortex ${where} ORDER BY id ASC`,
         variables,
     };
 }

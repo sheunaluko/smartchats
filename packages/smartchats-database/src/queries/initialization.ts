@@ -11,16 +11,19 @@ import type { QuerySpec } from '../types.js';
 const TYPE_FILTER = "type = 'init'";
 
 /**
- * Fetch all init instructions in registration order (`lts ASC`).
+ * Fetch all init instructions in registration order.
  *
- * Sort by `lts` not `created_at` so the order survives bundle export/import
- * (matches the dual-timestamp invariant). `lts` is set by the app at insert
- * time and preserved across data movement; `created_at` is DB-stamped and
- * resets when rows are re-inserted into a new database.
+ * Sort by `id ASC` because cortex IDs are ULID-encoded (time-monotonic
+ * within a session) AND survive bundle export/import unchanged — so
+ * registration order is preserved whether reading from the original DB
+ * or a re-imported copy. Pre-v1.0.0 this query sorted by `lts`, but
+ * `insertInitInstruction` never actually wrote `lts`, so the ORDER BY
+ * was sorting by NONE (arbitrary). `created_at` would work for ordering
+ * within one DB but resets on bundle re-import — id wins on both axes.
  */
 export function getInitInstructions(): QuerySpec {
     return {
-        query: `SELECT id, content, category, created_at, lts FROM cortex WHERE ${TYPE_FILTER} ORDER BY lts ASC`,
+        query: `SELECT id, content, category, created_at FROM cortex WHERE ${TYPE_FILTER} ORDER BY id ASC`,
         variables: {},
     };
 }
