@@ -181,25 +181,33 @@ Bridge: `window.__smartchats__.simi.workflows.NAME(opts?)`
 List: `window.__smartchats__.simi.list()`
 Speed: `{ speed: 5 }` runs 5x faster
 
-## Schema: dual-field timestamp invariant
+## Schema: event-time convention (ts / local_date / local_tz)
 
-Every user-data table carries two timestamp concepts that must not be conflated:
+Every event-time table carries two distinct timestamp concepts that must not be conflated:
 
 - **`created_at` / `updated_at`** — physical row lifecycle in *this* database. DB-stamped via `VALUE time::now() READONLY`. Authoritative for audit, GC, debugging. **Never user-supplied. Never migrated across DBs.** The MCP import tool strips both fields unconditionally on every payload.
 
-- **`lts`** (logical timestamp) — when the *thing this row represents* actually happened in the user's life. App-stamped at write time as fake-UTC local wall-clock (`toLocalTimestamp(now, tz)` from `app/modules/system.ts`, ISO with `Z` suffix). No `VALUE`, no `READONLY`. **Preserved across export, import, replication, migration.** Every UI read that wants user-time sorts/filters by `lts`.
+- **`ts` / `local_date` / `local_tz`** (event-time triple) — when the *thing this row represents* actually happened in the user's life:
+  - `ts: datetime` — real-UTC instant (no timezone trickery)
+  - `local_date: string` — `YYYY-MM-DD` as the user perceived it in their tz, precomputed so SurrealDB `GROUP BY local_date` does daily aggregation correctly with no tz logic at query time
+  - `local_tz: string` — IANA zone the user was in when the event happened (e.g. `America/Chicago`)
 
-Tables with `lts`: `logs`, `metrics`, `user_data`, `sessions`, `user_entities`, `user_relations`, `usage_records`. New writes use the canonical pattern from `app/modules/logging.ts`:
+  All three are app-stamped at write time via `nowEventTime()` in `app/modules/system.ts`. **Preserved across export, import, replication, migration.** UI sorts/filters by `ts` for "when did it happen" and `local_date` for "what day did the user think it was."
+
+Strict event-time tables (`ts` REQUIRED): `logs`, `sessions`, `metrics`, `user_entities`, `user_relations`, `events`. `user_data` is mixed-shape — event-time triple is OPTIONAL because config rows (`metric_definition`, `log_category_definition`) don't have an event-time concept.
+
+New writes use the canonical pattern:
 
 ```ts
-const tz = getUserTimezone()
-const lts = toLocalTimestamp(new Date(), tz)
-// ... INSERT INTO table { ..., lts: <datetime> $lts }
+const eventTime = nowEventTime()  // { ts, local_date, local_tz }
+// ... INSERT INTO table { ..., ...eventTime }
 ```
 
-Server-side writes (e.g. `usage_records` from the local server) stamp `lts = time::now()` since the server has no user-tz context — real UTC, not fake-UTC local. Acceptable because usage records aren't migrated cross-database.
+Server-side writes (e.g. `usage_records` from the local server) stamp `ts = time::now()` with `local_tz = 'UTC'` since the server has no user-tz context. Acceptable because usage records aren't migrated cross-database.
 
-Schema source-of-truth: `packages/smartchats-local-server/src/schema.ts` header.
+Pre-1.0.0 (open) / pre-1.3.0 (cloud) data used a single `lts: option<datetime>` field that stored fake-UTC local wall-clock with a `Z` suffix. Retired in the v1.0.0 local-schema reset and the cloud `1.3.0` migration. Legacy bundles flow through `convertLegacyBundle()` in `packages/smartchats-database/src/operations/`.
+
+Schema source-of-truth: `packages/smartchats-database/src/schema/local.ts`.
 
 ## Shared Code from ts_next_app
 SmartChats imports from ts_next_app via path aliases configured in `tsconfig.json` and `next.config.mjs`:
