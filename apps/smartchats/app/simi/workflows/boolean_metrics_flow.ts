@@ -14,7 +14,10 @@ export const booleanMetricsFlow = defineWorkflow({
     { action: 'clearChat', args: [], wait: 500 },
 
     // ── Step 1: Save a positive boolean metric ──
-    { action: 'sendMessageAsync', args: ['I meditated today'], timeout: 60000, wait: 500 },
+    // Explicit phrasing ("use boolean metrics to note...") nudges the agent
+    // toward an immediate save_metric call rather than asking whether to
+    // track-vs-log when the metric isn't already in the tracked set.
+    { action: 'sendMessageAsync', args: ['use boolean metrics to note that I meditated today'], timeout: 60000, wait: 500 },
 
     // Wait for save_metric to complete (functionCalls resets per execution)
     { waitFor: 'state.functionCalls.some(c => c.name === "save_metric" && c.status === "success")', timeout: 30000 },
@@ -27,7 +30,11 @@ export const booleanMetricsFlow = defineWorkflow({
     // ── Step 2: Save a negative boolean metric ──
     // Wait for LLM to finish before sending next message
     { waitFor: '!state.llmRunning', timeout: 30000 },
-    { action: 'sendMessageAsync', args: ['I did not journal today'], timeout: 60000, wait: 500 },
+    // Same explicit framing for the negation case — the agent's default
+    // behavior on an untracked metric is "ask for clarification"; the
+    // explicit instruction tells it to commit to save_metric({value: 0})
+    // instead.
+    { action: 'sendMessageAsync', args: ['use boolean metrics to note that I did not journal today'], timeout: 60000, wait: 500 },
 
     // Wait for save_metric to complete in this execution
     { waitFor: 'state.functionCalls.some(c => c.name === "save_metric" && c.status === "success")', timeout: 30000 },
