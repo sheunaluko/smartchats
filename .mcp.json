@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "smartchats": {
+      "command": "node",
+      "args": ["packages/smartchats-mcp/dist/index.js", "--target", "cloud"]
+    }
+  }
+}
