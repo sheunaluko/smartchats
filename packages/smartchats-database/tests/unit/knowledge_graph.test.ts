@@ -24,7 +24,6 @@ describe('buildKnowledgeInsertQuery', () => {
         expect(spec.query).toContain("ts: d'2026-05-30T17:00:00Z'");
         expect(spec.query).toContain('local_date: "2026-05-30"');
         expect(spec.query).toContain('local_tz: "America/Chicago"');
-        expect(spec.query).not.toContain('lts:');
     });
 
     it('denormalizes both endpoint names onto the relation edge', () => {

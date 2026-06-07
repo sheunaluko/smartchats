@@ -205,9 +205,7 @@ const eventTime = nowEventTime()  // { ts, local_date, local_tz }
 
 Server-side writes (e.g. `usage_records` from the local server) stamp `ts = time::now()` with `local_tz = 'UTC'` since the server has no user-tz context. Acceptable because usage records aren't migrated cross-database.
 
-Pre-1.0.0 (open) / pre-1.3.0 (cloud) data used a single `lts: option<datetime>` field that stored fake-UTC local wall-clock with a `Z` suffix. Retired in the v1.0.0 local-schema reset and the cloud `1.3.0` migration. Legacy bundles flow through `convertLegacyBundle()` in `packages/smartchats-database/src/operations/`.
-
-Schema source-of-truth: `packages/smartchats-database/src/schema/local.ts`.
+Schema source-of-truth: `packages/smartchats-database/src/schema/local.ts`. Schema-change history: `HISTORY.md` at the repo root.
 
 ## Shared Code from ts_next_app
 SmartChats imports from ts_next_app via path aliases configured in `tsconfig.json` and `next.config.mjs`:

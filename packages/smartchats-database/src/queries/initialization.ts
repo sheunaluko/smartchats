@@ -16,10 +16,8 @@ const TYPE_FILTER = "type = 'init'";
  * Sort by `id ASC` because cortex IDs are ULID-encoded (time-monotonic
  * within a session) AND survive bundle export/import unchanged — so
  * registration order is preserved whether reading from the original DB
- * or a re-imported copy. Pre-v1.0.0 this query sorted by `lts`, but
- * `insertInitInstruction` never actually wrote `lts`, so the ORDER BY
- * was sorting by NONE (arbitrary). `created_at` would work for ordering
- * within one DB but resets on bundle re-import — id wins on both axes.
+ * or a re-imported copy. `created_at` would work for ordering within
+ * one DB but resets on bundle re-import — id wins on both axes.
  */
 export function getInitInstructions(): QuerySpec {
     return {

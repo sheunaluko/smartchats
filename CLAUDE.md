@@ -23,6 +23,7 @@ Node 24+ (current Active LTS through April 2028 — bumped from `>=20` on 2026-0
 | Understand the smartchats app | `apps/smartchats/CLAUDE.md` (auto-loads when entering subtree) |
 | Add a new tool the agent can call | `apps/smartchats/app/modules/tool_creation_skill.md` |
 | Understand the CLI | `packages/smartchats-cli/README.md` |
+| Look up a past schema / contract / infra change | `HISTORY.md` (single source for "why was it changed?") |
 
 ## Dev workflow
 

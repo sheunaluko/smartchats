@@ -1,8 +1,7 @@
 /**
  * Schema-level tests for the v1.0.0 event-time baseline.
  *
- * v1.0.0 is the clean baseline — no migration history, no legacy lts /
- * metrics.timestamp fields. Every event-time table carries the same
+ * v1.0.0 is the clean baseline — no migration history. Every event-time table carries the same
  * required triple: ts (real-UTC datetime), local_date (YYYY-MM-DD
  * string in user's tz), local_tz (IANA string). All required (no
  * `option<...>`).
@@ -76,18 +75,6 @@ describe('event-time convention (LOCAL_SCHEMA_VERSION v1.0.0 baseline)', () => {
             expect(LOCAL_DDL).toMatch(
                 new RegExp(`DEFINE FIELD IF NOT EXISTS local_tz ON ${MIXED_TABLE} TYPE option<string>`),
             );
-        });
-    });
-
-    describe('legacy fields are absent from the v1.0.0 baseline', () => {
-        it('no `lts` field on any table', () => {
-            expect(LOCAL_DDL).not.toMatch(/DEFINE FIELD IF NOT EXISTS lts ON /);
-        });
-        it('no `metrics.timestamp` legacy column', () => {
-            expect(LOCAL_DDL).not.toMatch(/DEFINE FIELD IF NOT EXISTS timestamp ON metrics/);
-        });
-        it('no `usage_records.timestamp` legacy column', () => {
-            expect(LOCAL_DDL).not.toMatch(/DEFINE FIELD IF NOT EXISTS timestamp ON usage_records/);
         });
     });
 

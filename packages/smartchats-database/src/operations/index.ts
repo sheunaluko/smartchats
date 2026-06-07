@@ -12,9 +12,6 @@ export type { ImportOptions, ImportProgress, ImportResult } from './import_bundl
 export { exportBundle } from './export_bundle.js';
 export type { ExportOptions, ExportProgress, ExportResult } from './export_bundle.js';
 
-export { convertLegacyBundle } from './convert_legacy_bundle.js';
-export type { ConvertLegacyBundleOptions, ConvertLegacyBundleResult } from './convert_legacy_bundle.js';
-
 export type { Bundle } from './types.js';
 export {
     DEFAULT_EXPORT_TABLES,

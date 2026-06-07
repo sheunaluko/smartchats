@@ -16,10 +16,8 @@ const TYPE_FILTER = "type = 'procedural_instruction'";
  * Sort by `id ASC` because cortex IDs are ULID-encoded (time-monotonic
  * within a session) AND survive bundle export/import unchanged — so the
  * agent sees them in stable registration order whether reading from the
- * original DB or a re-imported copy. Pre-v1.0.0 this sorted by `lts`,
- * but `insertProceduralInstruction` never actually wrote `lts`, so the
- * ORDER BY was sorting by NONE (arbitrary). `created_at` would work
- * within one DB but resets on bundle re-import — id wins on both axes.
+ * original DB or a re-imported copy. `created_at` would work within one
+ * DB but resets on bundle re-import — id wins on both axes.
  */
 export function getProceduralInstructions(args: { category?: string } = {}): QuerySpec {
     const variables: Record<string, unknown> = {};

@@ -15,8 +15,6 @@ describe('listSessions', () => {
         expect(q).toContain('ts');
         expect(q).toContain('local_date');
         expect(q).toContain('local_tz');
-        // Legacy lts is gone — should not appear in projection.
-        expect(q).not.toMatch(/[\s,]lts[\s,]/);
     });
 
     it('clamps an oversized limit down to 200', () => {

@@ -227,7 +227,7 @@ The DB's `created_at` is only for audit / GC. **Bundles import without `created_
 
 Why this matters: without separating event-time from row-lifetime, importing a year-old bundle would make all entries look "created today" and sort incorrectly. With it, the import is faithful to the original user timeline — and aggregations like "metrics per local day" work correctly across timezone boundaries.
 
-Pre-`1.0.0` data used a single `lts` field that stored fake-UTC local wall-clock with a `Z` suffix. It was retired in the `1.0.0` schema reset; legacy bundles flow through `convertLegacyBundle()` in `packages/smartchats-database/src/operations/`.
+Schema-change history lives in `HISTORY.md` at the repo root.
 
 ## Verification
 

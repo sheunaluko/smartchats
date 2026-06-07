@@ -25,8 +25,7 @@ export interface ListSessionsArgs {
  * picking a session to load.
  *
  * Sort is by `ts DESC` (real-UTC instant) — monotonic across DST and
- * travel. Projection returns `ts`/`local_date`/`local_tz` (legacy `lts`
- * was dropped in v1.0.0).
+ * travel. Projection returns `ts` / `local_date` / `local_tz`.
  */
 export function listSessions(args: ListSessionsArgs = {}): QuerySpec {
     const limit = Math.min(Math.max(args.limit ?? 50, 1), 200);
