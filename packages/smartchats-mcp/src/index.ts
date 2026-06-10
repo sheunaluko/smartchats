@@ -26,7 +26,7 @@
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { resolveConfig, getIdToken } from "smartchats-cloud-client";
+import { resolveConfig, getIdToken, type CloudClientConfig } from "smartchats-cloud-client";
 import {
     makeCloudDataAPI,
     makeLocalDataAPI,
@@ -42,6 +42,15 @@ interface CliArgs {
     localDb: string;
     localUser: string;
     localPassword: string;
+    /**
+     * Base URL for the local Express server's API mount. Used by tools
+     * that need control-plane calls (text → embedding) that SurrealDB
+     * doesn't serve. Default works for AIO/bun-deploy (Express on 3000)
+     * and devserve (Next.js dev on 3000 proxies /local-api/* → Express
+     * on 4242). Override via SMARTCHATS_MCP_LOCAL_SERVER_URL for the
+     * rare standalone-Express-only or custom-port setup.
+     */
+    localServerUrl: string;
 }
 
 function parseArgs(argv: string[]): CliArgs {
@@ -52,6 +61,7 @@ function parseArgs(argv: string[]): CliArgs {
         localDb: process.env.SMARTCHATS_MCP_LOCAL_DB ?? "main",
         localUser: process.env.SMARTCHATS_MCP_LOCAL_USER ?? "root",
         localPassword: process.env.SMARTCHATS_MCP_LOCAL_PASSWORD ?? "root",
+        localServerUrl: process.env.SMARTCHATS_MCP_LOCAL_SERVER_URL ?? "http://localhost:3000/local-api",
     };
     for (let i = 0; i < argv.length; i++) {
         const raw = argv[i];
@@ -119,7 +129,13 @@ Env-var equivalents (lower precedence than flags):
 `;
 }
 
-async function buildHandle(args: CliArgs): Promise<DataAPIHandle> {
+interface BuiltHandle {
+    handle: DataAPIHandle;
+    /** Present on cloud target — used by tools that call cloud functions directly (e.g. openaiEmbedding). */
+    cloudConfig?: CloudClientConfig;
+}
+
+async function buildHandle(args: CliArgs): Promise<BuiltHandle> {
     if (args.target === "cloud") {
         const config = resolveConfig();
         // Pre-authenticate before stdio transport takes over stdin/stdout.
@@ -134,7 +150,7 @@ async function buildHandle(args: CliArgs): Promise<DataAPIHandle> {
             console.error(`[smartchats-mcp] Authentication failed: ${err}`);
             process.exit(1);
         }
-        return makeCloudDataAPI({ config });
+        return { handle: makeCloudDataAPI({ config }), cloudConfig: config };
     }
 
     // Local target — SDK-direct WebSocket. Connection happens here so
@@ -151,7 +167,7 @@ async function buildHandle(args: CliArgs): Promise<DataAPIHandle> {
             password: args.localPassword,
         });
         console.error("[smartchats-mcp] Connected to local SurrealDB.");
-        return handle;
+        return { handle };
     } catch (err) {
         console.error(`[smartchats-mcp] Local connect failed: ${(err as Error).message}`);
         process.exit(1);
@@ -160,14 +176,19 @@ async function buildHandle(args: CliArgs): Promise<DataAPIHandle> {
 
 async function main() {
     const args = parseArgs(process.argv.slice(2));
-    const handle = await buildHandle(args);
+    const { handle, cloudConfig } = await buildHandle(args);
 
     const server = new McpServer({
         name: "smartchats-mcp",
         version: "1.0.0",
     });
 
-    registerTools(server, { target: args.target, handle });
+    registerTools(server, {
+        target: args.target,
+        handle,
+        cloudConfig,
+        localServerUrl: args.localServerUrl,
+    });
 
     const transport = new StdioServerTransport();
     await server.connect(transport);

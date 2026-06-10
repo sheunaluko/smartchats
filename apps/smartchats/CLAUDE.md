@@ -228,27 +228,75 @@ SmartChats imports from ts_next_app via path aliases configured in `tsconfig.jso
 
 ## Telemetry (Insight Events)
 
-| Event | Source | Payload |
-|-------|--------|---------|
-| `cortex_store_init` | `storage.ts` | `bootstrap`, `resolved_mode`, `is_new_instance`, `cloud_upgraded` |
-| `cortex_legacy_migration` | `useSmartChatsStore.ts` | `migrated`, `skipped` |
-| `cortex_settings_loaded` | `useSmartChatsStore.ts` | `source`, `had_migration`, `raw_stored`, `merged` |
-| `cortex_settings_loaded_complete` | `useSmartChatsStore.ts` | `mode`, `isAuthenticated` |
-| `cortex_settings_updated` | `useSmartChatsStore.ts` | `changed_keys`, `before`, `after` |
-| `cortex_settings_saved` | `useSmartChatsStore.ts` | `ok`, `mode`, `settings` |
-| `cortex_conversation_loaded` | `useSmartChatsStore.ts` | `chat_length`, `has_workspace` |
-| `cortex_session_saved` | `useSmartChatsStore.ts` | `sessionId`, `label` |
-| `cortex_session_loaded` | `useSmartChatsStore.ts` | `sessionId` |
-| `cloud_auth_required` | `authCheck.ts` | `context` |
-| `cloud_auth_action` | `authCheck.ts` | `action` (`switch_to_local`, `dismissed`, `logged_in_via_popup`) |
-| `storage_mode_changed` | `useSmartChatsStore.ts` | `mode`, `migrated?`, `merged?`, `skipped?`, `failed?` |
-| `appdata_load/save` | `app_data_store.ts` | `data_key`, `ok`, `mode`, `duration_ms` |
-| `performance_metrics` | `useOrchestrator.ts` | `fps_current`, `fps_avg_1min`, `memory_mb`, `dom_nodes` |
-| `simi_workflow_start` | `simi/runner.ts` | `workflow_id`, `app`, `step_count`, `tags` |
-| `simi_step` | `simi/runner.ts` | `workflow_id`, `step`, `type`, `duration_ms`, `status` |
-| `simi_workflow_complete` | `simi/runner.ts` | `workflow_id`, `total_ms`, `steps_passed`, `steps_failed` |
-| `voice_interaction_complete` | `useOrchestrator.ts` | `runner_mode`, `timestamps`, `durations`, `response_length`, `mode` |
-| `llm_cancel` | `useOrchestrator.ts` | `flow`, `transcript`, `was_running_function`, `cancel_ts`, `time_to_cancel_ms` |
+| Event | Source | Payload | Tags |
+|-------|--------|---------|------|
+| `boot_start` (chain) | `InsightsContext.tsx` | `app_version`, `is_authenticated_at_start` | — |
+| `app3_mounted` | `app3.tsx` | `time_since_boot_start_ms` | `boot` |
+| `cortex_store_init` | `storage.ts` | `bootstrap`, `resolved_mode`, `is_new_instance`, `cloud_upgraded`, `duration_ms` | — |
+| `cortex_legacy_migration` | `useSmartChatsStore.ts` | `migrated`, `skipped`, `duration_ms` | `boot` |
+| `auth_ready_wait` | `useSmartChatsStore.ts` | `mode`, `resolved`, `timed_out`, `duration_ms` | `boot`, `latency` |
+| `cortex_settings_loaded` | `useSmartChatsStore.ts` | `source`, `had_migration`, `raw_stored`, `merged` | — |
+| `cortex_settings_loaded_complete` | `useSmartChatsStore.ts` | `mode`, `isAuthenticated`, `duration_ms` (whole loadSettings) | `boot` |
+| `agent_init_success` / `agent_init_error` | `useCortexAgent.ts` | `model`, `useStreaming`, `duration_ms` | `boot`, `latency` |
+| `runner_warmup_complete` | `app3.tsx` | `ok`, `duration_ms`, `error?` | `boot`, `warmup`, `latency` |
+| `tts_warmup_complete` | `app3.tsx` | `ok`, `duration_ms`, `error?` | `boot`, `warmup`, `latency` |
+| `vad_warmup_complete` | `app3.tsx` | `ok`, `duration_ms`, `cached`, `error?` | `boot`, `warmup`, `latency` |
+| `startup_prefetch_complete` | `app3.tsx` | `ok`, `duration_ms`, `apps_loaded`, `init_instructions_count`, `error?` | `boot`, `warmup`, `latency` |
+| `boot_complete` (closes chain) | `app3.tsx` | `total_duration_ms`, `phases: { runner_warmup_ms, tts_warmup_ms, vad_warmup_ms, prefetch_ms }`, `all_probes_ok` | `boot`, `latency` |
+| `voice_session_start` (chain) | `useOrchestrator.ts` | `cold_start`, `time_since_boot_complete_ms` | — |
+| `voice_first_llm_call_init_complete` | `useSmartChatsStore.ts` | `cold_start`, `duration_ms` (in-band init injection on first call), `time_since_voice_session_start_ms` | `boot`, `latency`, `ttfa` |
+| `voice_first_llm_call_start` | `useSmartChatsStore.ts` | `chat_history_len`, `cold_start`, `duration_ms` (click → start of LLM) | `boot`, `latency`, `ttfa` |
+| `voice_first_llm_call_first_chunk` | `useOrchestrator.ts` | `cold_start`, `duration_ms` (click → first token) | `latency`, `ttfa` |
+| `voice_session_audio_ready` | `useOrchestrator.ts` | `cold_start`, `duration_ms` (click → mic ready), `audio_init_ms` | `latency`, `ttfa` |
+| `voice_session_first_audio` | `useOrchestrator.ts` | `cold_start`, `duration_ms` (click → first TTS chunk) | `latency`, `ttfa` |
+| `voice_session_first_turn_complete` (closes chain) | `useOrchestrator.ts` | `cold_start`, `time_to_first_turn_complete_ms` | `latency`, `ttfa` |
+| `voice_session_stop` | `useOrchestrator.ts` | — | — |
+| `llm_server_timing` (always-on) | `llm_tts_stream_http.ts` → `llm_caller.ts` → `useOrchestrator.ts` | `phase` (`llm_function_received` \| `llm_request_start` \| `llm_first_byte`), `ts` (Date.now() server-side), `ms_since_function_received`, `ms_since_request_start` | `latency`, `llm`, `ttfa` |
+| `cortex_settings_updated` | `useSmartChatsStore.ts` | `changed_keys`, `before`, `after` | — |
+| `cortex_settings_saved` | `useSmartChatsStore.ts` | `ok`, `mode`, `settings` | — |
+| `cortex_conversation_loaded` | `useSmartChatsStore.ts` | `chat_length`, `has_workspace` | — |
+| `cortex_session_saved` | `useSmartChatsStore.ts` | `sessionId`, `label` | — |
+| `cortex_session_loaded` | `useSmartChatsStore.ts` | `sessionId` | — |
+| `cloud_auth_required` | `authCheck.ts` | `context` | — |
+| `cloud_auth_action` | `authCheck.ts` | `action` (`switch_to_local`, `dismissed`, `logged_in_via_popup`) | — |
+| `storage_mode_changed` | `useSmartChatsStore.ts` | `mode`, `migrated?`, `merged?`, `skipped?`, `failed?` | — |
+| `appdata_load/save` | `app_data_store.ts` | `data_key`, `ok`, `mode`, `duration_ms` | — |
+| `performance_metrics` | `useOrchestrator.ts` | `fps_current`, `fps_avg_1min`, `memory_mb`, `dom_nodes` | — |
+| `simi_workflow_start` | `simi/runner.ts` | `workflow_id`, `app`, `step_count`, `tags` | `simi`, … |
+| `simi_step` | `simi/runner.ts` | `workflow_id`, `step`, `type`, `duration_ms`, `status` | — |
+| `simi_workflow_complete` | `simi/runner.ts` | `workflow_id`, `total_ms`, `steps_passed`, `steps_failed` | — |
+| `voice_interaction_complete` | `useOrchestrator.ts` | `runner_mode`, `timestamps`, `durations`, `response_length`, `mode` | `latency`, `pipeline` |
+| `llm_cancel` | `useOrchestrator.ts` | `flow`, `transcript`, `was_running_function`, `cancel_ts`, `time_to_cancel_ms` | — |
+
+### Server-side TTFA breakdown — `llm_server_timing`
+
+Three stamps emitted server-side per `llmTtsStreamHttp` call, always-on
+(small payload, big diagnostic value):
+
+| Phase | Stamped at | Used to derive |
+|---|---|---|
+| `llm_function_received` | First line of the function handler | `browser→function` = `funcReceivedMs − voice_session_start.timestamp` (cross-clock, ~tens of ms) |
+| `llm_request_start` | Just before `llm_service.handleLLMStreamRequest(...)` | `function pre-LLM overhead` = `ms_since_function_received` |
+| `llm_first_byte` | First chunk yielded by the LLM provider stream | `provider TTFT` = `ms_since_request_start` |
+
+Combined with `voice_first_llm_call_first_chunk` (client receives first
+token), the four spans cover the full Start-click → first-token path
+and isolate where TTFA latency is actually being spent.
+
+### Boot / Start-flow chains
+
+Two distinct chains tie boot and the first session into single traces:
+
+- **Boot chain** — opened by `InsightsContext` on `setIsReady(true)` (`boot_start`), closed in `app3.tsx` after `Promise.allSettled` of the four warmup probes (`boot_complete`). Every event emitted between those two — store init, settings load, auth wait, agent init, the four warmups — inherits the same `trace_id` via the chain stack.
+- **Start-flow chain** — opened in `useOrchestrator.handleStartStop` on click (`voice_session_start`), closed in `onQueueDrain` on the first session-complete drain (`voice_session_first_turn_complete`). All events in between share one `trace_id`. `cold_start` is captured at click time from `lib/boot_snapshot.isColdStart()` and propagated on every Start-flow event so dashboards can split cold-vs-warm without post-hoc joining.
+
+### Tag vocabulary
+
+- `boot` — emitted during the boot chain (from `boot_start` to `boot_complete`)
+- `warmup` — one of the four parallel warmup probes
+- `latency` — user-perceivable wall time being measured
+- `ttfa` — time-to-first-audio: click → first TTS chunk reaching the user
+- `pipeline` — per-turn pipeline timings (`voice_interaction_complete`)
 
 ## Debugging
 - `window.COR` — current Cortex agent instance

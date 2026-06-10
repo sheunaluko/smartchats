@@ -1172,6 +1172,63 @@ export function createMetricsModule() {
                 },
                 return_type: 'object'
             },
+
+            // ── update_metric ──
+            {
+                enabled: true,
+                description: `Update a metric entry by id. Whitelisted fields: value, category, note, source_text. metric_name / unit / metric_type are NOT editable — those define what the metric IS; correct via delete + re-save instead.`,
+                name: 'update_metric',
+                parameters: {
+                    id: 'string',
+                    value: 'number',
+                    category: 'string',
+                    note: 'string',
+                    source_text: 'string',
+                },
+                fn: async (ops: any) => {
+                    const { log } = ops.util
+                    const { id, value, category, note, source_text } = ops.params
+
+                    if (!id) return { error: 'id is required' }
+
+                    const patch: { value?: number; category?: string; note?: string | null; source_text?: string } = {}
+                    if (value !== undefined && value !== null) patch.value = Number(value)
+                    if (category !== undefined && category !== null) patch.category = category
+                    if (note !== undefined) patch.note = note
+                    if (source_text !== undefined) patch.source_text = source_text
+
+                    const spec = queries.updateMetric({ recordId: id, patch })
+                    if (!spec) return { updated: false, error: 'No fields to update' }
+
+                    log(`update_metric: ${id}`)
+                    const response = await getBackend().data.query(spec) as any
+                    const rows = response.rows
+                    return rows.length > 0 ? { updated: true, id } : { updated: false, error: 'Metric not found' }
+                },
+                return_type: 'object'
+            },
+
+            // ── delete_metric ──
+            {
+                enabled: true,
+                description: `Delete a metric entry by id. Returns the deleted row. Use for cleanup of mistaken entries.`,
+                name: 'delete_metric',
+                parameters: {
+                    id: 'string',
+                },
+                fn: async (ops: any) => {
+                    const { log } = ops.util
+                    const { id } = ops.params
+
+                    if (!id) return { error: 'id is required' }
+
+                    log(`delete_metric: ${id}`)
+                    const response = await getBackend().data.query(queries.deleteMetric(id)) as any
+                    const rows = response.rows
+                    return rows.length > 0 ? { deleted: true, id, before: rows[0] } : { deleted: false, error: 'Metric not found' }
+                },
+                return_type: 'object'
+            },
         ],
     }
 }

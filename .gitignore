@@ -66,3 +66,8 @@ smartchats-backup*.json
 # inside the tree for diff-harness convenience, put it under this name
 # and it stays unstaged forever. Convention enforced by the harness too.
 **/_local_bundles/
+data/user_response
+
+# Emacs autosave + lock files
+\#*\#
+.\#*

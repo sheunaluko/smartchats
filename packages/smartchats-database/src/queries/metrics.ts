@@ -160,6 +160,69 @@ export function insertMetric(args: InsertMetricArgs): QuerySpec {
     };
 }
 
+// ── Update a metric ────────────────────────────────────────────────────────
+
+/**
+ * Whitelisted fields that an `updateMetric` patch may set. `metric_name`
+ * / `metric_type` / `unit` are intentionally NOT here — changing them
+ * means it's a different metric; correct via delete + re-insert.
+ */
+export interface UpdateMetricPatch {
+    value?: number;
+    category?: string;
+    note?: string | null;
+    source_text?: string;
+}
+
+/**
+ * UPDATE a metric row by full record id (`metrics:abc`). Always bumps
+ * `updated_at`. Returns null when no settable field is provided so the
+ * caller can surface "nothing to update" without a wasted round-trip.
+ */
+export function updateMetric(args: { recordId: string; patch: UpdateMetricPatch }): QuerySpec | null {
+    const key = args.recordId.includes(':') ? args.recordId.slice(args.recordId.indexOf(':') + 1) : args.recordId;
+    const setClauses: string[] = ['updated_at = time::now()'];
+    const variables: Record<string, unknown> = { metric_id: key };
+
+    if (args.patch.value !== undefined) {
+        setClauses.push('value = $value');
+        variables.value = args.patch.value;
+    }
+    if (args.patch.category !== undefined) {
+        setClauses.push('category = $category');
+        variables.category = args.patch.category;
+    }
+    if (args.patch.note !== undefined) {
+        setClauses.push('note = $note');
+        variables.note = args.patch.note;
+    }
+    if (args.patch.source_text !== undefined) {
+        setClauses.push('source_text = $source_text');
+        variables.source_text = args.patch.source_text;
+    }
+
+    if (setClauses.length === 1) return null;
+    return {
+        query: `UPDATE type::record('metrics', $metric_id) SET ${setClauses.join(', ')}`,
+        variables,
+    };
+}
+
+// ── Delete a metric ───────────────────────────────────────────────────────
+
+/**
+ * DELETE a metric row by full record id. Returns the deleted row via
+ * RETURN BEFORE so the caller can confirm what was removed. Currently
+ * consumed only by the MCP delete_metric tool (admin path).
+ */
+export function deleteMetric(recordId: string): QuerySpec {
+    const key = recordId.includes(':') ? recordId.slice(recordId.indexOf(':') + 1) : recordId;
+    return {
+        query: `DELETE type::record('metrics', $metric_id) RETURN BEFORE`,
+        variables: { metric_id: key },
+    };
+}
+
 // ── Habit summary helper ──────────────────────────────────────────────────
 
 /**

@@ -126,6 +126,22 @@ export function updateLog(args: { recordId: string; patch: UpdateLogPatch }): Qu
     };
 }
 
+// ── Delete a log ───────────────────────────────────────────────────────────
+
+/**
+ * DELETE a log row by full record id (e.g. `logs:abc123`). Returns the
+ * deleted row via RETURN BEFORE so the caller can confirm what was
+ * removed. Logs are otherwise append-only — this is currently consumed
+ * only by the MCP delete_log tool (admin path for garbled / test entries).
+ */
+export function deleteLog(recordId: string): QuerySpec {
+    const key = recordId.includes(':') ? recordId.slice(recordId.indexOf(':') + 1) : recordId;
+    return {
+        query: `DELETE type::record('logs', $log_id) RETURN BEFORE`,
+        variables: { log_id: key },
+    };
+}
+
 // ── Filtered list / search (canonical log-lookup builder) ─────────────────
 
 /**

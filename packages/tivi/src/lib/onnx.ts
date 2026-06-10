@@ -8,6 +8,8 @@ const log = logger.get_logger({ id: 'tivi/onnx' });
 // Track if ONNX has been initialized
 let onnxInitialized = false;
 let ort: any = null;
+let cachedSilero: any = null;
+let sileroLoadPromise: Promise<any> | null = null;
 
 // Dynamically import ONNX runtime (only on client side)
 async function getOnnxRuntime() {
@@ -36,12 +38,60 @@ export async function get_ort() {
   return await getOnnxRuntime();
 }
 
+// Cached session — safe to share across TSVAD instances since the session
+// itself is read-only; TSVAD holds its own per-instance state tensor (see
+// SileroV5Model). Pre-warming via warmupVAD() populates this so the first
+// startListening() pays only the audio stream init cost, not the model load.
 export async function get_silero_session() {
-  const ortRuntime = await getOnnxRuntime();
-  log('Loading Silero VAD session');
-  const session = await ortRuntime.InferenceSession.create('/onnx/silero_vad_v5.onnx');
-  log('Silero session loaded');
-  return session;
+  if (cachedSilero) return cachedSilero;
+  if (sileroLoadPromise) return sileroLoadPromise;
+  sileroLoadPromise = (async () => {
+    const ortRuntime = await getOnnxRuntime();
+    log('Loading Silero VAD session');
+    const session = await ortRuntime.InferenceSession.create('/onnx/silero_vad_v5.onnx');
+    log('Silero session loaded');
+    cachedSilero = session;
+    return session;
+  })();
+  try {
+    return await sileroLoadPromise;
+  } finally {
+    sileroLoadPromise = null;
+  }
+}
+
+/**
+ * Pre-load the ONNX runtime + Silero VAD model so the first call to
+ * `startListening()` doesn't pay the cold WASM/model-fetch cost in the
+ * Start click path. Idempotent — second call returns immediately with
+ * `cached: true`. Never throws; failures are returned in the result so
+ * callers can emit instrumentation without try/catch noise.
+ */
+export async function warmup_vad(): Promise<{
+  duration_ms: number;
+  ok: boolean;
+  cached: boolean;
+  error?: string;
+}> {
+  const start = performance.now();
+  if (cachedSilero) {
+    return { duration_ms: 0, ok: true, cached: true };
+  }
+  try {
+    await get_silero_session();
+    return {
+      duration_ms: Math.round(performance.now() - start),
+      ok: true,
+      cached: false,
+    };
+  } catch (err: any) {
+    return {
+      duration_ms: Math.round(performance.now() - start),
+      ok: false,
+      cached: false,
+      error: err?.message || String(err),
+    };
+  }
 }
 
 export async function enable_vad(options: {

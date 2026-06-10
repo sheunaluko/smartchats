@@ -9,6 +9,10 @@
 import { logger, insights } from 'smartchats-common';
 import { createInsightStore } from 'smartchats-common';
 import { getCortexStore, CORTEX_DATA_KEYS, migrateLegacyLocalStorage, migrateLocalToCloud } from '../lib/storage';
+import {
+    getTimeSinceVoiceSessionStart,
+    isVoiceSessionCold,
+} from '../lib/boot_snapshot';
 import { checkCloudAuth, notifyCloudAuthRequired, waitForAuthReady, isAuthenticated } from '../lib/authCheck';
 import { surreal_query_compat as surreal_query } from '@/lib/backend';
 import { toast_toast } from '@/components/Toast';
@@ -34,6 +38,7 @@ const log = logger.get_logger({ id: 'cortex_store' });
 
 // ── Non-reactive bookkeeping (not Zustand state) ────────────────────
 let _initInjected = false;
+let _firstLlmCallEmitted = false;
 
 let _voiceActions: {
   handleStartStop: () => Promise<void>;
@@ -340,21 +345,39 @@ export const useSmartChatsStore = createInsightStore<SmartChatsState>({
     },
 
     async loadSettings() {
+      const loadStart = performance.now();
+      const client = insights.getClient();
+
       // Run legacy migration (idempotent)
+      const migrateStart = performance.now();
       const migration = migrateLegacyLocalStorage();
+      const migrateDuration = Math.round(performance.now() - migrateStart);
       if (migration.migrated > 0) {
-        insights.emit('cortex_legacy_migration', migration);
+        client?.addEvent?.('cortex_legacy_migration', {
+          app: 'smartchats',
+          ...migration,
+          duration_ms: migrateDuration,
+        }, { duration_ms: migrateDuration, tags: ['boot'] });
       }
 
       // Create/upgrade AppDataStore singleton
-      const store = getCortexStore(insights.getClient(), surreal_query);
+      const store = getCortexStore(client ?? undefined, surreal_query);
 
       // Wait for the auth provider to resolve before cloud queries —
       // on page load, currentUser is null until the SDK loads the
       // persisted token (~300-800ms). Without this, cloud requests
       // go out unauthenticated and return empty.
       if (store.getMode() === 'cloud') {
-        await waitForAuthReady(2000);
+        const waitStart = performance.now();
+        const resolved = await waitForAuthReady(2000);
+        const waitDuration = Math.round(performance.now() - waitStart);
+        client?.addEvent?.('auth_ready_wait', {
+          app: 'smartchats',
+          mode: store.getMode(),
+          resolved,
+          timed_out: !resolved,
+          duration_ms: waitDuration,
+        }, { duration_ms: waitDuration, tags: ['boot', 'latency'] });
       }
 
       // Load settings from storage
@@ -383,10 +406,13 @@ export const useSmartChatsStore = createInsightStore<SmartChatsState>({
 
       set({ settingsLoaded: true });
 
-      insights.emit('cortex_settings_loaded_complete', {
+      const totalDuration = Math.round(performance.now() - loadStart);
+      client?.addEvent?.('cortex_settings_loaded_complete', {
+        app: 'smartchats',
         mode: store.getMode(),
         isAuthenticated: get().isAuthenticated,
-      });
+        duration_ms: totalDuration,
+      }, { duration_ms: totalDuration, tags: ['boot'] });
     },
 
     async saveSettings() {
@@ -1310,6 +1336,7 @@ export const useSmartChatsStore = createInsightStore<SmartChatsState>({
       // One-time: inject prefetched startup data before first LLM call
       if (!_initInjected) {
         _initInjected = true;
+        const initStart = performance.now();
         set({ initLoading: true });
         try {
           const initData = await prefetchStartup();
@@ -1345,12 +1372,41 @@ export const useSmartChatsStore = createInsightStore<SmartChatsState>({
         } catch (err) {
           log(`runLlm: startup prefetch failed: ${err}`);
         }
+        // Stamp the in-band init cost. On the first runLlm of a voice
+        // session this is the gap between voice_session_start and the
+        // actual agent.run_llm call — historically a ~1.3s chunk on
+        // cold sessions (per pre-instrumentation cloud traces).
+        const initDur = Math.round(performance.now() - initStart);
+        insights.getClient()?.addEvent?.('voice_first_llm_call_init_complete', {
+          app: 'smartchats',
+          duration_ms: initDur,
+          time_since_voice_session_start_ms: getTimeSinceVoiceSessionStart(),
+          cold_start: isVoiceSessionCold(),
+        }, { duration_ms: initDur, tags: ['boot', 'latency', 'ttfa'] });
         set({ initLoading: false });
       }
 
       if (get().llmRunning) { log('runLlm: already running, setting pendingRerun'); set({ _pendingRerun: true }); return; }
 
       set({ llmRunning: true });
+      // First-call signal — fires immediately before agent.run_llm so
+      // duration_ms represents click→start-of-LLM, not click→ready-to-fire.
+      // The gap between voice_session_start and this event isolates the
+      // in-band init injection cost (also captured directly above as
+      // voice_first_llm_call_init_complete).
+      if (!_firstLlmCallEmitted) {
+        _firstLlmCallEmitted = true;
+        const timeSinceClick = getTimeSinceVoiceSessionStart();
+        insights.getClient()?.addEvent?.('voice_first_llm_call_start', {
+          app: 'smartchats',
+          chat_history_len: get().chatHistory.length,
+          cold_start: isVoiceSessionCold(),
+          duration_ms: timeSinceClick,
+        }, {
+          duration_ms: timeSinceClick ?? undefined,
+          tags: ['boot', 'latency', 'ttfa'],
+        });
+      }
       try {
         log('runLlm: calling run_llm');
         const result = await agent.run_llm(4);

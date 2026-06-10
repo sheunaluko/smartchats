@@ -231,7 +231,15 @@ export class InsightsClient {
 
   /**
    * Start an event chain
-   * Returns the event_id which becomes the parent for subsequent events
+   * Returns the event_id which becomes the parent for subsequent events.
+   *
+   * Trace propagation: if there is already an open chain (this is a nested
+   * call), inherit the parent's trace_id so the whole interaction stays in
+   * one trace — OTel convention. Only generate a fresh trace_id when this
+   * is the outermost chain. Without this, nested cortex `agent_turn` calls
+   * inside a `voice_session_start` chain would split the trace, scattering
+   * what is logically one interaction across multiple trace IDs in the
+   * dashboard. parent_event_id continues to express the tree structure.
    */
   async startChain(event_type: string, payload: Record<string, any>): Promise<string> {
     if (!this.enabled) {
@@ -239,13 +247,9 @@ export class InsightsClient {
     }
 
     try {
-      const event_id = await this.addEvent(event_type, payload, {
-        trace_id: generateTraceId(),
-      });
-
-      // Get the trace_id from the event we just created
-      const event = this.eventBatch.find((e) => e.event_id === event_id);
-      const trace_id = event?.trace_id || generateTraceId();
+      const parentChain = this.chainStack[this.chainStack.length - 1];
+      const trace_id = parentChain?.trace_id ?? generateTraceId();
+      const event_id = await this.addEvent(event_type, payload, { trace_id });
 
       // Push to chain stack
       this.chainStack.push({ event_id, trace_id });
@@ -586,7 +590,11 @@ export class InsightsScope {
     }
 
     try {
-      const chain_trace_id = generateTraceId();
+      // Within a scope, nested chains inherit the scope-level trace_id
+      // (or any prior nested-chain trace_id). Same OTel-convention
+      // propagation rule as InsightsClient.startChain — see comment there.
+      const parentChain = this.chainStack[this.chainStack.length - 1];
+      const chain_trace_id = parentChain?.trace_id ?? this.trace_id;
       const event_id = await this.addEvent(event_type, payload, {
         trace_id: chain_trace_id,
       });

@@ -71,8 +71,15 @@ export function loadSession(sessionId: string): QuerySpec {
  * the FIRST colon only — the key portion may itself contain colons.
  */
 function sessionKey(sessionId: string): string {
-    const idx = sessionId.indexOf(':');
-    return idx < 0 ? sessionId : sessionId.slice(idx + 1);
+    // Defensive: callers should pass a string, but the `surrealdb` JS SDK
+    // 2.x returns `id` fields as RecordId instances, which can leak through
+    // upstream code paths if not coerced at the capture site. Coerce here
+    // so the .indexOf call below can't blow up — see apps/smartchats/app/
+    // modules/sessions.ts insertSession result handling for the canonical
+    // fix at the boundary.
+    const s = typeof sessionId === 'string' ? sessionId : String(sessionId);
+    const idx = s.indexOf(':');
+    return idx < 0 ? s : s.slice(idx + 1);
 }
 
 /**

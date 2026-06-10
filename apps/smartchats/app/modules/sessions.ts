@@ -87,7 +87,14 @@ export async function saveSessionToSurreal(session: {
         } else {
             const response = await getBackend().data.query(queries.insertSession(writeFields)) as any
             const rows = response.rows
-            const newId = rows[0]?.id || null
+            // The `surrealdb` JS SDK 2.x parses incoming `id` fields into
+            // RecordId instances (table + id parts), not plain strings —
+            // independent of the server version. Coerce at the boundary so
+            // downstream code (sessionKey, queries.updateSession) can rely on
+            // a string. Without this, the second saveSession of a session
+            // throws "sessionId.indexOf is not a function".
+            const rawId = rows[0]?.id
+            const newId = rawId != null ? String(rawId) : null
             if (newId) {
                 _currentSessionId = newId
             }

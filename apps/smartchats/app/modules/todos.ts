@@ -383,7 +383,7 @@ export function createTodosModule() {
                         }
                         const rows = response.rows
                         return rows.length > 0
-                            ? { saved: true, id: rows[0]?.id, title: title.trim(), priority: priority || 'medium', due_date: dueTs, recurrence: recurrence || null }
+                            ? { saved: true, id: rows[0]?.id != null ? String(rows[0].id) : null, title: title.trim(), priority: priority || 'medium', due_date: dueTs, recurrence: recurrence || null }
                             : { saved: false, error: 'No result from DB' }
                     } catch (error: any) {
                         return { error: `Error saving todo: ${JSON.stringify(error)}` }

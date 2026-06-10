@@ -108,17 +108,27 @@ export function getExperimentParams(): ExperimentParams | null {
     return _currentExperimentParams;
 }
 
-// ─── Server-timing event callback ────────────────────────────────
+// ─── Server-timing event callbacks ───────────────────────────────
 //
-// Same module-level-setter pattern as setTtsQueueRef. /sail wires
-// useOrchestrator's onTtsServerTiming through here so server-emitted
-// timing events become insights events.
+// Same module-level-setter pattern as setTtsQueueRef. The server
+// emits two families of server_timing NDJSON events:
+//   tts_* — per-batch TTS encoder telemetry. Gated on /sail experiment
+//           because TTS emits per-batch (potentially hundreds per call).
+//   llm_* — three stamps per call (function_received / request_start /
+//           first_byte). Always-on — small payload, big diagnostic value
+//           for TTFA breakdown. Routed to a separate callback so dashboards
+//           can group them as their own event type.
 
 type TtsServerTimingCallback = (event: any) => void;
 let _ttsServerTimingCallback: TtsServerTimingCallback | null = null;
-
 export function setTtsServerTimingCallback(cb: TtsServerTimingCallback | null): void {
     _ttsServerTimingCallback = cb;
+}
+
+type LlmServerTimingCallback = (event: any) => void;
+let _llmServerTimingCallback: LlmServerTimingCallback | null = null;
+export function setLlmServerTimingCallback(cb: LlmServerTimingCallback | null): void {
+    _llmServerTimingCallback = cb;
 }
 
 // ─── Audio telemetry (iOS Safari crash diagnostics) ───────────────
@@ -334,11 +344,18 @@ export function createBackendLlmCaller(opts: BackendLlmCallerOptions = {}) {
                             break;
                         }
                         case 'server_timing': {
-                            // Fire-and-forget: route to the active callback (set by /sail
-                            // via useOrchestrator). Callback is responsible for emitting
-                            // the insights event. No-op in production where the callback
-                            // is unset.
-                            try { _ttsServerTimingCallback?.(event); } catch { /* swallow */ }
+                            // Route by phase prefix: tts_* → existing /sail-experiment
+                            // callback; llm_* → the new always-on TTFA-breakdown callback.
+                            // Both are fire-and-forget; the callback emits the insights
+                            // event. No-op in production where the callback is unset.
+                            try {
+                                const phase: string = event?.phase ?? '';
+                                if (phase.startsWith('llm_')) {
+                                    _llmServerTimingCallback?.(event);
+                                } else {
+                                    _ttsServerTimingCallback?.(event);
+                                }
+                            } catch { /* swallow */ }
                             break;
                         }
                     }

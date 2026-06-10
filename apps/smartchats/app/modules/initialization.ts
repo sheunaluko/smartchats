@@ -181,7 +181,7 @@ export function createInitializationModule() {
                     const rows = response.rows
                     log('Init instruction created')
                     return rows.length > 0
-                        ? { created: true, id: rows[0]?.id, content: content.trim(), category: cat }
+                        ? { created: true, id: rows[0]?.id != null ? String(rows[0].id) : null, content: content.trim(), category: cat }
                         : { created: false, error: 'No result from DB' }
                 },
                 return_type: 'object'

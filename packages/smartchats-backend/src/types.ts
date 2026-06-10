@@ -117,21 +117,29 @@ export type TtsServerTimingPhase =
   | 'tts_request_start'
   | 'tts_first_byte'
   | 'tts_batch_yield'
-  | 'tts_request_complete';
+  | 'tts_request_complete'
+  // LLM-side TTFA breakdown — always-on (3 stamps per call). See
+  // packages/smartchats-cloud/functions/src/llm/llm_tts_stream_http.ts.
+  | 'llm_function_received'
+  | 'llm_request_start'
+  | 'llm_first_byte';
 
 /** Server-emitted timing event riding the same NDJSON stream as audio data.
- *  Fired only when the request includes `experiment_id` (so production calls
- *  don't pay the telemetry cost). Used by /sail to correlate server-side
- *  encoder behavior with client-side scheduling. */
+ *  TTS phases (`tts_*`) are gated on `experiment_id` for cost reasons.
+ *  LLM phases (`llm_*`) are always-on — only 3 stamps per call total. */
 export interface TtsServerTimingEvent {
   kind: 'server_timing';
   phase: TtsServerTimingPhase;
-  sentence: number;
-  /** ms since the parent timing reference — meaning depends on phase:
-   *  - tts_request_start: ms since llm request start
-   *  - tts_first_byte / tts_batch_yield: ms since tts_request_start
-   *  - tts_request_complete: ms since tts_request_start (total duration) */
+  /** Sentence index — TTS phases only. Null for LLM phases (per-call, not per-sentence). */
+  sentence: number | null;
+  /** Absolute server-side Date.now() at the moment of the stamp (LLM phases
+   *  and tts_request_start/first_byte/batch_yield). For tts_request_complete
+   *  this is the delta in ms from tts_request_start. */
   ts: number;
+  /** LLM phase: ms from llm_function_received to this stamp. */
+  ms_since_function_received?: number;
+  /** LLM phase: ms from llm_request_start to this stamp (= provider TTFT for llm_first_byte). */
+  ms_since_request_start?: number;
   /** Batch index within the sentence (tts_batch_yield only). */
   batch?: number;
   /** Bytes in this batch (tts_batch_yield only). */

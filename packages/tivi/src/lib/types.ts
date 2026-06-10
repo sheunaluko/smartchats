@@ -238,6 +238,18 @@ export interface UseTiviReturn {
   speakCached: (audioBuffer: AudioBuffer) => void;
 
   /**
+   * Pre-load the Silero VAD ONNX runtime + model so the first
+   * startListening() doesn't pay the cold WASM/model-fetch cost in the
+   * Start click path. Idempotent. Returns timing for instrumentation.
+   */
+  warmupVAD: () => Promise<{
+    duration_ms: number;
+    ok: boolean;
+    cached: boolean;
+    error?: string;
+  }>;
+
+  /**
    * Direct access to the TTS speech queue, null when using browser TTS
    */
   ttsQueue: ReturnType<typeof import('./tts_queue').createTTSSpeechQueue> | null;

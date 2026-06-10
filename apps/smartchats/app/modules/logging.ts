@@ -148,7 +148,7 @@ export function createLoggingModule() {
                     })) as any
                     const rows = response.rows
                     log(`Log saved`)
-                    return rows.length > 0 ? { saved: true, id: rows[0]?.id, category: cat } : { saved: false, error: 'No result from DB' }
+                    return rows.length > 0 ? { saved: true, id: rows[0]?.id != null ? String(rows[0].id) : null, category: cat } : { saved: false, error: 'No result from DB' }
                 },
                 return_type: 'object'
             },
@@ -218,6 +218,28 @@ export function createLoggingModule() {
                     const response = await getBackend().data.query(spec) as any
                     const rows = response.rows
                     return rows.length > 0 ? { updated: true, id } : { updated: false, error: 'Log not found' }
+                },
+                return_type: 'object'
+            },
+
+            // ── delete_log ──
+            {
+                enabled: true,
+                description: `Delete a log entry by id. Returns the deleted row. Logs are otherwise append-only — use for cleanup of garbled / test entries only.`,
+                name: 'delete_log',
+                parameters: {
+                    id: 'string',
+                },
+                fn: async (ops: any) => {
+                    const { log } = ops.util
+                    const { id } = ops.params
+
+                    if (!id) return { error: 'id is required' }
+
+                    log(`delete_log: ${id}`)
+                    const response = await getBackend().data.query(queries.deleteLog(id)) as any
+                    const rows = response.rows
+                    return rows.length > 0 ? { deleted: true, id, before: rows[0] } : { deleted: false, error: 'Log not found' }
                 },
                 return_type: 'object'
             },

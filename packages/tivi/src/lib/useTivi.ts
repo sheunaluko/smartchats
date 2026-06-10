@@ -6,7 +6,7 @@
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { TSVAD } from './ts_vad/src';
-import { enable_vad } from './onnx';
+import { enable_vad, warmup_vad } from './onnx';
 import type { UseTiviOptions, UseTiviReturn } from './types';
 import { logger } from 'smartchats-common';
 import * as tts from './tts';
@@ -601,6 +601,7 @@ export function useTivi(options: UseTiviOptions): UseTiviReturn {
     resumeVADProcessing,
     pauseVADProcessing,
     speakCached,
+    warmupVAD: warmup_vad,
     ttsQueue: ttsQueueRef.current,
   };
 }

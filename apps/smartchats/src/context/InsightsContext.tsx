@@ -81,6 +81,21 @@ export function InsightsProvider({
     }
 
     log(`InsightsClient initialized with session ${sid}`);
+
+    // Open the boot chain — every subsequent insights event before
+    // `boot_complete` (emitted by app3.tsx warmup useEffect) inherits this
+    // trace_id automatically via the chain stack. app3.tsx calls
+    // `clientRef.current.endChain()` once warmup probes settle.
+    let isAuthenticatedAtStart = false;
+    try {
+      isAuthenticatedAtStart = !!getAuthProvider().getCurrentUser();
+    } catch {}
+    clientRef.current.startChain('boot_start', {
+      app: appName,
+      app_version: appVersion,
+      is_authenticated_at_start: isAuthenticatedAtStart,
+    });
+
     setIsReady(true);
 
     // ── Global error safety-net ──

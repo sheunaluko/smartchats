@@ -6,6 +6,12 @@ import { useSmartChatsStore } from '../store/useSmartChatsStore';
 import { usePipelineTelemetry } from './usePipelineTelemetry';
 import { useStreamBuffers } from './useStreamBuffers';
 import { getCombinedStreamAudioStats } from '@/lib/llm_caller';
+import {
+    isColdStart,
+    getTimeSinceBootComplete,
+    markVoiceSessionStart,
+    clearVoiceSessionStart,
+} from '../lib/boot_snapshot';
 
 const log = logger.get_logger({ id: 'orchestrator' });
 
@@ -35,6 +41,8 @@ export interface OrchestratorActions {
     onSpeechRecognitionError: (info: { code: string; message: string }) => void;
     /** Emit tts_server_timing insights event — register via setTtsServerTimingCallback in llm_caller */
     onTtsServerTiming: (event: any) => void;
+    /** Emit llm_server_timing insights event — register via setLlmServerTimingCallback in llm_caller */
+    onLlmServerTiming: (event: any) => void;
     /** Raw stream text ref from useStreamBuffers */
     rawStreamRef: React.MutableRefObject<string>;
 }
@@ -52,6 +60,17 @@ export function useOrchestrator(params: OrchestratorParams): OrchestratorActions
     const lastTranscriptionTimeRef = useRef<number>(0);
     const CORRef = useRef(COR);
     const tiviRef = useRef(tivi);
+
+    // ── Start-flow telemetry refs ──
+    // Capture click T0 + a fresh chain id for each session so every event
+    // from voice_session_start → voice_session_first_turn_complete shares
+    // one trace_id. Single-shot flags ensure first-audio + first-chunk +
+    // first-turn-complete each fire at most once per session.
+    const voiceSessionT0Ref = useRef<number | null>(null);
+    const voiceSessionColdRef = useRef<boolean>(false);
+    const voiceSessionFirstAudioEmittedRef = useRef<boolean>(false);
+    const voiceSessionFirstChunkEmittedRef = useRef<boolean>(false);
+    const voiceSessionFirstTurnCompleteEmittedRef = useRef<boolean>(false);
 
     // Keep refs fresh
     useEffect(() => { CORRef.current = COR; }, [COR]);
@@ -269,6 +288,20 @@ export function useOrchestrator(params: OrchestratorParams): OrchestratorActions
             case 'response_chunk': {
                 logger.simi_debug(`[orchestrator] response_chunk ${JSON.stringify(evt.chunk?.slice?.(0, 80) ?? evt.chunk)}`);
                 telemetry.stampFirst('first_response_chunk');
+                // One-shot: stamp the first LLM-text chunk against
+                // voice_session_start T0 so dashboards see click→first-token.
+                if (
+                    voiceSessionT0Ref.current !== null &&
+                    !voiceSessionFirstChunkEmittedRef.current
+                ) {
+                    voiceSessionFirstChunkEmittedRef.current = true;
+                    const dur = Math.round(performance.now() - voiceSessionT0Ref.current);
+                    insightsClient.current?.addEvent?.('voice_first_llm_call_first_chunk', {
+                        app: 'smartchats',
+                        cold_start: voiceSessionColdRef.current,
+                        duration_ms: dur,
+                    }, { duration_ms: dur, tags: ['latency', 'ttfa'] });
+                }
                 buffers.feedResponseChunk(evt.chunk);
                 break;
             }
@@ -523,14 +556,45 @@ export function useOrchestrator(params: OrchestratorParams): OrchestratorActions
             log('Starting audio');
             sounds.ensureResumed();
             setStarted(true);
-            insightsClient.current?.addEvent('voice_session_start', {
+
+            // Capture click T0 + cold-start signal before any awaited work,
+            // so every Start-flow event measures from the actual click.
+            // Mirror into boot_snapshot so emitters outside the hook (the
+            // store's runLlm) can read T0 + cold without prop-drilling.
+            const clickT0 = performance.now();
+            const cold = isColdStart();
+            voiceSessionT0Ref.current = clickT0;
+            voiceSessionColdRef.current = cold;
+            markVoiceSessionStart(cold);
+            voiceSessionFirstAudioEmittedRef.current = false;
+            voiceSessionFirstChunkEmittedRef.current = false;
+            voiceSessionFirstTurnCompleteEmittedRef.current = false;
+
+            // Open a fresh chain for the Start flow so every downstream
+            // event (audio_ready, first_audio, first_turn_complete) inherits
+            // one trace_id. Closed in onQueueDrain.
+            const timeSinceBootCompleteMs = getTimeSinceBootComplete();
+            insightsClient.current?.startChain?.('voice_session_start', {
+                app: 'smartchats',
+                cold_start: voiceSessionColdRef.current,
+                time_since_boot_complete_ms: timeSinceBootCompleteMs,
                 timestamp: Date.now(),
             });
 
-            // Trigger first LLM turn — runLlm guard handles init data injection
+            // Trigger first LLM turn — runLlm guard handles init data injection.
+            // Fire-and-forget: lets onInitAudio run concurrently with the LLM call.
             useSmartChatsStore.getState().runLlm();
 
+            const audioInitStart = performance.now();
             audioCleanupRef.current = await onInitAudio(transcribeRef, transcriptionCb, tivi);
+            const audioInitDuration = Math.round(performance.now() - audioInitStart);
+            const clickToReady = Math.round(performance.now() - clickT0);
+            insightsClient.current?.addEvent?.('voice_session_audio_ready', {
+                app: 'smartchats',
+                cold_start: voiceSessionColdRef.current,
+                duration_ms: clickToReady,
+                audio_init_ms: audioInitDuration,
+            }, { duration_ms: clickToReady, tags: ['latency', 'ttfa'] });
         } else {
             log('Stopping audio');
             setStarted(false);
@@ -542,6 +606,13 @@ export function useOrchestrator(params: OrchestratorParams): OrchestratorActions
                 audioCleanupRef.current();
                 audioCleanupRef.current = null;
             }
+            // Close the chain if it's still open (e.g. user stopped before
+            // first turn completed). endChain is a no-op if the stack is
+            // empty, so calling it unconditionally is safe.
+            if (!voiceSessionFirstTurnCompleteEmittedRef.current) {
+                insightsClient.current?.endChain?.();
+            }
+            clearVoiceSessionStart();
         }
     }, [tivi, transcriptionCb, setStarted]);
 
@@ -580,7 +651,22 @@ export function useOrchestrator(params: OrchestratorParams): OrchestratorActions
     // ── Tivi TTS telemetry callbacks ──
     const onQueueFirstUtterance = useCallback(() => {
         telemetry.stampFirst('first_tts_utterance');
-    }, [telemetry]);
+        // One-shot: this is THE moment the user hears the agent for the first
+        // time this session. Pair it with voice_session_start T0 so we have a
+        // single time_to_first_audio_ms per session.
+        if (
+            voiceSessionT0Ref.current !== null &&
+            !voiceSessionFirstAudioEmittedRef.current
+        ) {
+            voiceSessionFirstAudioEmittedRef.current = true;
+            const dur = Math.round(performance.now() - voiceSessionT0Ref.current);
+            insightsClient.current?.addEvent?.('voice_session_first_audio', {
+                app: 'smartchats',
+                cold_start: voiceSessionColdRef.current,
+                duration_ms: dur,
+            }, { duration_ms: dur, tags: ['latency', 'ttfa'] });
+        }
+    }, [telemetry, insightsClient]);
 
     const onQueueDrain = useCallback(({ cancelled }: { cancelled: boolean }) => {
         if (cancelled) return;
@@ -595,6 +681,23 @@ export function useOrchestrator(params: OrchestratorParams): OrchestratorActions
             mode: store.started ? 'voice' : 'chat',
             ttsPipeline: 'combined',
         });
+        // One-shot: end the Start-flow chain on the first complete drain
+        // since voice_session_start. Lets dashboards filter "first turn"
+        // (cold/warm distribution) vs all subsequent turns.
+        if (
+            voiceSessionT0Ref.current !== null &&
+            !voiceSessionFirstTurnCompleteEmittedRef.current
+        ) {
+            voiceSessionFirstTurnCompleteEmittedRef.current = true;
+            const dur = Math.round(performance.now() - voiceSessionT0Ref.current);
+            insightsClient.current?.addEvent?.('voice_session_first_turn_complete', {
+                app: 'smartchats',
+                cold_start: voiceSessionColdRef.current,
+                time_to_first_turn_complete_ms: dur,
+            }, { duration_ms: dur, tags: ['latency', 'ttfa'] });
+            insightsClient.current?.endChain?.();
+            clearVoiceSessionStart();
+        }
         insightsClient.current?.flushBatch();
     }, [telemetry, insightsClient]);
 
@@ -631,6 +734,18 @@ export function useOrchestrator(params: OrchestratorParams): OrchestratorActions
         }).catch(() => {});
     }, [insightsClient]);
 
+    // Emit llm_server_timing insights event. Always-on (3 stamps per call).
+    // Phases: llm_function_received | llm_request_start | llm_first_byte.
+    // Used to attribute the TTFA gap between voice_first_llm_call_start
+    // (client-side, before the network round-trip) and
+    // voice_first_llm_call_first_chunk (client-side, when the first token
+    // arrives) to function-side vs provider-side latency.
+    const onLlmServerTiming = useCallback((event: any) => {
+        insightsClient.current?.addEvent?.('llm_server_timing', event, {
+            tags: ['latency', 'llm', 'ttfa'],
+        }).catch(() => {});
+    }, [insightsClient]);
+
     return useMemo(() => ({
         handleStartStop,
         transcriptionCb,
@@ -641,8 +756,9 @@ export function useOrchestrator(params: OrchestratorParams): OrchestratorActions
         onTtsPlaybackTiming,
         onSpeechRecognitionError,
         onTtsServerTiming,
+        onLlmServerTiming,
         rawStreamRef: buffers.rawStreamRef,
-    }), [handleStartStop, transcriptionCb, setTranscribe, handleEvent, onQueueFirstUtterance, onQueueDrain, onTtsPlaybackTiming, onSpeechRecognitionError, onTtsServerTiming, buffers.rawStreamRef]);
+    }), [handleStartStop, transcriptionCb, setTranscribe, handleEvent, onQueueFirstUtterance, onQueueDrain, onTtsPlaybackTiming, onSpeechRecognitionError, onTtsServerTiming, onLlmServerTiming, buffers.rawStreamRef]);
 }
 
 // ── Helper: Initialize audio ──

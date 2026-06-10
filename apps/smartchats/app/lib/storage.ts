@@ -78,6 +78,7 @@ function bootstrapBackendModeFlag(): { action: string; source?: string } {
 
 export function getCortexStore(insights?: InsightsClient, cloudQueryFn?: SurrealQueryFn): AppDataStore {
   if (!_instance) {
+    const start = performance.now();
     const bootstrapResult = bootstrapBackendModeFlag();
     _instance = new AppDataStore({
       app_id: CORTEX_APP_ID,
@@ -90,6 +91,7 @@ export function getCortexStore(insights?: InsightsClient, cloudQueryFn?: Surreal
       resolved_mode: _instance.getMode(),
       has_cloud_query_fn: !!cloudQueryFn,
       is_authenticated: isAuthenticated(),
+      duration_ms: Math.round(performance.now() - start),
     });
   } else {
     if (insights) _instance.setInsights(insights);
@@ -100,11 +102,13 @@ export function getCortexStore(insights?: InsightsClient, cloudQueryFn?: Surreal
       const flaggedMode = typeof window !== 'undefined'
         ? localStorage.getItem(modeKey) : null;
       if (flaggedMode === 'cloud') {
+        const start = performance.now();
         _instance.switchToCloud(cloudQueryFn);
         _instance.emitEvent('cortex_store_init', {
           is_new_instance: false,
           cloud_upgraded: true,
           resolved_mode: _instance.getMode(),
+          duration_ms: Math.round(performance.now() - start),
         });
       }
     }

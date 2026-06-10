@@ -27,6 +27,13 @@ import { logger, debug, sounds, insights } from 'smartchats-common';
 import * as fps_monitor from "./src/fps_monitor";
 import * as cortex_agent from "./cortex_agent_web"
 import { prefetchStartup } from "./modules/initialization"
+import {
+    markApp3Mounted,
+    markBootComplete,
+    recordProbe,
+    getBootSnapshot,
+    getTimeSinceBootStart,
+} from "./lib/boot_snapshot"
 
 import { useDesignPack } from '../core/DesignPackContext';
 import { useVizMotif } from '../core/VizMotifContext';
@@ -34,7 +41,7 @@ import { listDesignPacks } from '../core/theme-packs';
 
 import { useTivi } from "@lab-components/tivi/lib/index"
 import { backendTtsCallFn, backendTtsStreamFn, warmupBackendTts } from '@/lib/tts_caller';
-import { setTtsQueueRef, setTtsServerTimingCallback } from '@/lib/llm_caller';
+import { setTtsQueueRef, setTtsServerTimingCallback, setLlmServerTimingCallback } from '@/lib/llm_caller';
 import { getBackend } from '@/lib/backend';
 import { useTiviSettings } from '@lab-components/tivi/lib/useTiviSettings';
 import { getTiviSettings } from '@lab-components/tivi/lib/settings';
@@ -225,6 +232,11 @@ const Component: NextPage = (props: any) => {
     // ── Init flow ──
     useEffect(() => {
         if (insightsReady) {
+            markApp3Mounted();
+            insightsClient.current?.addEvent?.('app3_mounted', {
+                app: 'smartchats',
+                time_since_boot_start_ms: getTimeSinceBootStart(),
+            }, { tags: ['boot'] });
             loadSettings().then(() => {
                 const { aiModel, speechCooldownMs, soundFeedback } = useSmartChatsStore.getState();
                 lastSavedSettings.current = { aiModel, speechCooldownMs, soundFeedback };
@@ -314,13 +326,86 @@ const Component: NextPage = (props: any) => {
     // ── Chat mode hook ──
     const chatMode = useChatMode();
 
-    // ── Warmup streaming + TTS + prefetch startup data ──
+    // ── Warmup streaming + TTS + VAD model + prefetch startup data ──
+    // Each probe is timed independently so a slow one can be identified;
+    // Promise.allSettled lets the slowest determine `boot_complete` without
+    // letting one failure mask the others. Boot chain (opened in
+    // InsightsContext) is closed here so subsequent events get their own
+    // trace_ids.
     useEffect(() => {
-        if (authUser && COR?.runner?.warmup) {
-            COR.runner.warmup();       // warms llmTtsStreamHttp container
-            warmupBackendTts();      // warms ttsStreamHttp container
-            prefetchStartup();
-        }
+        if (!authUser || !COR?.runner?.warmup) return;
+
+        const client = insightsClient.current;
+
+        const timedProbe = async (
+            name: 'runner' | 'tts' | 'vad' | 'prefetch',
+            event_type: string,
+            run: () => Promise<Record<string, any> | void>,
+        ) => {
+            const start = performance.now();
+            try {
+                const meta = (await run()) ?? {};
+                const duration_ms = Math.round(performance.now() - start);
+                recordProbe(name, { ok: true, duration_ms, cached: (meta as any).cached });
+                client?.addEvent?.(event_type, {
+                    app: 'smartchats',
+                    ok: true,
+                    duration_ms,
+                    ...meta,
+                }, { duration_ms, tags: ['boot', 'warmup', 'latency'] });
+            } catch (err: any) {
+                const duration_ms = Math.round(performance.now() - start);
+                const errMsg = err?.message || String(err);
+                recordProbe(name, { ok: false, duration_ms, error: errMsg });
+                client?.addEvent?.(event_type, {
+                    app: 'smartchats',
+                    ok: false,
+                    duration_ms,
+                    error: errMsg,
+                }, { duration_ms, tags: ['boot', 'warmup', 'error'] });
+            }
+        };
+
+        const probes = [
+            timedProbe('runner', 'runner_warmup_complete',
+                () => Promise.resolve(COR.runner.warmup()).then(() => ({}))),
+            timedProbe('tts', 'tts_warmup_complete',
+                () => warmupBackendTts().then(() => ({}))),
+            timedProbe('prefetch', 'startup_prefetch_complete',
+                async () => {
+                    const initData = await prefetchStartup();
+                    return {
+                        apps_loaded: (initData?.installed_apps || []).length,
+                        init_instructions_count: (initData?.init_instructions || []).length,
+                    };
+                }),
+            timedProbe('vad', 'vad_warmup_complete',
+                async () => {
+                    const result = await tiviRef.current.warmupVAD();
+                    return { cached: result.cached };
+                }),
+        ];
+
+        Promise.allSettled(probes).then(() => {
+            markBootComplete();
+            const snap = getBootSnapshot();
+            const total_duration_ms = getTimeSinceBootStart();
+            client?.addEvent?.('boot_complete', {
+                app: 'smartchats',
+                total_duration_ms,
+                phases: {
+                    runner_warmup_ms: snap.runner?.duration_ms ?? null,
+                    tts_warmup_ms: snap.tts?.duration_ms ?? null,
+                    vad_warmup_ms: snap.vad?.duration_ms ?? null,
+                    prefetch_ms: snap.prefetch?.duration_ms ?? null,
+                },
+                all_probes_ok: !!(snap.runner?.ok && snap.tts?.ok && snap.vad?.ok && snap.prefetch?.ok),
+            }, { duration_ms: total_duration_ms, tags: ['boot', 'latency'] });
+            // Close the chain opened in InsightsContext. All events after
+            // this point get their own trace_ids (e.g. voice_session_start
+            // opens its own chain).
+            client?.endChain?.();
+        });
     }, [authUser, COR]);
 
     // ── Register tivi's TTS queue with the LLM caller ──
@@ -341,6 +426,15 @@ const Component: NextPage = (props: any) => {
         setTtsServerTimingCallback(orchestrator.onTtsServerTiming);
         return () => setTtsServerTimingCallback(null);
     }, [orchestrator.onTtsServerTiming]);
+
+    // Always-on companion: llm_server_timing NDJSON events become insights
+    // events. Three stamps per llmTtsStreamHttp call (function_received /
+    // request_start / first_byte) — closes the TTFA blind spot between
+    // voice_first_llm_call_start (client) and voice_first_llm_call_first_chunk.
+    useEffect(() => {
+        setLlmServerTimingCallback(orchestrator.onLlmServerTiming);
+        return () => setLlmServerTimingCallback(null);
+    }, [orchestrator.onLlmServerTiming]);
 
     // ── Keep TTS queue voice/model in sync with tivi settings ──
     // Without this, the queue defaults to 'nova' and accumulate_text

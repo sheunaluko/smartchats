@@ -95,16 +95,21 @@ type LLMTTSLine =
     | { t: 'audio'; s: number; c: number; b64: string }
     | { t: 'audio_end'; s: number }
     | {
-          // Server-side timing event (only emitted when experiment_id is set).
+          // Server-side timing event. TTS phases gated on experiment_id;
+          // LLM phases always-on (3 stamps per call).
           t: 'server_timing';
-          phase: 'tts_request_start' | 'tts_first_byte' | 'tts_batch_yield' | 'tts_request_complete';
-          s: number;
+          phase:
+              | 'tts_request_start' | 'tts_first_byte' | 'tts_batch_yield' | 'tts_request_complete'
+              | 'llm_function_received' | 'llm_request_start' | 'llm_first_byte';
+          s?: number;  // sentence — TTS only
           ts: number;
           batch?: number;
           bytes?: number;
           openai_bytes_total?: number;
           total_batches?: number;
           ms_since_first_byte?: number;
+          ms_since_function_received?: number;  // LLM only
+          ms_since_request_start?: number;      // LLM only
       }
     | { t: 'llm_done'; data?: LLMCallResult }
     | {
@@ -183,13 +188,16 @@ export function createLLMTTSStreamResult(
                             yield {
                                 kind: 'server_timing',
                                 phase: line.phase,
-                                sentence: line.s,
+                                // LLM phases are per-call, not per-sentence — pass null when `s` missing.
+                                sentence: line.s ?? null,
                                 ts: line.ts,
                                 ...(line.batch !== undefined && { batch: line.batch }),
                                 ...(line.bytes !== undefined && { bytes: line.bytes }),
                                 ...(line.openai_bytes_total !== undefined && { openai_bytes_total: line.openai_bytes_total }),
                                 ...(line.total_batches !== undefined && { total_batches: line.total_batches }),
                                 ...(line.ms_since_first_byte !== undefined && { ms_since_first_byte: line.ms_since_first_byte }),
+                                ...(line.ms_since_function_received !== undefined && { ms_since_function_received: line.ms_since_function_received }),
+                                ...(line.ms_since_request_start !== undefined && { ms_since_request_start: line.ms_since_request_start }),
                             };
                             break;
                         case 'llm_done':

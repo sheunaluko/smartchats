@@ -16,6 +16,7 @@ export function useCortexAgent(model: string, insightsClient?: any, authInfo?: {
     let cancelled = false;
 
     async function initAgent() {
+      const start = performance.now();
       try {
         setIsLoading(true);
         setError(null);
@@ -24,21 +25,25 @@ export function useCortexAgent(model: string, insightsClient?: any, authInfo?: {
         if (!cancelled) {
           setAgent(newAgent);
           setIsLoading(false);
+          const duration_ms = Math.round(performance.now() - start);
           insightsClient?.addEvent?.('agent_init_success', {
             model,
             useStreaming,
             isAuthenticated: authInfo?.isAuthenticated,
-          });
+            duration_ms,
+          }, { duration_ms, tags: ['boot', 'latency'] });
         }
       } catch (err) {
         if (!cancelled) {
           setError(err instanceof Error ? err : new Error('Failed to initialize agent'));
           setIsLoading(false);
+          const duration_ms = Math.round(performance.now() - start);
           insightsClient?.addEvent?.('agent_init_error', {
             model,
             useStreaming,
             error: (err instanceof Error ? err.message : String(err)),
-          });
+            duration_ms,
+          }, { duration_ms, tags: ['boot', 'error'] });
         }
       }
     }
