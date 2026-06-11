@@ -8,6 +8,7 @@ import { getUserTimezone, eventTimeAt, getCurrentLocalDate } from "./system"
 import { getBackend } from '@/lib/backend';
 import { queries } from 'smartchats-database';
 import type { MetricsQuerySpec, MetricsTimeFilterCtx } from 'smartchats-database';
+import { getStartupLoaders } from '../lib/background_loaders';
 
 /** Shared ctx for the time-filter / metrics-query builders. */
 const TIME_FILTER_CTX: MetricsTimeFilterCtx = { getCurrentLocalDate }
@@ -729,7 +730,8 @@ export function createMetricsModule() {
                 fn: async (ops: any) => {
                     const { log } = ops.util
                     log(`Fetching metrics context`)
-                    const result = await fetchMetricsContext()
+                    const loaders = getStartupLoaders()
+                    const result = loaders ? await loaders.metrics_context.get() : await fetchMetricsContext()
                     log(`Got metrics context`)
                     return result
                 },

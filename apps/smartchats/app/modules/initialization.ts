@@ -9,15 +9,9 @@
  * before the first LLM turn, so the agent never needs to call init functions manually.
  */
 
-import { search_knowledge_deep } from "../graph_utils"
-import { fetchProceduralInstructions } from "./procedural_instructions"
-import { fetchMetricsContext } from "./metrics"
-import { fetchLogCategories } from "./logging"
-import { fetchTodosContext } from "./todos"
-import { listInstalls, getApp } from "./app_registry"
-import { seedBuiltinApps } from "../apps/builtin_apps"
 import { embed_vector, getBackend } from '@/lib/backend';
 import { queries } from 'smartchats-database';
+import { getStartupLoaders } from '../lib/background_loaders';
 
 /** Fetch init instructions — reusable by prefetch and module fn */
 export async function fetchInitInstructions(): Promise<any[]> {
@@ -27,73 +21,11 @@ export async function fetchInitInstructions(): Promise<any[]> {
 
 // ── Prefetch startup data ────────────────────────────────────────────────────
 
-let _startupPromise: Promise<any> | null = null
-
-/**
- * Prefetch all startup data in parallel. Returns a singleton promise —
- * calling multiple times returns the same in-flight/resolved promise.
- * Call resetStartupPrefetch() to allow re-fetching (e.g. on model change).
- */
-export function prefetchStartup(): Promise<any> {
-    if (_startupPromise) return _startupPromise
-
-    _startupPromise = Promise.all([
-        fetchInitInstructions().catch(() => []),
-        fetchProceduralInstructions().catch(() => []),
-        fetchMetricsContext().catch(() => ({ tracked_metrics: [], recent_entries: [] })),
-        fetchLogCategories().catch(() => []),
-        fetchTodosContext().catch(() => ({ overdue: [], due_today: [], upcoming_7d: [], no_date: [], total_active: 0, recurring_due: [] })),
-        search_knowledge_deep('current_user', { depth: 2 })
-            .then(result => {
-                const entities = Array.from(result.expanded.entities.values())
-                const relations = [...result.seeds.relations, ...result.expanded.relations]
-                return {
-                    entities: entities.map(e => ({ name: e.name, depth: e.depth, distance: e.distance })),
-                    relations: relations.map((r: any) => ({
-                        source: r.sourceName, relation: r.kind, target: r.targetName
-                    })),
-                    total_entities: result.totalEntities,
-                    total_relations: result.totalRelations,
-                }
-            })
-            .catch(() => ({ entities: [], relations: [], total_entities: 0, total_relations: 0 })),
-        // App platform: seed built-in apps, then prefetch installs
-        seedBuiltinApps(embed_vector)
-            .then(() => listInstalls())
-            .then(async (installs) => {
-                const manifests = await Promise.all(
-                    installs.map(i => getApp(i.app_id).catch(() => null))
-                )
-                return installs.map((install, idx) => ({
-                    install,
-                    manifest: manifests[idx],
-                    // Summary for LLM context (full manifest stored in appManifestCache, not injected)
-                    summary: manifests[idx] ? {
-                        id: manifests[idx]!.id,
-                        name: manifests[idx]!.name,
-                        description: manifests[idx]!.description,
-                        icon: manifests[idx]!.icon,
-                    } : null,
-                })).filter(x => x.manifest !== null)
-            })
-            .catch(() => []),
-    ]).then(([init_instructions, procedural_instructions, metrics_context, log_categories, todos_context, current_user_kg, installed_apps]) => ({
-        init_instructions,
-        procedural_instructions,
-        metrics_context,
-        log_categories,
-        todos_context,
-        current_user_kg,
-        installed_apps,
-    }))
-
-    return _startupPromise
-}
-
-/** Reset the prefetch promise so the next call re-fetches. */
-export function resetStartupPrefetch() {
-    _startupPromise = null
-}
+// Note: the previous `prefetchStartup()` helper has been removed in favor of
+// `lib/background_loaders/`. Each item now has its own loader that prefetches
+// on app3 mount, memoizes its promise so any agent function call awaits the
+// same in-flight fetch, and auto-injects the resolved value into the agent's
+// user_data_input context via onResolve.
 
 // ── System message ───────────────────────────────────────────────────────────
 
@@ -140,7 +72,8 @@ export function createInitializationModule() {
                 fn: async (ops: any) => {
                     const { log } = ops.util
                     log('Fetching initialization instructions')
-                    return fetchInitInstructions()
+                    const loaders = getStartupLoaders()
+                    return loaders ? await loaders.init_instructions.get() : fetchInitInstructions()
                 },
                 return_type: 'array'
             },

@@ -19,7 +19,6 @@ import {
     saveInstall, getInstall, updateInstall, deleteInstall,
     listInstalls, incrementInstallCount
 } from "./app_registry"
-import { prefetchStartup } from './initialization'
 import { DEFAULT_GRANTS, filterGrantedFunctions } from "../lib/permissions"
 import { AppSandbox } from "../lib/app_sandbox"
 import type { AppManifest, AppInstall, AppPermission, LoadedApp, SerializedAppFunction } from '../../core/types/app'
@@ -30,19 +29,15 @@ let activeApp: LoadedApp | null = null
 let activeSandbox: AppSandbox | null = null
 let installedApps: AppInstall[] = []
 
-// Hydrate from the canonical startup prefetch — same promise onboarding
-// subscribes to, no extra DB round-trip. Without this, `installedApps`
-// stays empty until the agent manually calls `list_apps`, which leaves
-// the trailing `installed:` state reporting "none" and causes the LLM
-// to hedge on re-activation turns even though apps are installed.
-prefetchStartup()
-    .then((data: any) => {
-        const apps = data?.installed_apps
-        if (Array.isArray(apps)) {
-            installedApps = apps.map((x: any) => x.install).filter(Boolean)
-        }
-    })
-    .catch(() => { /* non-fatal; prefetch guards itself */ })
+/** Hydrate the in-module installedApps cache from a resolved loader value.
+ *  Called from the installed_apps loader's onResolve. Without this hook,
+ *  the trailing `installed:` state in the agent's system context reports
+ *  "none" on first turn and the LLM hedges on re-activation. */
+export function hydrateAppLauncherInstalls(items: any[]): void {
+    if (Array.isArray(items)) {
+        installedApps = items.map((x: any) => x.install).filter(Boolean)
+    }
+}
 
 // Exported for orchestrator input routing
 export function getActiveSandbox(): AppSandbox | null {

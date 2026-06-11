@@ -30,6 +30,7 @@
 import { getUserTimezone, nowEventTime } from "./system"
 import { getBackend } from '@/lib/backend';
 import { queries } from 'smartchats-database';
+import { getStartupLoaders } from '../lib/background_loaders';
 
 // Event-time bundle helpers live in ./system (nowEventTime / eventTimeAt).
 
@@ -513,7 +514,8 @@ export function createTodosModule() {
                     const { display, category } = ops.params
 
                     log(`Fetching todos context${display ? ' (with display)' : ''}`)
-                    let context = await fetchTodosContext()
+                    const loaders = getStartupLoaders()
+                    let context = loaders ? await loaders.todos_context.get() : await fetchTodosContext()
 
                     // Filter by category if provided
                     if (category) {

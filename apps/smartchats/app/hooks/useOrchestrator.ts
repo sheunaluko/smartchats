@@ -6,6 +6,18 @@ import { useSmartChatsStore } from '../store/useSmartChatsStore';
 import { usePipelineTelemetry } from './usePipelineTelemetry';
 import { useStreamBuffers } from './useStreamBuffers';
 import { getCombinedStreamAudioStats } from '@/lib/llm_caller';
+import { getStartupLoaders } from '../lib/background_loaders';
+import { getGreeting } from '../lib/greeting';
+
+/** Read the user's name from the (possibly-undefined) prefetched KG.
+ *  Looks for `current_user → name_is → X`. Returns undefined if KG is
+ *  missing, empty, or contains no such relation. */
+function extractNameFromKG(kg: any): string | undefined {
+    if (!kg?.relations || !Array.isArray(kg.relations)) return undefined;
+    const rel = kg.relations.find((r: any) => r?.source === 'current_user' && r?.relation === 'name_is');
+    const target = rel?.target;
+    return typeof target === 'string' && target.trim().length > 0 ? target.trim() : undefined;
+}
 import {
     isColdStart,
     getTimeSinceBootComplete,
@@ -581,9 +593,44 @@ export function useOrchestrator(params: OrchestratorParams): OrchestratorActions
                 timestamp: Date.now(),
             });
 
-            // Trigger first LLM turn — runLlm guard handles init data injection.
-            // Fire-and-forget: lets onInitAudio run concurrently with the LLM call.
-            useSmartChatsStore.getState().runLlm();
+            // Templated greeting bypass — replaces the LLM-generated opening
+            // line with a string-interpolated template + direct TTS. The
+            // first runLlm call now fires when the user speaks (via
+            // sendMessageSync), NOT on Start click. Click → first audio
+            // drops from ~5 s (LLM round-trip) to ~500-800 ms (TTS only).
+            //
+            // The name comes from the prefetched user KG via the loader's
+            // synchronous peek(). If the KG hasn't resolved yet, we fall
+            // through cleanly to the no-name template variant — never to
+            // the old LLM-on-Start path.
+            //
+            // The greeting is also pushed into agent.messages as an
+            // 'assistant' turn so the LLM sees "I already greeted" on the
+            // first real run_llm call (when the user speaks) and doesn't
+            // re-greet.
+            const greetingStore = useSmartChatsStore.getState();
+            const greetingAgent = greetingStore.agent;
+            const kg = getStartupLoaders()?.user_kg_shallow.peek();
+            const name = extractNameFromKG(kg);
+            const greeting = getGreeting({ name });
+            try {
+                tivi.ttsQueue?.speakText?.(greeting.text);
+            } catch (err) {
+                log(`Greeting TTS failed: ${err}`);
+            }
+            if (greetingAgent?.messages) {
+                greetingAgent.messages.push({ role: 'assistant', content: greeting.text });
+            }
+            greetingStore.addAiMessage(greeting.text);
+            const greetingDur = Math.round(performance.now() - clickT0);
+            insightsClient.current?.addEvent?.('voice_session_templated_greeting', {
+                app: 'smartchats',
+                template_id: greeting.template_id,
+                time_bucket: greeting.time_bucket,
+                has_name: greeting.has_name,
+                duration_ms: greetingDur,
+                cold_start: voiceSessionColdRef.current,
+            }, { duration_ms: greetingDur, tags: ['latency', 'ttfa', 'templated'] });
 
             const audioInitStart = performance.now();
             audioCleanupRef.current = await onInitAudio(transcribeRef, transcriptionCb, tivi);

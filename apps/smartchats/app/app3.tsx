@@ -26,7 +26,6 @@ import "./app.css"
 import { logger, debug, sounds, insights } from 'smartchats-common';
 import * as fps_monitor from "./src/fps_monitor";
 import * as cortex_agent from "./cortex_agent_web"
-import { prefetchStartup } from "./modules/initialization"
 import {
     markApp3Mounted,
     markBootComplete,
@@ -34,6 +33,12 @@ import {
     getBootSnapshot,
     getTimeSinceBootStart,
 } from "./lib/boot_snapshot"
+import {
+    createStartupLoaders,
+    setStartupLoaders,
+    prefetchAll,
+    type StartupLoaders,
+} from "./lib/background_loaders"
 
 import { useDesignPack } from '../core/DesignPackContext';
 import { useVizMotif } from '../core/VizMotifContext';
@@ -326,6 +331,28 @@ const Component: NextPage = (props: any) => {
     // ── Chat mode hook ──
     const chatMode = useChatMode();
 
+    // ── Background startup loaders ──
+    // Wire up the prefetchable items + fire all .prefetch() calls. Each
+    // loader is fire-and-forget — the first agent turn does NOT block on
+    // any of them. When each resolves, its value auto-injects into the
+    // cortex agent's context via onResolve, so the LLM picks up richer
+    // context on subsequent turns. See ./lib/background_loaders/index.ts.
+    const loadersRef = useRef<StartupLoaders | null>(null);
+    useEffect(() => {
+        if (!insightsReady || !COR) return;
+        const loaders = createStartupLoaders({
+            agent: () => COR,
+            insights: insightsClient.current,
+        });
+        setStartupLoaders(loaders);
+        loadersRef.current = loaders;
+        prefetchAll(loaders);
+        return () => {
+            setStartupLoaders(null);
+            loadersRef.current = null;
+        };
+    }, [insightsReady, COR]);
+
     // ── Warmup streaming + TTS + VAD model + prefetch startup data ──
     // Each probe is timed independently so a slow one can be identified;
     // Promise.allSettled lets the slowest determine `boot_complete` without
@@ -373,11 +400,16 @@ const Component: NextPage = (props: any) => {
                 () => warmupBackendTts().then(() => ({}))),
             timedProbe('prefetch', 'startup_prefetch_complete',
                 async () => {
-                    const initData = await prefetchStartup();
-                    return {
-                        apps_loaded: (initData?.installed_apps || []).length,
-                        init_instructions_count: (initData?.init_instructions || []).length,
-                    };
+                    // The only prefetch item the user-blocking path actually
+                    // needs is user_kg_shallow (for the templated greeting's
+                    // name). Everything else (apps, todos, metrics, log
+                    // categories, init/procedural instructions) loads in the
+                    // background via the loaders and auto-injects on
+                    // resolve. Per-item timing is on bg_load_complete.
+                    const loaders = loadersRef.current;
+                    if (!loaders) return {};
+                    await loaders.user_kg_shallow.get().catch(() => undefined);
+                    return {};
                 }),
             timedProbe('vad', 'vad_warmup_complete',
                 async () => {

@@ -18,10 +18,7 @@ import { surreal_query_compat as surreal_query } from '@/lib/backend';
 import { toast_toast } from '@/components/Toast';
 import { cortexWorkflows } from '../simi';
 import { recordTurnComplete } from '../modules/timing';
-import { prefetchStartup } from '../modules/initialization';
-import { seedBuiltinApps } from '../apps/builtin_apps';
-import { listInstalls } from '../modules/app_registry';
-import { getApp } from '../modules/app_registry';
+import { getStartupLoaders } from '../lib/background_loaders';
 import {
     getCurrentSessionId, setCurrentSessionId,
     saveSessionToSurreal, loadSessionFromSurreal, listSessionsFromSurreal,
@@ -1333,57 +1330,27 @@ export const useSmartChatsStore = createInsightStore<SmartChatsState>({
       const { agent } = get();
       if (!agent) { log('runLlm: no agent available'); return; }
 
-      // One-time: inject prefetched startup data before first LLM call
+      // One-time: peek the user-KG loader for onboarding state. Data flows
+      // into the agent's context lazily via the background_loaders' onResolve
+      // callbacks — this block ONLY decides whether to inject the
+      // explicit-onboarding directive. If the KG loader hasn't resolved yet
+      // (e.g. user clicked Start very fast), we conservatively skip the
+      // directive; missing it just means the agent may greet a not-yet-
+      // onboarded user, which is recoverable on the next turn.
       if (!_initInjected) {
         _initInjected = true;
-        const initStart = performance.now();
-        set({ initLoading: true });
-        try {
-          const initData = await prefetchStartup();
-          // Check onboarding status from KG data (structured: { relations: [{ source, relation, target }] })
-          const kgRelations = initData.current_user_kg?.relations || [];
-          const onboardingComplete = kgRelations.some((r: any) =>
-            r.source === 'onboarding' && r.relation === 'complete' && (r.target === 'conclusion' || r.target === 'skipped')
+        const loaders = getStartupLoaders();
+        const kg = loaders?.user_kg_shallow.peek();
+        const kgRelations = kg?.relations || [];
+        const onboardingComplete = kgRelations.some((r: any) =>
+          r.source === 'onboarding' && r.relation === 'complete' && (r.target === 'conclusion' || r.target === 'skipped')
+        );
+        if (kg && !onboardingComplete) {
+          agent.add_user_data_input(
+            { _directive: 'ONBOARDING NOT COMPLETE. You MUST call voice_interaction_explainer immediately on your first turn. Do NOT greet the user or speak first — the explainer handles everything. Check the trailing [Onboarding] state for details.' },
+            'onboarding_directive',
           );
-          // Inject only summaries into LLM context — not full app manifests with HTML/code
-          const llmData: any = {
-            ...initData,
-            installed_apps: (initData.installed_apps || []).map((x: any) => x.summary || { id: x.install?.app_id }),
-          };
-          if (!onboardingComplete) {
-            llmData._directive = 'ONBOARDING NOT COMPLETE. You MUST call voice_interaction_explainer immediately on your first turn. Do NOT greet the user or speak first — the explainer handles everything. Check the trailing [Onboarding] state for details.';
-          }
-          agent.add_user_data_input(llmData, 'initialization');
-          log('runLlm: startup data injected');
-
-          // Seed builtin apps if needed, then populate app platform state
-          if (!initData.installed_apps || initData.installed_apps.length === 0) {
-            log('runLlm: no installed apps found, seeding builtins');
-            await get().seedAndLoadApps();
-          } else {
-            const installs = initData.installed_apps.map((x: any) => x.install);
-            const cache: Record<string, any> = {};
-            for (const x of initData.installed_apps) {
-              if (x.manifest) cache[x.install.app_id] = x.manifest;
-            }
-            set({ installedApps: installs, appManifestCache: cache });
-            log(`runLlm: loaded ${installs.length} installed app(s)`);
-          }
-        } catch (err) {
-          log(`runLlm: startup prefetch failed: ${err}`);
         }
-        // Stamp the in-band init cost. On the first runLlm of a voice
-        // session this is the gap between voice_session_start and the
-        // actual agent.run_llm call — historically a ~1.3s chunk on
-        // cold sessions (per pre-instrumentation cloud traces).
-        const initDur = Math.round(performance.now() - initStart);
-        insights.getClient()?.addEvent?.('voice_first_llm_call_init_complete', {
-          app: 'smartchats',
-          duration_ms: initDur,
-          time_since_voice_session_start_ms: getTimeSinceVoiceSessionStart(),
-          cold_start: isVoiceSessionCold(),
-        }, { duration_ms: initDur, tags: ['boot', 'latency', 'ttfa'] });
-        set({ initLoading: false });
       }
 
       if (get().llmRunning) { log('runLlm: already running, setting pendingRerun'); set({ _pendingRerun: true }); return; }
@@ -1512,16 +1479,19 @@ export const useSmartChatsStore = createInsightStore<SmartChatsState>({
     },
 
     async seedAndLoadApps() {
-      log('seedAndLoadApps: starting');
-      await seedBuiltinApps(embed_vector);
-      const installs = await listInstalls();
-      const cache: Record<string, any> = {};
-      for (const inst of installs) {
-        const manifest = await getApp(inst.app_id).catch(() => null);
-        if (manifest) cache[inst.app_id] = manifest;
+      // Thin wrapper: delegate to the installed_apps loader so a
+      // single fetch is shared between this action (called by Simi
+      // workflows) and the app3 background prefetch. If a fetch is
+      // already in flight from prefetch(), this awaits the same
+      // promise — no duplicate roundtrip.
+      const loaders = getStartupLoaders();
+      if (!loaders) {
+        log('seedAndLoadApps: loaders not yet initialized — skipping (page not mounted)');
+        return;
       }
-      set({ installedApps: installs, appManifestCache: cache });
-      log('seedAndLoadApps: done, ' + installs.length + ' apps');
+      log('seedAndLoadApps: delegating to installed_apps loader');
+      await loaders.installed_apps.get();
+      log('seedAndLoadApps: done');
     },
 
     async callFunction(name: string, params?: Record<string, any>) {

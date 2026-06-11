@@ -9,6 +9,7 @@
 
 import { embed_vector, getBackend } from '@/lib/backend';
 import { queries } from 'smartchats-database';
+import { getStartupLoaders } from '../lib/background_loaders';
 
 /** Fetch all procedural instructions — reusable by prefetch and module fn */
 export async function fetchProceduralInstructions(category?: string): Promise<any[]> {
@@ -62,7 +63,12 @@ export function createProceduralInstructionsModule() {
                     const { log } = ops.util
                     const { category } = ops.params
                     log('Fetching procedural instructions')
-                    return fetchProceduralInstructions(category)
+                    // Category-filtered fetches bypass the loader cache since
+                    // the loader holds an unfiltered list. Unfiltered calls
+                    // route through the loader to share the in-flight promise.
+                    if (category) return fetchProceduralInstructions(category)
+                    const loaders = getStartupLoaders()
+                    return loaders ? await loaders.procedural_instructions.get() : fetchProceduralInstructions()
                 },
                 return_type: 'array'
             },

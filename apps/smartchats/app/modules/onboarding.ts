@@ -13,7 +13,6 @@
  */
 
 import { useSmartChatsStore } from '../store/useSmartChatsStore'
-import { prefetchStartup } from './initialization'
 
 // ── In-memory onboarding cache (populated from prefetch KG data) ──
 
@@ -53,15 +52,13 @@ let _cache: OnboardingCache = {
     hydrated: false,
 }
 
-// Hydrate cache from prefetched KG data (resolves immediately if already fetched)
-prefetchStartup().then((data: any) => {
-    const kg = data?.current_user_kg
+/** Hydrate the onboarding cache from a resolved user-KG shape.
+ *  Called from the user_kg_shallow loader's onResolve in
+ *  apps/smartchats/app/lib/background_loaders/index.ts. */
+export function hydrateOnboardingFromKG(kg: any): void {
     if (!kg) { _cache.hydrated = true; return }
-
-    // KG data is { entities: [...], relations: [{ source, relation, target }, ...] }
     const relations = kg.relations || []
     for (const r of relations) {
-        // Look for onboarding → complete → step
         if (r.source === 'onboarding' && r.relation === 'complete') {
             const step = r.target?.toLowerCase()
             if (step === 'skipped') {
@@ -70,19 +67,16 @@ prefetchStartup().then((data: any) => {
                 _cache.completed_steps.push(step)
             }
         }
-        // Extract user name: current_user → name_is → X
         if (r.source === 'current_user' && r.relation === 'name_is') {
             _cache.user_name = r.target
         }
     }
-
     if (_cache.status !== 'skipped') {
         _cache.status = STEPS.every(s => _cache.completed_steps.includes(s)) ? 'complete'
             : _cache.completed_steps.length > 0 ? 'in_progress' : 'not_started'
     }
-
     _cache.hydrated = true
-}).catch(() => { _cache.hydrated = true })
+}
 
 /** Flush any pending completion to KG, then set the new pending step */
 async function startStep(step: string, ops: any) {

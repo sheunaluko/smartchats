@@ -22,6 +22,7 @@
 import { embed_vector, getBackend } from '@/lib/backend';
 import { queries } from 'smartchats-database';
 import { getUserTimezone, nowEventTime, getCurrentLocalDate } from './system';
+import { getStartupLoaders } from '../lib/background_loaders';
 
 /** Fetch log categories with counts — reusable by prefetch and module fn */
 export async function fetchLogCategories(): Promise<any[]> {
@@ -362,7 +363,8 @@ export function createLoggingModule() {
                 fn: async (ops: any) => {
                     const { log } = ops.util
                     log(`get_log_categories`)
-                    return fetchLogCategories()
+                    const loaders = getStartupLoaders()
+                    return loaders ? await loaders.log_categories.get() : fetchLogCategories()
                 },
                 return_type: 'array'
             },
