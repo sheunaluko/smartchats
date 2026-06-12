@@ -55,6 +55,8 @@ export interface OrchestratorActions {
     onTtsServerTiming: (event: any) => void;
     /** Emit llm_server_timing insights event — register via setLlmServerTimingCallback in llm_caller */
     onLlmServerTiming: (event: any) => void;
+    /** Emit client_stream_timing insights event — register via setLlmClientTimingCallback in llm_caller */
+    onLlmClientTiming: (event: { phase: string; ts: number }) => void;
     /** Raw stream text ref from useStreamBuffers */
     rawStreamRef: React.MutableRefObject<string>;
 }
@@ -793,6 +795,24 @@ export function useOrchestrator(params: OrchestratorParams): OrchestratorActions
         }).catch(() => {});
     }, [insightsClient]);
 
+    // Client-side TTFA breakdown — companion to llm_server_timing.
+    // Phases (from llm_caller.ts): stream_request_dispatched,
+    // stream_response_headers_received, first_event_received,
+    // first_text_pushed. Together with the server stamps these split
+    // the click → first-audio path into attributable spans.
+    const onLlmClientTiming = useCallback((event: { phase: string; ts: number }) => {
+        const t0 = voiceSessionT0Ref.current;
+        insightsClient.current?.addEvent?.('client_stream_timing', {
+            app: 'smartchats',
+            phase: event.phase,
+            ts: event.ts,
+            ms_since_voice_session_start: t0 !== null ? Math.round(event.ts - t0) : null,
+            cold_start: voiceSessionColdRef.current,
+        }, {
+            tags: ['latency', 'client', 'ttfa'],
+        }).catch(() => {});
+    }, [insightsClient]);
+
     return useMemo(() => ({
         handleStartStop,
         transcriptionCb,
@@ -804,8 +824,9 @@ export function useOrchestrator(params: OrchestratorParams): OrchestratorActions
         onSpeechRecognitionError,
         onTtsServerTiming,
         onLlmServerTiming,
+        onLlmClientTiming,
         rawStreamRef: buffers.rawStreamRef,
-    }), [handleStartStop, transcriptionCb, setTranscribe, handleEvent, onQueueFirstUtterance, onQueueDrain, onTtsPlaybackTiming, onSpeechRecognitionError, onTtsServerTiming, onLlmServerTiming, buffers.rawStreamRef]);
+    }), [handleStartStop, transcriptionCb, setTranscribe, handleEvent, onQueueFirstUtterance, onQueueDrain, onTtsPlaybackTiming, onSpeechRecognitionError, onTtsServerTiming, onLlmServerTiming, onLlmClientTiming, buffers.rawStreamRef]);
 }
 
 // ── Helper: Initialize audio ──

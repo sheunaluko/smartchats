@@ -15,6 +15,9 @@
 - Auth: `app/lib/authCheck.ts` — Firebase auth with email/Google/anonymous, cloud auth checks
 - Billing pages: `app/settings/billing/` — tier cards, credit packs, BYO keys, usage table
 - Simi workflows: `app/simi/` — 18 core workflows + 4 billing workflows
+- Background loaders: `app/lib/background_loaders/` — generic prefetch-with-shared-promise pattern for 7 startup items
+- Greeting service: `app/lib/greeting/` — 15 time-aware templated variants for the LLM-bypass first-audio path (see `app/lib/greeting/README.md`)
+- **Startup + first-turn flow (read for any init/TTFA work):** `apps/smartchats/startup_reference.md` — full timeline (page-load → boot → click → first audio), event flow, "what to grep for if you need to extend X"
 - Full architecture: `smartchats_architecture_guide.md`
 
 ## Commands
@@ -26,16 +29,63 @@
 ## Key Patterns
 
 ### Initialization Order (matters)
-1. `InsightsProvider` wraps everything (from `page.tsx`)
-2. `app3.tsx` mounts, gets `insightsClient` via `useInsights()`
+
+> Full chronological timeline with telemetry events at each step: `apps/smartchats/startup_reference.md`.
+
+1. `InsightsProvider` wraps everything (from `page.tsx`); opens `boot_start` chain on isReady
+2. `app3.tsx` mounts, gets `insightsClient` via `useInsights()`; stamps `app3_mounted`
 3. `useSmartChatsStore.setInsights(insightsClient)` — late-binding (also useBillingStore, classifier)
 4. `store.loadSettings()` — resolves storage backend, runs auth check, migration
-5. `useCortexAgent()` creates agent (with USE_STREAMING flag)
-6. `useTivi()` initializes voice (ref-based telemetry callbacks)
+5. `useCortexAgent()` creates agent (with USE_STREAMING flag); emits `agent_init_success` with `duration_ms`
+6. `useTivi()` initializes voice (ref-based telemetry callbacks); ONNX VAD model not loaded yet
 7. `useOrchestrator()` wires: `COR.on('event', handleEvent)`, `COR.configure_user_output(addAiMessage)`, `store.setAgent(COR)`
 8. `useEffect` wires orchestrator telemetry callbacks to tivi refs
-9. `useBillingStore.fetchBalance()`
-10. Window globals exposed (`window.COR`, `window.tsw`, `window.__smartchats__`, `window.cortexInsights`)
+9. Once `authUser && COR` ready: `createStartupLoaders()` + `prefetchAll()` — fires 7 background prefetches (see "Background Loaders" pattern below)
+10. Warmup useEffect: `runner.warmup()` + `warmupBackendTts()` + `tivi.warmupVAD()` in parallel; closes `boot_start` chain after Promise.allSettled → `boot_complete`
+11. `useBillingStore.fetchBalance()`
+12. Window globals exposed (`window.COR`, `window.tsw`, `window.__smartchats__`, `window.cortexInsights`)
+
+### First-Turn Flow (changed 2026-06-11)
+
+The agent's first audible message is now LLM-bypassed — a templated string +
+direct TTS. See `apps/smartchats/startup_reference.md` for the full
+timeline. Summary:
+
+- **Page load → app mount**: boot chain opens, loaders + warmup probes fire in parallel.
+- **User clicks Start**: `useOrchestrator.handleStartStop` peeks `loaders.user_kg_shallow` for the name, picks a template via `lib/greeting/getGreeting()`, pushes to `tivi.ttsQueue.speakText()`, and injects the spoken text as an `assistant` message in `agent.messages`. `runLlm()` is NOT called here.
+- **User speaks**: `sendMessageSync(text)` adds the user message and fires `runLlm()` — that's the first actual LLM call. The agent sees `[assistant: <greeting>, user: <text>]` and responds.
+- **If KG hasn't resolved by click time**: the no-name greeting variant is used. Never falls back to the old LLM-on-Start path.
+
+### Background Loaders (`app/lib/background_loaders/`)
+
+Generic prefetch-with-shared-promise-memoization primitive for everything
+that used to be in the old `prefetchStartup()`. Each loader exposes:
+
+- `prefetch()` — fire-and-forget, idempotent
+- `get()` — returns the in-flight promise (agent function calls share the prefetch)
+- `peek()` — synchronous read; `undefined` if not yet resolved
+- `reset()` — for tests
+- `onResolve(value, { fromPrefetch })` — auto-injects into agent context
+
+Seven loaders, all wired in `createStartupLoaders()`:
+`user_kg_shallow` (depth-1), `todos_context`, `metrics_context`,
+`log_categories`, `init_instructions`, `procedural_instructions`,
+`installed_apps`. Each emits `bg_load_start` / `bg_load_complete`
+insights events with `id` + `duration_ms` + `source: 'prefetch' | 'on_demand'`.
+
+The first turn does **not block** on any loader. Whatever's resolved at
+LLM-call time is in context; the rest streams in via `onResolve` between
+turns. Module function fns (`get_metrics_context`, `initialize`, etc.)
+route through `getStartupLoaders()?.X.get()` so they share the prefetch
+promise — no duplicate roundtrip.
+
+### Templated Greeting (`app/lib/greeting/`)
+
+15 time-aware template variants (3 per bucket: morning/afternoon/evening/night/neutral),
+each with both name and no-name forms. Pure functions (`getGreeting(ctx)`).
+Used by `useOrchestrator.handleStartStop` to produce the first audible
+line without an LLM call. `lib/greeting/README.md` documents adding
+variants. Anti-repeat memory in localStorage (`smartchats.greeting.last_template_ids`).
 
 ### Store Architecture (useSmartChatsStore)
 - Built with `createInsightStore` — auto-instruments all actions with insight events
@@ -228,6 +278,10 @@ SmartChats imports from ts_next_app via path aliases configured in `tsconfig.jso
 
 ## Telemetry (Insight Events)
 
+> The table below is a lookup keyed by event_type. For the same events
+> shown in chronological flow order (page-load → boot → click → first
+> audio → first turn complete), see `apps/smartchats/startup_reference.md`.
+
 | Event | Source | Payload | Tags |
 |-------|--------|---------|------|
 | `boot_start` (chain) | `InsightsContext.tsx` | `app_version`, `is_authenticated_at_start` | — |
@@ -241,17 +295,20 @@ SmartChats imports from ts_next_app via path aliases configured in `tsconfig.jso
 | `runner_warmup_complete` | `app3.tsx` | `ok`, `duration_ms`, `error?` | `boot`, `warmup`, `latency` |
 | `tts_warmup_complete` | `app3.tsx` | `ok`, `duration_ms`, `error?` | `boot`, `warmup`, `latency` |
 | `vad_warmup_complete` | `app3.tsx` | `ok`, `duration_ms`, `cached`, `error?` | `boot`, `warmup`, `latency` |
-| `startup_prefetch_complete` | `app3.tsx` | `ok`, `duration_ms`, `apps_loaded`, `init_instructions_count`, `error?` | `boot`, `warmup`, `latency` |
+| `startup_prefetch_complete` | `app3.tsx` | `ok`, `duration_ms` (= time-to-greeting-name-ready — only awaits `user_kg_shallow`) | `boot`, `warmup`, `latency` |
 | `boot_complete` (closes chain) | `app3.tsx` | `total_duration_ms`, `phases: { runner_warmup_ms, tts_warmup_ms, vad_warmup_ms, prefetch_ms }`, `all_probes_ok` | `boot`, `latency` |
+| `bg_load_start` | `lib/background_loaders/loader.ts` | `id` (one of: `user_kg_shallow`, `todos_context`, `metrics_context`, `log_categories`, `init_instructions`, `procedural_instructions`, `installed_apps`), `source` (`prefetch` \| `on_demand`) | `boot`, `bg_load` |
+| `bg_load_complete` | `lib/background_loaders/loader.ts` | `id`, `ok`, `source`, `duration_ms`, `error?` | `boot`, `bg_load`, `latency` (or `error` on failure) |
 | `voice_session_start` (chain) | `useOrchestrator.ts` | `cold_start`, `time_since_boot_complete_ms` | — |
-| `voice_first_llm_call_init_complete` | `useSmartChatsStore.ts` | `cold_start`, `duration_ms` (in-band init injection on first call), `time_since_voice_session_start_ms` | `boot`, `latency`, `ttfa` |
-| `voice_first_llm_call_start` | `useSmartChatsStore.ts` | `chat_history_len`, `cold_start`, `duration_ms` (click → start of LLM) | `boot`, `latency`, `ttfa` |
-| `voice_first_llm_call_first_chunk` | `useOrchestrator.ts` | `cold_start`, `duration_ms` (click → first token) | `latency`, `ttfa` |
+| `voice_session_templated_greeting` | `useOrchestrator.ts` | `template_id`, `time_bucket` (`morning`\|`afternoon`\|`evening`\|`night`\|`neutral`), `has_name`, `duration_ms` (click → TTS-queue-push), `cold_start` | `latency`, `ttfa`, `templated` |
+| `voice_first_llm_call_start` | `useSmartChatsStore.ts` | `chat_history_len`, `cold_start`, `duration_ms` (since voice_session_start — note: post-2026-06-11 this fires when the user speaks, not on Start click) | `boot`, `latency`, `ttfa` |
+| `voice_first_llm_call_first_chunk` | `useOrchestrator.ts` | `cold_start`, `duration_ms` (click → first response_chunk emit) | `latency`, `ttfa` |
 | `voice_session_audio_ready` | `useOrchestrator.ts` | `cold_start`, `duration_ms` (click → mic ready), `audio_init_ms` | `latency`, `ttfa` |
-| `voice_session_first_audio` | `useOrchestrator.ts` | `cold_start`, `duration_ms` (click → first TTS chunk) | `latency`, `ttfa` |
+| `voice_session_first_audio` | `useOrchestrator.ts` | `cold_start`, `duration_ms` (click → first TTS chunk — TTFA) | `latency`, `ttfa` |
 | `voice_session_first_turn_complete` (closes chain) | `useOrchestrator.ts` | `cold_start`, `time_to_first_turn_complete_ms` | `latency`, `ttfa` |
 | `voice_session_stop` | `useOrchestrator.ts` | — | — |
 | `llm_server_timing` (always-on) | `llm_tts_stream_http.ts` → `llm_caller.ts` → `useOrchestrator.ts` | `phase` (`llm_function_received` \| `llm_request_start` \| `llm_first_byte`), `ts` (Date.now() server-side), `ms_since_function_received`, `ms_since_request_start` | `latency`, `llm`, `ttfa` |
+| `client_stream_timing` (always-on) | `llm_caller.ts` → `useOrchestrator.ts` | `phase` (`stream_request_dispatched` \| `stream_response_headers_received` \| `first_event_received` \| `first_text_pushed`), `ts` (performance.now() — monotonic, not wall clock), `ms_since_voice_session_start`, `cold_start` | `latency`, `client`, `ttfa` |
 | `cortex_settings_updated` | `useSmartChatsStore.ts` | `changed_keys`, `before`, `after` | — |
 | `cortex_settings_saved` | `useSmartChatsStore.ts` | `ok`, `mode`, `settings` | — |
 | `cortex_conversation_loaded` | `useSmartChatsStore.ts` | `chat_length`, `has_workspace` | — |
@@ -283,6 +340,23 @@ Combined with `voice_first_llm_call_first_chunk` (client receives first
 token), the four spans cover the full Start-click → first-token path
 and isolate where TTFA latency is actually being spent.
 
+### Client-side TTFA breakdown — `client_stream_timing`
+
+Four stamps emitted client-side per `streamWithTTS` call inside
+`llm_caller.ts`. Always-on (4 events × small payload). `ts` values use
+`performance.now()` so they're monotonic — pair with
+`ms_since_voice_session_start` for absolute alignment against
+`voice_session_start.timestamp` (`Date.now()`):
+
+| Phase | Stamped at | Used to derive |
+|---|---|---|
+| `stream_request_dispatched` | Just before `getBackend().llm.streamWithTTS(...)` | `runLlm overhead` = `ms_since_voice_session_start − voice_first_llm_call_start.duration_ms` |
+| `stream_response_headers_received` | When the stream object resolves (~ first byte at client) | `network return (CF → browser)` = this `ts − llm_first_byte.ts` (cross-clock caveat applies) |
+| `first_event_received` | First iteration of the for-await consumer | `NDJSON-parse + first-event-yield` cost on the client |
+| `first_text_pushed` | First `{kind:'text'}` reaches `textIterable` | Time until cortex can start emitting `response_chunk` |
+
+Together with `llm_server_timing` (server-side, 3 phases) + `voice_first_llm_call_*` (client lifecycle events), the click → first-audio path now has ~8 named spans for attribution.
+
 ### Boot / Start-flow chains
 
 Two distinct chains tie boot and the first session into single traces:
@@ -292,11 +366,39 @@ Two distinct chains tie boot and the first session into single traces:
 
 ### Tag vocabulary
 
-- `boot` — emitted during the boot chain (from `boot_start` to `boot_complete`)
-- `warmup` — one of the four parallel warmup probes
+- `boot` — emitted during the boot chain (from `boot_start` to `boot_complete`); also `bg_load_*`
+- `warmup` — one of the four parallel warmup probes (runner, TTS, VAD, prefetch)
+- `bg_load` — background_loaders system event (`bg_load_start` / `bg_load_complete` per loader id)
 - `latency` — user-perceivable wall time being measured
 - `ttfa` — time-to-first-audio: click → first TTS chunk reaching the user
+- `templated` — first-audio came from the templated-greeting bypass (no LLM)
+- `client` — client-side span (vs `llm` for server-side LLM stamps)
+- `llm` — server-side LLM-pipeline span
 - `pipeline` — per-turn pipeline timings (`voice_interaction_complete`)
+
+### Removed events (post-2026-06-11)
+
+- `voice_first_llm_call_init_complete` — the in-band init injection in `runLlm` was deleted; all init data now flows via `bg_load_complete` + onResolve auto-injection. Sessions saved before 2026-06-11 will still contain this event.
+
+### Quick analysis cheatsheet
+
+For "how long did boot take?":
+- `boot_complete.total_duration_ms` (single number)
+- Per phase: `bg_load_complete` rows grouped by `id`; also `runner_warmup_complete` / `tts_warmup_complete` / `vad_warmup_complete` / `startup_prefetch_complete`
+
+For "how long did the user wait for the first audio?":
+- `voice_session_first_audio.duration_ms` (TTFA — single number)
+- Split by greeting path: filter `voice_session_templated_greeting` event presence (templated path → first-audio dominated by TTS latency, ~500-800 ms; absent → LLM-on-Start legacy path, ~5 s)
+
+For "where did TTFA's time actually go?":
+- Combine `voice_first_llm_call_start.duration_ms` (client → CF dispatch) with `llm_server_timing` phases (CF cold + provider TTFT) with `client_stream_timing` phases (network return + NDJSON + IIFE) with `voice_first_llm_call_first_chunk.duration_ms` (full click → first token)
+
+For "did boot complete cleanly?":
+- `boot_complete.all_probes_ok` (boolean)
+- Errored: `bg_load_complete` rows where `ok: false`
+
+For "was this session cold or warm?":
+- Any `voice_session_*` event's `cold_start` field — `true` if any of {runner, tts, vad, prefetch} probe was missing or failed at click time
 
 ## Debugging
 - `window.COR` — current Cortex agent instance

@@ -46,7 +46,7 @@ import { listDesignPacks } from '../core/theme-packs';
 
 import { useTivi } from "@lab-components/tivi/lib/index"
 import { backendTtsCallFn, backendTtsStreamFn, warmupBackendTts } from '@/lib/tts_caller';
-import { setTtsQueueRef, setTtsServerTimingCallback, setLlmServerTimingCallback } from '@/lib/llm_caller';
+import { setTtsQueueRef, setTtsServerTimingCallback, setLlmServerTimingCallback, setLlmClientTimingCallback } from '@/lib/llm_caller';
 import { getBackend } from '@/lib/backend';
 import { useTiviSettings } from '@lab-components/tivi/lib/useTiviSettings';
 import { getTiviSettings } from '@lab-components/tivi/lib/settings';
@@ -467,6 +467,16 @@ const Component: NextPage = (props: any) => {
         setLlmServerTimingCallback(orchestrator.onLlmServerTiming);
         return () => setLlmServerTimingCallback(null);
     }, [orchestrator.onLlmServerTiming]);
+
+    // Client-side TTFA breakdown: 4 phases stamped inside llm_caller's
+    // streamWithTTS path (stream_request_dispatched → headers_received →
+    // first_event_received → first_text_pushed). Pair with the server-
+    // side llm_server_timing stamps to attribute the click→first-audio
+    // budget by span (network, NDJSON parse, async-IIFE, text push).
+    useEffect(() => {
+        setLlmClientTimingCallback(orchestrator.onLlmClientTiming);
+        return () => setLlmClientTimingCallback(null);
+    }, [orchestrator.onLlmClientTiming]);
 
     // ── Keep TTS queue voice/model in sync with tivi settings ──
     // Without this, the queue defaults to 'nova' and accumulate_text

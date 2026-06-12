@@ -131,6 +131,32 @@ export function setLlmServerTimingCallback(cb: LlmServerTimingCallback | null): 
     _llmServerTimingCallback = cb;
 }
 
+/** Client-side TTFA breakdown stamps. Mirrors the server-side
+ *  llm_server_timing callback (always-on, 3-stamp pattern) but for the
+ *  CLIENT'S spans inside llm_caller's streamWithTTS path. Lets dashboards
+ *  attribute the gap between server llm_first_byte and client
+ *  response_chunk dispatch to: CF→browser network, NDJSON parse, async
+ *  IIFE consumption, or text-iterable push.
+ *
+ *  Phases:
+ *    stream_request_dispatched      — performance.now() right BEFORE the
+ *                                     getBackend().llm.streamWithTTS() call
+ *    stream_response_headers_received — when the Promise resolves with the
+ *                                     stream object (= fetch response
+ *                                     headers received; close-enough to
+ *                                     "first byte" without modifying ndjson)
+ *    first_event_received           — first iteration of the for-await loop
+ *                                     consumes an event (any kind — text,
+ *                                     audio_start, server_timing, …)
+ *    first_text_pushed              — first {kind:'text'} event reaches
+ *                                     textIterable, which is the moment
+ *                                     cortex can start emitting response_chunks */
+type LlmClientTimingCallback = (event: { phase: string; ts: number }) => void;
+let _llmClientTimingCallback: LlmClientTimingCallback | null = null;
+export function setLlmClientTimingCallback(cb: LlmClientTimingCallback | null): void {
+    _llmClientTimingCallback = cb;
+}
+
 // ─── Audio telemetry (iOS Safari crash diagnostics) ───────────────
 
 let _cumulativeDecodedBytes = 0;
@@ -300,18 +326,33 @@ export function createBackendLlmCaller(opts: BackendLlmCallerOptions = {}) {
             if (exp.first_chunk_word_threshold !== undefined) ttsExtras.first_chunk_word_threshold = exp.first_chunk_word_threshold;
             if (exp.tts_model_id) ttsExtras.tts_model_id = exp.tts_model_id;
         }
+        const stamp = (phase: string) => {
+            try { _llmClientTimingCallback?.({ phase, ts: performance.now() }); } catch { /* swallow */ }
+        };
+        stamp('stream_request_dispatched');
         const { stream: eventStream, done } = await getBackend().llm.streamWithTTS({ ...baseArgs, ...ttsExtras } as any);
+        stamp('stream_response_headers_received');
 
         const activeSentences = new Map<number, PushAsyncIterable<Float32Array>>();
         const ttsQueue = queue!; // non-null guaranteed by wantAudio check above
         const textIterable = new PushAsyncIterable<string>();
 
+        let _firstEventStamped = false;
+        let _firstTextStamped = false;
         // Consume the typed event stream internally, splitting into text + audio lanes.
         (async () => {
             try {
                 for await (const event of eventStream) {
+                    if (!_firstEventStamped) {
+                        _firstEventStamped = true;
+                        stamp('first_event_received');
+                    }
                     switch (event.kind) {
                         case 'text':
+                            if (!_firstTextStamped) {
+                                _firstTextStamped = true;
+                                stamp('first_text_pushed');
+                            }
                             textIterable.push(event.delta);
                             break;
                         case 'text_end':
