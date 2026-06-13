@@ -19,6 +19,9 @@
 #   bin/test-bun-deploy --keep-data    Reuse the data dir from a prior run.
 #   bin/test-bun-deploy --port <n>     Next.js port (default 3000).
 #   bin/test-bun-deploy --data-dir <p> SurrealDB data dir (default ~/.smartchats/test-bun-deploy/data).
+#   bin/test-bun-deploy --seed <path>  After schema is applied, import the given
+#                                      .surql file into ns=smartchats db=main.
+#                                      Used by benchpress; see packages/benchpress.
 #   bin/test-bun-deploy --help
 
 set -uo pipefail
@@ -30,6 +33,7 @@ SURREAL_PORT=8000
 DATA_DIR="${HOME}/.smartchats/test-bun-deploy/data"
 REBUILD=false
 KEEP_DATA=false
+SEED_FILE=""
 
 # ── Args ──────────────────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
@@ -38,6 +42,7 @@ while [[ $# -gt 0 ]]; do
         --keep-data)  KEEP_DATA=true; shift ;;
         --port)       APP_PORT="$2"; shift 2 ;;
         --data-dir)   DATA_DIR="$2"; shift 2 ;;
+        --seed)       SEED_FILE="$2"; shift 2 ;;
         --help|-h)
             sed -n '2,/^$/p' "$0" | sed 's/^# \?//'
             exit 0
@@ -45,6 +50,11 @@ while [[ $# -gt 0 ]]; do
         *)  err "Unknown option: $1"; exit 1 ;;
     esac
 done
+
+if [[ -n "$SEED_FILE" && ! -f "$SEED_FILE" ]]; then
+    err "Seed file not found: $SEED_FILE"
+    exit 1
+fi
 
 # ── Preflight ─────────────────────────────────────────────────────────
 header "Preflight"
@@ -161,6 +171,36 @@ for _ in {1..30}; do
     fi
     sleep 1
 done
+
+# ── 3. Optional: import seed fixture ──────────────────────────────────
+# Must run AFTER smartchats-local-server is healthy: the server applies
+# the schema on boot, so importing before that would create rows against
+# an empty namespace.
+if [[ -n "$SEED_FILE" ]]; then
+    SEED_ABS="$(cd "$(dirname "$SEED_FILE")" && pwd)/$(basename "$SEED_FILE")"
+    header "Importing seed: $SEED_ABS"
+    # `surreal sql` (not `surreal import`) — pipes a .surql file through the
+    # /sql path so the schema's `VALUE time::now()` defaults for created_at /
+    # updated_at still run. `surreal import` requires OPTION IMPORT;, which
+    # disables field processing and would leave required datetime columns NONE.
+    SEED_LINES=$(wc -l < "$SEED_ABS")
+    if "$SURREAL_BIN" sql \
+        --endpoint "ws://127.0.0.1:${SURREAL_PORT}" \
+        --username root --password root \
+        --namespace smartchats --database main \
+        < "$SEED_ABS" > /tmp/benchpress_seed_load.log 2>&1; then
+        if grep -qiE "error|failed" /tmp/benchpress_seed_load.log; then
+            err "Seed import had errors — see /tmp/benchpress_seed_load.log"
+            tail -20 /tmp/benchpress_seed_load.log >&2
+            exit 1
+        fi
+        ok "Seed imported ($SEED_LINES statements)"
+    else
+        err "Seed import command failed"
+        tail -20 /tmp/benchpress_seed_load.log >&2
+        exit 1
+    fi
+fi
 
 echo
 ok "Stack up. Open: http://localhost:${APP_PORT}"

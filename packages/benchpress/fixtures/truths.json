@@ -1,0 +1,167 @@
+{
+  "generated_at": "2026-06-13T17:46:26.121Z",
+  "seed_version": "0.1.0",
+  "scenarios": {
+    "q01_weight_lookup": {
+      "truth": 158.4,
+      "surql_probe": "SELECT VALUE value FROM metrics WHERE metric_name = 'weight_lbs' AND local_date = '2026-03-15';",
+      "kind": "scalar"
+    },
+    "q02_pages_q1": {
+      "truth": 1266,
+      "surql_probe": "SELECT VALUE math::sum(value) FROM metrics WHERE metric_name = 'pages_read' AND local_date >= '2026-01-01' AND local_date <= '2026-03-31' GROUP ALL;",
+      "kind": "scalar"
+    },
+    "q03_last_exercise": {
+      "truth": "2026-05-31",
+      "surql_probe": "SELECT VALUE local_date FROM logs WHERE category = 'workout' ORDER BY ts DESC LIMIT 1;",
+      "kind": "date"
+    },
+    "q04_pages_jan_vs_feb": {
+      "truth": {
+        "january": 441,
+        "february": 414,
+        "winner": "january"
+      },
+      "surql_probe": "LET $jan = (SELECT VALUE math::sum(value) FROM metrics WHERE metric_name = 'pages_read' AND local_date >= '2026-01-01' AND local_date <= '2026-01-31' GROUP ALL)[0]; LET $feb = (SELECT VALUE math::sum(value) FROM metrics WHERE metric_name = 'pages_read' AND local_date >= '2026-02-01' AND local_date <= '2026-02-28' GROUP ALL)[0]; RETURN { january: $jan, february: $feb, winner: IF $jan >= $feb THEN 'january' ELSE 'february' END };",
+      "kind": "comparison"
+    },
+    "q05_workout_sleep_join": {
+      "truth": 6.96,
+      "surql_probe": "LET $days = (SELECT VALUE local_date FROM logs WHERE category = 'workout' AND local_date >= '2026-05-01' AND local_date <= '2026-05-31'); RETURN math::mean((SELECT VALUE value FROM metrics WHERE metric_name = 'sleep_hours' AND local_date IN $days));",
+      "kind": "scalar"
+    },
+    "q06_books_finished_2025": {
+      "truth": [
+        "Atomic Habits",
+        "Designing Data-Intensive Applications",
+        "Dune",
+        "Sapiens",
+        "The Power Broker",
+        "The Pragmatic Programmer",
+        "Thinking, Fast and Slow",
+        "Why We Sleep"
+      ],
+      "surql_probe": "SELECT VALUE name FROM user_entities WHERE kind = 'book' AND data.finished_year = 2025 ORDER BY name;",
+      "kind": "list"
+    },
+    "q07_last_tennis": {
+      "truth": null,
+      "surql_probe": "SELECT VALUE local_date FROM logs WHERE category = 'workout' AND string::contains(content, 'tennis') ORDER BY ts DESC LIMIT 1;",
+      "kind": "negative"
+    },
+    "q08_dune_mutate_then_count": {
+      "truth": 873,
+      "surql_probe": "SELECT VALUE math::sum(value) FROM metrics WHERE metric_name = 'pages_read' AND string::contains(source_text, 'Dune') GROUP ALL;",
+      "kind": "scalar"
+    },
+    "q09_busiest_workout_week": {
+      "truth": "2025-08-11",
+      "kind": "scalar"
+    },
+    "q10_hard_compounding": {
+      "truth": {
+        "worst": {
+          "month": "2025-08",
+          "pages": 476,
+          "workouts": 29,
+          "avg_sleep": 5.587,
+          "ratio": 0.193
+        },
+        "monthly": [
+          {
+            "month": "2025-01",
+            "pages": 375,
+            "workouts": 17,
+            "avg_sleep": 7.213,
+            "ratio": 0.424
+          },
+          {
+            "month": "2025-02",
+            "pages": 434,
+            "workouts": 17,
+            "avg_sleep": 6.989,
+            "ratio": 0.411
+          },
+          {
+            "month": "2025-03",
+            "pages": 536,
+            "workouts": 12,
+            "avg_sleep": 7.31,
+            "ratio": 0.609
+          },
+          {
+            "month": "2025-04",
+            "pages": 362,
+            "workouts": 16,
+            "avg_sleep": 7.107,
+            "ratio": 0.444
+          },
+          {
+            "month": "2025-05",
+            "pages": 485,
+            "workouts": 16,
+            "avg_sleep": 7.055,
+            "ratio": 0.441
+          },
+          {
+            "month": "2025-06",
+            "pages": 338,
+            "workouts": 15,
+            "avg_sleep": 7.213,
+            "ratio": 0.481
+          },
+          {
+            "month": "2025-07",
+            "pages": 402,
+            "workouts": 11,
+            "avg_sleep": 7.052,
+            "ratio": 0.641
+          },
+          {
+            "month": "2025-08",
+            "pages": 476,
+            "workouts": 29,
+            "avg_sleep": 5.587,
+            "ratio": 0.193
+          },
+          {
+            "month": "2025-09",
+            "pages": 325,
+            "workouts": 13,
+            "avg_sleep": 7.277,
+            "ratio": 0.56
+          },
+          {
+            "month": "2025-10",
+            "pages": 354,
+            "workouts": 19,
+            "avg_sleep": 7,
+            "ratio": 0.368
+          },
+          {
+            "month": "2025-11",
+            "pages": 567,
+            "workouts": 15,
+            "avg_sleep": 7.043,
+            "ratio": 0.47
+          },
+          {
+            "month": "2025-12",
+            "pages": 322,
+            "workouts": 17,
+            "avg_sleep": 7.039,
+            "ratio": 0.414
+          }
+        ]
+      },
+      "kind": "composite"
+    },
+    "q11_accumulate_text_no_dup": {
+      "truth": {
+        "note": "trace-scored — see Part 2 trace_assertion"
+      },
+      "kind": "composite"
+    }
+  }
+}

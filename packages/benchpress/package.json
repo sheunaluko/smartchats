@@ -1,0 +1,25 @@
+{
+  "name": "benchpress",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Deterministic end-to-end benchmark suite for the SmartChats cortex agent. Runs scripted scenarios against a real LLM + real tools + a seeded fake DB; scores correctness + trace metrics via pure functions (no LLM-as-judge).",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist",
+    "type-check": "tsc --noEmit",
+    "generate": "tsx scripts/generate.ts",
+    "verify-seed": "tsx scripts/verify_seed.ts"
+  },
+  "dependencies": {
+    "surrealdb": "^2.0.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.4.5"
+  },
+  "license": "MIT"
+}
