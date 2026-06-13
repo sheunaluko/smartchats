@@ -11,12 +11,17 @@
     "clean": "rm -rf dist",
     "type-check": "tsc --noEmit",
     "generate": "tsx scripts/generate.ts",
-    "verify-seed": "tsx scripts/verify_seed.ts"
+    "verify-seed": "tsx scripts/verify_seed.ts",
+    "score-local": "tsx scripts/score_local_sessions.ts",
+    "bench": "tsx scripts/run_bench.ts"
   },
   "dependencies": {
-    "surrealdb": "^2.0.3"
+    "surrealdb": "^2.0.3",
+    "smartchats-sessions": "*",
+    "cortex": "*"
   },
   "devDependencies": {
+    "@playwright/test": "^1.57.0",
     "@types/node": "^24.0.0",
     "tsx": "^4.19.0",
     "typescript": "^5.4.5"
