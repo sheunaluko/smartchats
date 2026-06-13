@@ -12,6 +12,7 @@ Node 24+ (current Active LTS through April 2028 — bumped from `>=20` on 2026-0
 
 | You're trying to… | Start here |
 |---|---|
+| Know what to run / what's deployed / what changed | `sm` — maintainer CLI, unified verb grammar across open + cloud (`status` / `verify` / `dev` / `doctor` / `explain`); see `packages/sm/` |
 | Run the app stack locally | `smartchats launch` (CLI, canonical) or `bin/aio` / `bin/devserve` (legacy aliases) |
 | Verify a running stack | `smartchats doctor` |
 | Smoke-test the full launch flow | `smartchats launch --test` |
@@ -75,6 +76,7 @@ Default app uses `bootstrap()` → `LocalAuthProvider` + `LocalBackend`. No Fire
 | `bin/preflight` | Workspace-wide build (which also type-checks via `tsc` emit) + lint |
 | `bin/save_session` | Wrapper for `npm run save-session` in smartchats-sessions; defaults output to `apps/smartchats/.session_data/` |
 | `bin/checkpoint` | `git add -A && git commit -m "checkpoint: <msg>"` — preferred over manual git for snapshots |
+| `bin/pty-bridge.mjs` | Wraps claude/gemini/codex in a PTY + exposes a WebSocket on port 9100. Pairs with the `cli_agent` module in `apps/smartchats/app/modules/cli_agent.ts` — lets the voice agent drive a CLI agent remotely. |
 | `bin/_lib.sh` | Shared helpers (colors, REPO_ROOT). Source this in new scripts. |
 
 ## Test runner — `smartchats-test`

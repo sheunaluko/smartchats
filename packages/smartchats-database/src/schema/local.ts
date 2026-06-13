@@ -60,7 +60,7 @@ export interface LocalSchemaLogger {
     success?: (msg: string) => void;
 }
 
-export const LOCAL_SCHEMA_VERSION = '1.0.0';
+export const LOCAL_SCHEMA_VERSION = '1.0.1';
 
 export const LOCAL_DDL = `
 -- ─── schema version marker ────────────────────────────────────────
@@ -218,6 +218,48 @@ DEFINE FIELD IF NOT EXISTS api_key ON byo_api_keys TYPE string;
 DEFINE FIELD IF NOT EXISTS created_at ON byo_api_keys TYPE datetime VALUE time::now() READONLY;
 DEFINE FIELD IF NOT EXISTS updated_at ON byo_api_keys TYPE datetime VALUE time::now();
 DEFINE INDEX IF NOT EXISTS byo_api_keys_provider ON byo_api_keys FIELDS provider UNIQUE;
+
+-- ─── onehand_taps: lab/onehand keyboard — atomic per-tap events ──
+-- Lab experiment (apps/smartchats/app/lab/onehand). One row per
+-- fingertip touch. Carries normalized x/y coords (survive layout
+-- changes), intended_key vs resolved_key (for AI insight signal),
+-- dwell_ms, inter_ms, gesture, finger, layout_rev. Schemaless so the
+-- row shape can iterate without migration during the experiment.
+DEFINE TABLE IF NOT EXISTS onehand_taps SCHEMALESS;
+DEFINE FIELD IF NOT EXISTS created_at ON onehand_taps TYPE datetime VALUE time::now() READONLY;
+DEFINE FIELD IF NOT EXISTS updated_at ON onehand_taps TYPE datetime VALUE time::now();
+DEFINE FIELD IF NOT EXISTS ts ON onehand_taps TYPE datetime;
+DEFINE FIELD IF NOT EXISTS local_date ON onehand_taps TYPE string;
+DEFINE FIELD IF NOT EXISTS local_tz ON onehand_taps TYPE string;
+DEFINE INDEX IF NOT EXISTS onehand_taps_ts ON onehand_taps FIELDS ts;
+DEFINE INDEX IF NOT EXISTS onehand_taps_local_date ON onehand_taps FIELDS local_date;
+DEFINE INDEX IF NOT EXISTS onehand_taps_session_id ON onehand_taps FIELDS session_id;
+
+-- ─── onehand_words: lab/onehand keyboard — word-grain rollup ─────
+-- One row per word committed (space / punctuation triggers commit).
+-- Powers fast slowest-bigrams + per-word WPM queries without
+-- scanning the tap-grain table.
+DEFINE TABLE IF NOT EXISTS onehand_words SCHEMALESS;
+DEFINE FIELD IF NOT EXISTS created_at ON onehand_words TYPE datetime VALUE time::now() READONLY;
+DEFINE FIELD IF NOT EXISTS updated_at ON onehand_words TYPE datetime VALUE time::now();
+DEFINE FIELD IF NOT EXISTS ts ON onehand_words TYPE datetime;
+DEFINE FIELD IF NOT EXISTS local_date ON onehand_words TYPE string;
+DEFINE FIELD IF NOT EXISTS local_tz ON onehand_words TYPE string;
+DEFINE INDEX IF NOT EXISTS onehand_words_ts ON onehand_words FIELDS ts;
+DEFINE INDEX IF NOT EXISTS onehand_words_local_date ON onehand_words FIELDS local_date;
+DEFINE INDEX IF NOT EXISTS onehand_words_session_id ON onehand_words FIELDS session_id;
+
+-- ─── onehand_sessions: lab/onehand keyboard — session-grain summary ─
+-- One row per typing session (app focus → blur). Summary stats are
+-- written on session close; daily WPM charts query this table.
+DEFINE TABLE IF NOT EXISTS onehand_sessions SCHEMALESS;
+DEFINE FIELD IF NOT EXISTS created_at ON onehand_sessions TYPE datetime VALUE time::now() READONLY;
+DEFINE FIELD IF NOT EXISTS updated_at ON onehand_sessions TYPE datetime VALUE time::now();
+DEFINE FIELD IF NOT EXISTS ts ON onehand_sessions TYPE datetime;
+DEFINE FIELD IF NOT EXISTS local_date ON onehand_sessions TYPE string;
+DEFINE FIELD IF NOT EXISTS local_tz ON onehand_sessions TYPE string;
+DEFINE INDEX IF NOT EXISTS onehand_sessions_ts ON onehand_sessions FIELDS ts;
+DEFINE INDEX IF NOT EXISTS onehand_sessions_local_date ON onehand_sessions FIELDS local_date;
 
 -- ─── usage_records: per-call LLM/TTS/tool tracking ────────────────
 -- Server-stamped: ts = time::now() (real UTC), local_tz = 'UTC' (the

@@ -42,6 +42,7 @@ import { createMetricsModule } from "./modules/metrics"
 import { createTimingModule } from "./modules/timing"
 import { createTodosModule } from "./modules/todos"
 import { createAppearanceModule } from "./modules/appearance"
+import { createVoiceMemosModule } from "./modules/voice_memos"
 import { createScopingModule } from "./modules/scoping"
 import { createSessionsModule } from "./modules/sessions"
 import { createAppLauncherModule } from "./modules/app_launcher"
@@ -110,6 +111,7 @@ export function get_agent(modelName: string = "gpt-5-mini", insightsClient?: any
     scm.add_module(createVisualizationModule())
     scm.add_module(createMetricsModule())
     scm.add_module(createTodosModule())
+    scm.add_module(createVoiceMemosModule())
     scm.add_module(createCliAgentModule())
     scm.add_module(createTimingModule())
     scm.add_module(createAppearanceModule())

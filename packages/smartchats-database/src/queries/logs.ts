@@ -47,6 +47,12 @@ export interface InsertLogArgs extends EventTimeFields {
     content: string;
     category: string;
     embedding: unknown;
+    /**
+     * Free-form metadata object stored alongside the row. SCHEMALESS, so
+     * any JSON-serializable shape is accepted. Used by voice memos to
+     * attach `{ kind, audio_local_id, duration_seconds, device_id }`.
+     */
+    metadata?: Record<string, unknown>;
 }
 
 /**
@@ -54,6 +60,7 @@ export interface InsertLogArgs extends EventTimeFields {
  * inline into the query string.
  */
 export function insertLog(args: InsertLogArgs): QuerySpec {
+    const hasMetadata = args.metadata !== undefined;
     return {
         query: `INSERT INTO logs {
                         content: $content,
@@ -61,7 +68,8 @@ export function insertLog(args: InsertLogArgs): QuerySpec {
                         embedding: $embedding,
                         ts: <datetime> $ts,
                         local_date: <string> $local_date,
-                        local_tz: <string> $local_tz
+                        local_tz: <string> $local_tz${hasMetadata ? `,
+                        metadata: $metadata` : ''}
                     }`,
         variables: { ...args },
     };

@@ -554,6 +554,53 @@ const Component: NextPage = (props: any) => {
         };
     }, [setDesignPack, setMode, toggleMode, colorMode, pairedPack.id, updateTiviSettings, setVizMotif, motifId]);
 
+    // ── Voice memo playback bridge for save_memo/play_memo functions ──
+    useEffect(() => {
+        let currentAudio: HTMLAudioElement | null = null;
+        let currentUrl: string | null = null;
+
+        const cleanup = () => {
+            if (currentAudio) { try { currentAudio.pause(); } catch {} currentAudio = null; }
+            if (currentUrl) { try { URL.revokeObjectURL(currentUrl); } catch {} currentUrl = null; }
+        };
+
+        window.__smartchats_voice_memos__ = {
+            play: async (memo_id: string) => {
+                try {
+                    const { readBlob } = await import('./lib/voice_memo_storage');
+                    const { queries } = await import('smartchats-database');
+                    const { getBackend } = await import('@/lib/backend');
+
+                    const recordId = memo_id.includes(':') ? memo_id : `logs:${memo_id}`;
+                    const spec = queries.buildRawQuery(
+                        `SELECT metadata FROM type::record('logs', $log_id)`,
+                        { log_id: recordId.slice(recordId.indexOf(':') + 1) },
+                    );
+                    const resp: any = await getBackend().data.query(spec);
+                    const row = resp.rows?.[0];
+                    const audio_local_id = row?.metadata?.audio_local_id as string | undefined;
+                    if (!audio_local_id) return { ok: false, error: 'Memo has no audio reference' };
+
+                    const blob = await readBlob(audio_local_id);
+                    if (!blob) return { ok: false, error: 'Audio not on this device' };
+
+                    cleanup();
+                    currentUrl = URL.createObjectURL(blob);
+                    currentAudio = new Audio(currentUrl);
+                    currentAudio.addEventListener('ended', cleanup, { once: true });
+                    await currentAudio.play();
+                    return { ok: true, duration_seconds: row?.metadata?.duration_seconds };
+                } catch (err: any) {
+                    cleanup();
+                    return { ok: false, error: err?.message || String(err) };
+                }
+            },
+            stop: () => cleanup(),
+        };
+
+        return () => { cleanup(); delete window.__smartchats_voice_memos__; };
+    }, []);
+
     // ── Widget configuration ──
     const { widgets, visibleWidgets, toggleWidget, widgetLayout, saveLayout, resetLayout, applyPreset } = useWidgetConfig();
 
