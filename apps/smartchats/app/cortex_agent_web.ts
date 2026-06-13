@@ -47,6 +47,7 @@ import { createScopingModule } from "./modules/scoping"
 import { createSessionsModule } from "./modules/sessions"
 import { createAppLauncherModule } from "./modules/app_launcher"
 import { createOnboardingModule } from "./modules/onboarding"
+import { createBenchpressModule } from "./modules/benchpress"
 
 import * as graph_utils from "./graph_utils"
 import { test_graph_utils, clear_graph_utils_test } from "./test_graph_utils"
@@ -117,6 +118,14 @@ export function get_agent(modelName: string = "gpt-5-mini", insightsClient?: any
     scm.add_module(createAppearanceModule())
     scm.add_module(createSessionsModule())
     scm.add_module(createOnboardingModule())
+
+    // Benchpress benchmark harness — env-gated. Adds a single `submit_answer`
+    // tool used by `packages/benchpress` to read the agent's typed answer
+    // out of `state.workspace.bench_answer`. Only loaded when Playwright's
+    // addInitScript() has set window.__BENCHPRESS_MODE before the page boots.
+    if (typeof window !== 'undefined' && (window as any).__BENCHPRESS_MODE === true) {
+        scm.add_module(createBenchpressModule())
+    }
 
     // App platform — uses late-bound rebuild ref since Cortex doesn't exist yet
     const appLauncherRebuildRef = { current: () => {} }

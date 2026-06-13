@@ -37,6 +37,8 @@ import { webSearchFlow } from './workflows/web_search_flow';
 import { structuredCompletionFlow } from './workflows/structured_completion_flow';
 import { longResponseFlow } from './workflows/long_response_flow';
 import { splitterReproFlow } from './workflows/splitter_repro_flow';
+import { benchQ01PrototypeFlow } from './workflows/bench_q01_prototype';
+import { BENCH_WORKFLOWS } from './workflows/bench_scenarios';
 
 export const cortexWorkflows = {
   complete_onboarding: completeOnboardingFlow,
@@ -78,4 +80,6 @@ export const cortexWorkflows = {
   long_response_flow: longResponseFlow,
   splitter_repro_flow: splitterReproFlow,
   structured_completion_flow: structuredCompletionFlow,
+  bench_q01_prototype: benchQ01PrototypeFlow,
+  ...BENCH_WORKFLOWS,
 };

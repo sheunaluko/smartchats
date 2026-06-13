@@ -66,6 +66,7 @@
     "smartchats-database": "*",
     "smartchats-site": "*",
     "sail-dsp": "*",
+    "benchpress": "*",
     "three": "^0.169.0",
     "ramda": "^0.29.1",
     "zod": "^3.25.76",
