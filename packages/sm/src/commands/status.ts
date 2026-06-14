@@ -2,10 +2,21 @@
  * `sm status` — read-only snapshot + recommended next step.
  *
  * Phase 1: pure local reads.
- * Phase 3: diff-aware recommendations powered by lib/recommend.ts.
- * Phase 4 (future): Vercel / Firebase / npm / public-remote fetches in
- * parallel with a 60s cache.
+ * Phase 3: diff-aware recommendations.
+ * Phase 4: live remote state — cloud origin SHA, Vercel deployment, Firebase
+ *          functions list, npm version, open public remote SHA. Fired in
+ *          parallel with 60s on-disk cache. Bypass with --refresh.
+ *
+ * The "Live state" block answers the questions you actually care about:
+ *   - Did my push reach cloud origin?         (local cloud HEAD vs cloud origin/main)
+ *   - Did Vercel pick it up?                  (cloud origin/main vs Vercel deployment SHA)
+ *   - Are functions live + matching the rest? (Vercel SHA vs functions deploy SHA)
+ *   - Is the public CLI in sync?              (open origin SHA vs npm version)
  */
+
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { execSync } from 'node:child_process';
 
 import {
     detectRepo,
@@ -16,6 +27,8 @@ import {
 } from '../lib/context.js';
 import { buildSnapshot, recommend, type Recommendation } from '../lib/recommend.js';
 import type { CategorizedChanges, ChangeCategory } from '../lib/changes.js';
+import { fetchAllRemotes, type RemoteBundle, type FetchResult } from '../lib/remote.js';
+import { readRemoteCache, writeRemoteCache, cacheAgeSeconds } from '../lib/remote-cache.js';
 
 const C = {
     bold: '\x1b[1m', dim: '\x1b[2m', reset: '\x1b[0m',
@@ -71,8 +84,141 @@ function renderChangeSummary(label: string, c: CategorizedChanges | undefined): 
     return lines;
 }
 
+// ---------------------------------------------------------------------------
+// Live state renderer
+// ---------------------------------------------------------------------------
+
+function fmtResult<T>(r: FetchResult<T>): string {
+    if (r.ok) return '';
+    return color(`⊘ ${r.error ?? 'fetch failed'}`, 'gray');
+}
+
+function shaShort(s: string | null | undefined): string {
+    return s ? s.slice(0, 7) : '?';
+}
+
+function findOpenRoot(): string | null {
+    const home = process.env.SMARTCHATS_PATH ?? `${process.env.HOME}/dev/smartchats`;
+    return fs.existsSync(path.join(home, 'package.json')) ? home : null;
+}
+
+function findCloudRoot(repoKind: string, currentRoot: string): string | null {
+    if (repoKind === 'cloud') return currentRoot;
+    const home = `${process.env.HOME}/dev/smartchats-cloud`;
+    return fs.existsSync(path.join(home, 'package.json')) ? home : null;
+}
+
+function readPackageJsonVersion(repoRoot: string, pkgRelative: string): string | null {
+    try {
+        const raw = fs.readFileSync(path.join(repoRoot, pkgRelative, 'package.json'), 'utf8');
+        const j = JSON.parse(raw);
+        return j.version ?? null;
+    } catch { return null; }
+}
+
+function renderLiveState(
+    bundle: RemoteBundle,
+    cachedAt: string,
+    cloudRoot: string | null,
+    openRoot: string | null,
+    localCloudHead: string | null,
+): void {
+    const ageSec = Math.max(0, Math.floor((Date.now() - new Date(cachedAt).getTime()) / 1000));
+    console.log(color(`Live state ${color(`(cached ${ageSec}s ago — sm status --refresh)`, 'dim')}`, 'bold'));
+
+    // --- Cloud chain: local cloud HEAD → cloud origin/main → Vercel deployment
+    if (cloudRoot) {
+        const co = bundle.cloudOrigin;
+        if (co.ok && co.value) {
+            const remote = co.value;
+            const localMatchesRemote = localCloudHead && remote === localCloudHead;
+            const tag = localMatchesRemote
+                ? color('✓', 'green') + ' local ≡ origin/main'
+                : color('⚠', 'yellow') + ` origin/main behind local (${shaShort(remote)} vs ${shaShort(localCloudHead)})`;
+            console.log(`  ${color('Cloud origin', 'bold').padEnd(36)} ${shaShort(remote)}  ${tag}`);
+        } else {
+            console.log(`  ${color('Cloud origin', 'bold').padEnd(28)} ${fmtResult(co)}`);
+        }
+
+        const v = bundle.vercel;
+        if (v.ok && v.value) {
+            const d = v.value;
+            const stateGlyph = d.state === 'READY' ? color('✓', 'green')
+                : d.state === 'ERROR' ? color('✗', 'red')
+                : color('⏳', 'yellow');
+            const matchesOrigin = bundle.cloudOrigin.value && d.sha === bundle.cloudOrigin.value
+                ? color('matches origin/main', 'green')
+                : bundle.cloudOrigin.value
+                    ? color(`⚠ ahead/behind origin (vercel: ${shaShort(d.sha)} vs origin: ${shaShort(bundle.cloudOrigin.value)})`, 'yellow')
+                    : color('(no origin SHA to compare)', 'dim');
+            console.log(
+                `  ${color('Vercel', 'bold').padEnd(28)} ${stateGlyph} ${d.state} · ${shaShort(d.sha)} · ${ageHuman(d.createdAt)} · ${color(d.url, 'dim')}`
+            );
+            console.log(`  ${' '.repeat(28)} ${matchesOrigin}`);
+        } else {
+            console.log(`  ${color('Vercel', 'bold').padEnd(28)} ${fmtResult(v)}`);
+        }
+
+        const f = bundle.firebase;
+        if (f.ok && f.value) {
+            const fs = f.value;
+            const tag = fs.unhealthy.length === 0 ? color('all ACTIVE', 'green') : color(`${fs.unhealthy.length} unhealthy`, 'red');
+            const last = fs.lastDeploy ? `last deploy ${ageHuman(fs.lastDeploy)}` : 'no deploy time';
+            console.log(`  ${color('Functions', 'bold').padEnd(28)} ${fs.count} live · ${last} · ${tag}`);
+            for (const u of fs.unhealthy) {
+                console.log(`  ${' '.repeat(28)} ${color('✗', 'red')} ${u.name}: ${u.status}`);
+            }
+        } else {
+            console.log(`  ${color('Functions', 'bold').padEnd(28)} ${fmtResult(f)}`);
+        }
+    }
+
+    // --- Open public + npm
+    const o = bundle.openOrigin;
+    if (openRoot) {
+        if (o.ok && o.value) {
+            const remote = o.value;
+            // Compare with local open HEAD (if findable).
+            let openLocalSha = '';
+            try {
+                openLocalSha = execSync('git rev-parse HEAD', {
+                    cwd: openRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
+                }).trim();
+            } catch { /* ignore */ }
+            const tag = openLocalSha && openLocalSha === remote
+                ? color('✓ local ≡ origin/main', 'green')
+                : openLocalSha
+                    ? color(`⚠ open local ahead of public (${shaShort(remote)} vs ${shaShort(openLocalSha)})`, 'yellow')
+                    : '';
+            console.log(`  ${color('Open public', 'bold').padEnd(28)} ${shaShort(remote)}  ${tag}`);
+        } else {
+            console.log(`  ${color('Open public', 'bold').padEnd(28)} ${fmtResult(o)}`);
+        }
+    }
+
+    const npm = bundle.npm;
+    if (npm.ok && npm.value) {
+        const localCliVer = openRoot ? readPackageJsonVersion(openRoot, 'packages/smartchats-cli') : null;
+        const tag = localCliVer
+            ? (localCliVer === npm.value ? color('✓ matches open package.json', 'green') : color(`⚠ open has ${localCliVer}`, 'yellow'))
+            : '';
+        console.log(`  ${color('npm', 'bold').padEnd(28)} smartchats-ai@${npm.value}  ${tag}`);
+    } else {
+        console.log(`  ${color('npm', 'bold').padEnd(28)} ${fmtResult(npm)}`);
+    }
+
+    console.log('');
+}
+
+// ---------------------------------------------------------------------------
+// Entry
+// ---------------------------------------------------------------------------
+
 export async function runStatus(argv: string[]): Promise<number> {
     const verbose = argv.includes('-v') || argv.includes('--verbose');
+    const noRemote = argv.includes('--no-remote');
+    const refresh = argv.includes('--refresh');
+
     const repo = detectRepo();
     if (repo.kind === 'unknown' || !repo.root) {
         console.log(color('sm', 'cyan') + ' · no smartchats repo detected from cwd');
@@ -110,15 +256,14 @@ export async function runStatus(argv: string[]): Promise<number> {
     }
     console.log('');
 
-    // --- State ---
-    console.log(color('State', 'bold'));
+    // --- Local state ---
+    console.log(color('Local state', 'bold'));
     if (lastVerify) {
         const tag = lastVerify.ok ? color('✓', 'green') : color('✗', 'red');
         console.log(`  ${tag} Last verify: ${lastVerify.level} on ${lastVerify.head.slice(0, 7)} (${ageHuman(lastVerify.timestamp)})`);
     } else {
         console.log(`  ${color('?', 'gray')} Last verify: never`);
     }
-
     if (repo.kind === 'cloud') {
         if (snapshot.syncedFrom) {
             console.log(`  ${color('·', 'dim')} Last sync from open: ${snapshot.syncedFrom.sha.slice(0, 7)} (${ageHuman(snapshot.syncedFrom.at)})`);
@@ -130,21 +275,49 @@ export async function runStatus(argv: string[]): Promise<number> {
             : env.symlinkTarget === '.env.cloud' ? color('⚠', 'yellow')
                 : color('✗', 'red');
         console.log(`  ${envGlyph} functions/.env: ${env.symlinkTarget}`);
-
         const ctr = probeDockerContainer('cloud_test_db');
         console.log(`  ${ctr.running ? color('✓', 'green') : color('·', 'dim')} cloud_test_db: ${ctr.running ? 'running on :8001' : 'not running'}`);
-
-        // Per-target last deploy.
         for (const t of ['functions', 'frontend', 'schema'] as const) {
             const d = snapshot.lastDeploys[t];
             if (d) {
-                console.log(`  ${color('·', 'dim')} Last ${t} deploy: ${d.head.slice(0, 7)} (${ageHuman(d.timestamp)})`);
-            } else {
-                console.log(`  ${color('?', 'gray')} Last ${t} deploy: never recorded`);
+                console.log(`  ${color('·', 'dim')} Last ${t} deploy (locally recorded): ${d.head.slice(0, 7)} (${ageHuman(d.timestamp)})`);
             }
         }
     }
     console.log('');
+
+    // --- Remote / Live state ---
+    if (!noRemote) {
+        const cloudRoot = findCloudRoot(repo.kind, repo.root);
+        const openRoot = findOpenRoot();
+        let cached = refresh ? null : readRemoteCache();
+        if (!cached) {
+            // Fetch fresh, show progress indicator if TTY.
+            if (process.stdout.isTTY) {
+                process.stdout.write(color('Fetching live state... ', 'dim'));
+            }
+            const bundle = await fetchAllRemotes({ cloudRoot, openRoot });
+            cached = writeRemoteCache(bundle);
+            if (process.stdout.isTTY) {
+                process.stdout.write('\r\x1b[2K'); // clear line
+            }
+        }
+
+        // Local cloud HEAD for the chain.
+        const localCloudHead = repo.kind === 'cloud' ? git.head : (
+            cloudRoot
+                ? (() => {
+                    try {
+                        return execSync('git rev-parse HEAD', {
+                            cwd: cloudRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
+                        }).trim();
+                    } catch { return null; }
+                })()
+                : null
+        );
+
+        renderLiveState(cached.bundle, cached.fetchedAt, cloudRoot, openRoot, localCloudHead);
+    }
 
     // --- Changes ---
     const anyChanges =
@@ -163,7 +336,6 @@ export async function runStatus(argv: string[]): Promise<number> {
         console.log('');
     }
 
-    // --- Verbose: list actual files ---
     if (verbose) {
         const dump = (label: string, c: CategorizedChanges | undefined) => {
             if (!c || c.total === 0) return;
@@ -179,21 +351,29 @@ export async function runStatus(argv: string[]): Promise<number> {
         dump('Files since origin', snapshot.changes.sinceOrigin);
     }
 
-    console.log(color('Phase 3 — diff-aware recommendations active. Vercel / Firebase / npm reads land in Phase 4.', 'dim'));
     return 0;
 }
 
 export const statusHelp = `sm status — read-only snapshot + recommended next step
 
 Usage:
-  sm status [-v|--verbose]
+  sm status [-v|--verbose] [--refresh] [--no-remote]
 
-Prints branch, dirty state, ahead/behind, last verify, last deploys, and a
-categorized summary of what has changed since each deployment baseline.
-Generates target-specific verb recommendations (e.g. "you touched functions/ —
-run sm deploy functions").
+Prints branch, dirty state, ahead/behind, last verify, last deploys (local),
+plus a live state block showing what's actually deployed to production right
+now (cloud origin, Vercel, Firebase functions, npm, open public).
 
--v / --verbose: list every changed file, not just counts.
+Flags:
+  -v / --verbose   List every changed file, not just counts.
+  --refresh        Bust the 60s remote-state cache; refetch all.
+  --no-remote      Skip all remote fetches; show local + cached only.
+
+Environment:
+  VERCEL_TOKEN          Required for Vercel state (get at https://vercel.com/account/tokens).
+  VERCEL_PROJECT_ID     Optional: filter Vercel API to one project.
+  VERCEL_TEAM_ID        Optional: filter to a team.
+  FIREBASE_PROJECT      Override default project (\`tidyscripts\`).
+  SMARTCHATS_PATH       Path to open repo for cross-repo state (default ~/dev/smartchats).
 
 See: sm explain status
 `;

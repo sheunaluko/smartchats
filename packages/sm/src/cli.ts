@@ -92,6 +92,13 @@ async function main(): Promise<void> {
         process.exit(exit);
     }
 
+    // Flag-only invocations (e.g. `sm --no-remote`, `sm -v`) route to status.
+    // --help / -h are handled below.
+    if (first.startsWith('-') && first !== '--help' && first !== '-h') {
+        const exit = await runStatus(argv);
+        process.exit(exit);
+    }
+
     if (first === 'help' || first === '--help' || first === '-h') {
         const sub = argv[1];
         if (!sub) { console.log(topHelp()); return; }

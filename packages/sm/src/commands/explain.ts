@@ -36,7 +36,7 @@ export async function runExplain(argv: string[]): Promise<number> {
         for (const v of listVerbs()) {
             console.log(`  ${v.verb.padEnd(12)} ${v.summary}`);
         }
-        return argv.length === 0 ? 1 : 0;
+        return 0;
     }
     const [verb, sub] = argv;
     const descriptor = getExplain(verb, sub);
