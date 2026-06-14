@@ -1,12 +1,11 @@
 /**
  * `sm status` — read-only snapshot + recommended next step.
  *
- * Phase 1: pure local reads. Phase 4 will add Vercel / Firebase / npm /
- * public-remote fetches in parallel with a 60s cache.
+ * Phase 1: pure local reads.
+ * Phase 3: diff-aware recommendations powered by lib/recommend.ts.
+ * Phase 4 (future): Vercel / Firebase / npm / public-remote fetches in
+ * parallel with a 60s cache.
  */
-
-import * as fs from 'node:fs';
-import * as path from 'node:path';
 
 import {
     detectRepo,
@@ -15,6 +14,8 @@ import {
     readFunctionsEnvSymlink,
     probeDockerContainer,
 } from '../lib/context.js';
+import { buildSnapshot, recommend, type Recommendation } from '../lib/recommend.js';
+import type { CategorizedChanges, ChangeCategory } from '../lib/changes.js';
 
 const C = {
     bold: '\x1b[1m', dim: '\x1b[2m', reset: '\x1b[0m',
@@ -22,25 +23,6 @@ const C = {
 };
 const color = (s: string, k: keyof typeof C) =>
     (process.env.NO_COLOR || !process.stdout.isTTY) ? s : `${C[k]}${s}${C.reset}`;
-
-interface Recommendation {
-    verb: string;
-    reason: string;
-}
-
-function readSyncedFrom(cloudRoot: string): { sha: string; subject: string; at: string } | null {
-    const p = path.join(cloudRoot, '.synced-from');
-    try {
-        const raw = fs.readFileSync(p, 'utf8');
-        const sha = (raw.match(/^open_sha:\s*(\S+)/m) ?? [])[1] ?? '';
-        const subject = (raw.match(/^open_subject:\s*(.+)$/m) ?? [])[1] ?? '';
-        const at = (raw.match(/^synced_at:\s*(.+)$/m) ?? [])[1] ?? '';
-        if (!sha && !at) return null;
-        return { sha, subject, at };
-    } catch {
-        return null;
-    }
-}
 
 function ageHuman(iso: string): string {
     try {
@@ -56,7 +38,41 @@ function ageHuman(iso: string): string {
     }
 }
 
-export async function runStatus(_argv: string[]): Promise<number> {
+function severityColor(sev?: Recommendation['severity']): keyof typeof C {
+    switch (sev) {
+        case 'urgent': return 'red';
+        case 'warn': return 'yellow';
+        case 'info': return 'cyan';
+        default: return 'cyan';
+    }
+}
+
+const CATEGORY_LABELS: Record<ChangeCategory, string> = {
+    'functions': 'functions',
+    'schema': 'schema',
+    'frontend': 'frontend',
+    'vendored': 'vendored-from-open',
+    'release-relevant': 'cli (release-relevant)',
+    'release-infra': 'release infra',
+    'docs': 'docs',
+    'tests': 'tests',
+    'sm': 'sm self',
+    'other': 'other',
+};
+
+function renderChangeSummary(label: string, c: CategorizedChanges | undefined): string[] {
+    if (!c || c.total === 0) return [];
+    const lines: string[] = [`  ${color(label, 'dim')}: ${c.total} file${c.total === 1 ? '' : 's'}`];
+    const cats = Object.entries(c.byCategory).filter(([_, files]) => files && files.length > 0);
+    for (const [cat, files] of cats) {
+        const catLabel = CATEGORY_LABELS[cat as ChangeCategory] ?? cat;
+        lines.push(`    ${color('·', 'dim')} ${catLabel}: ${files!.length}`);
+    }
+    return lines;
+}
+
+export async function runStatus(argv: string[]): Promise<number> {
+    const verbose = argv.includes('-v') || argv.includes('--verbose');
     const repo = detectRepo();
     if (repo.kind === 'unknown' || !repo.root) {
         console.log(color('sm', 'cyan') + ' · no smartchats repo detected from cwd');
@@ -65,6 +81,8 @@ export async function runStatus(_argv: string[]): Promise<number> {
     }
 
     const git = readGitState(repo.root);
+    const snapshot = buildSnapshot(repo.kind, repo.root, git);
+    const recs = recommend(snapshot);
     const lastVerify = readLastVerify(repo.kind);
 
     // --- Header ---
@@ -82,49 +100,12 @@ export async function runStatus(_argv: string[]): Promise<number> {
     console.log('');
 
     // --- Recommendations ---
-    const recs: Recommendation[] = [];
-
-    if (git.dirty) {
-        recs.push({ verb: 'commit', reason: 'working tree has uncommitted changes' });
-    }
-
-    if (!lastVerify) {
-        recs.push({ verb: 'sm verify', reason: 'no verify run cached' });
-    } else if (lastVerify.head !== git.head) {
-        recs.push({ verb: 'sm verify', reason: `last verify was on ${lastVerify.head.slice(0, 7)} (${ageHuman(lastVerify.timestamp)}); HEAD has moved` });
-    } else if (!lastVerify.ok) {
-        recs.push({ verb: 'sm verify', reason: `last verify FAILED (${lastVerify.level}, ${ageHuman(lastVerify.timestamp)})` });
-    }
-
-    if (repo.kind === 'cloud') {
-        const synced = readSyncedFrom(repo.root);
-        if (synced) {
-            // Compare against local open repo HEAD if reachable.
-            const openHome = process.env.SMARTCHATS_HOME ?? `${process.env.HOME}/dev/smartchats`;
-            try {
-                const openHead = require('node:child_process').execSync('git rev-parse HEAD', {
-                    cwd: openHome, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
-                }).trim();
-                if (openHead && openHead !== synced.sha) {
-                    recs.push({ verb: 'sm sync', reason: `open has new commits since last sync (${synced.sha.slice(0, 7)} → ${openHead.slice(0, 7)})` });
-                }
-            } catch { /* open not reachable; skip */ }
-        } else {
-            recs.push({ verb: 'sm sync', reason: '.synced-from missing — never synced from open' });
-        }
-
-        const env = readFunctionsEnvSymlink(repo.root);
-        if (env.symlinkTarget === '.env.cloud') {
-            recs.push({ verb: 'sm dev', reason: 'functions/.env points at .env.cloud (deploy mode) — switch to .env.local-test before dev' });
-        }
-    }
-
     if (recs.length === 0) {
         console.log(color('✓ No action recommended.', 'green'));
     } else {
         console.log(color('Recommended next:', 'bold'));
         for (const r of recs) {
-            console.log(`  ${color(r.verb, 'cyan')}  ${color(r.reason, 'dim')}`);
+            console.log(`  ${color(r.verb.padEnd(22), severityColor(r.severity))}  ${color(r.reason, 'dim')}`);
         }
     }
     console.log('');
@@ -139,9 +120,8 @@ export async function runStatus(_argv: string[]): Promise<number> {
     }
 
     if (repo.kind === 'cloud') {
-        const synced = readSyncedFrom(repo.root);
-        if (synced) {
-            console.log(`  ${color('·', 'dim')} Last sync from open: ${synced.sha.slice(0, 7)} (${ageHuman(synced.at)})`);
+        if (snapshot.syncedFrom) {
+            console.log(`  ${color('·', 'dim')} Last sync from open: ${snapshot.syncedFrom.sha.slice(0, 7)} (${ageHuman(snapshot.syncedFrom.at)})`);
         } else {
             console.log(`  ${color('⚠', 'yellow')} Last sync from open: never (.synced-from missing)`);
         }
@@ -153,25 +133,67 @@ export async function runStatus(_argv: string[]): Promise<number> {
 
         const ctr = probeDockerContainer('cloud_test_db');
         console.log(`  ${ctr.running ? color('✓', 'green') : color('·', 'dim')} cloud_test_db: ${ctr.running ? 'running on :8001' : 'not running'}`);
+
+        // Per-target last deploy.
+        for (const t of ['functions', 'frontend', 'schema'] as const) {
+            const d = snapshot.lastDeploys[t];
+            if (d) {
+                console.log(`  ${color('·', 'dim')} Last ${t} deploy: ${d.head.slice(0, 7)} (${ageHuman(d.timestamp)})`);
+            } else {
+                console.log(`  ${color('?', 'gray')} Last ${t} deploy: never recorded`);
+            }
+        }
+    }
+    console.log('');
+
+    // --- Changes ---
+    const anyChanges =
+        (snapshot.changes.sinceFunctionsDeploy?.total ?? 0) > 0 ||
+        (snapshot.changes.sinceFrontendDeploy?.total ?? 0) > 0 ||
+        (snapshot.changes.sinceSchemaDeploy?.total ?? 0) > 0 ||
+        (snapshot.changes.sinceOrigin?.total ?? 0) > 0;
+    if (anyChanges) {
+        console.log(color('Changes', 'bold'));
+        if (repo.kind === 'cloud') {
+            for (const line of renderChangeSummary('since last functions deploy', snapshot.changes.sinceFunctionsDeploy)) console.log(line);
+            for (const line of renderChangeSummary('since last frontend deploy', snapshot.changes.sinceFrontendDeploy)) console.log(line);
+            for (const line of renderChangeSummary('since last schema apply', snapshot.changes.sinceSchemaDeploy)) console.log(line);
+        }
+        for (const line of renderChangeSummary('since origin', snapshot.changes.sinceOrigin)) console.log(line);
+        console.log('');
     }
 
-    console.log('');
-    console.log(color('Phase 1 status: local only. Vercel / Firebase / npm reads land in Phase 4.', 'dim'));
+    // --- Verbose: list actual files ---
+    if (verbose) {
+        const dump = (label: string, c: CategorizedChanges | undefined) => {
+            if (!c || c.total === 0) return;
+            console.log(color(`${label} (${c.total}):`, 'bold'));
+            for (const f of c.files) console.log(`  ${color(f, 'dim')}`);
+            console.log('');
+        };
+        if (repo.kind === 'cloud') {
+            dump('Files since functions deploy', snapshot.changes.sinceFunctionsDeploy);
+            dump('Files since frontend deploy', snapshot.changes.sinceFrontendDeploy);
+            dump('Files since schema apply', snapshot.changes.sinceSchemaDeploy);
+        }
+        dump('Files since origin', snapshot.changes.sinceOrigin);
+    }
 
+    console.log(color('Phase 3 — diff-aware recommendations active. Vercel / Firebase / npm reads land in Phase 4.', 'dim'));
     return 0;
 }
 
 export const statusHelp = `sm status — read-only snapshot + recommended next step
 
 Usage:
-  sm status
+  sm status [-v|--verbose]
 
-Prints: branch, dirty state, ahead/behind, last verify result, and (cloud repo)
-last sync state and functions/.env symlink target. Generates one or more
-suggested next verbs based on what it sees.
+Prints branch, dirty state, ahead/behind, last verify, last deploys, and a
+categorized summary of what has changed since each deployment baseline.
+Generates target-specific verb recommendations (e.g. "you touched functions/ —
+run sm deploy functions").
 
-Phase 1: local-only. Phase 4 adds Vercel + Firebase + npm + public-remote
-fetches with a 60s cache.
+-v / --verbose: list every changed file, not just counts.
 
 See: sm explain status
 `;

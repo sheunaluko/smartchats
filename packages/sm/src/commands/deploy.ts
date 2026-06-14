@@ -17,7 +17,7 @@
  *   all        → functions, then frontend (push). Bails on first failure.
  */
 
-import { spawn, execSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 import consola from 'consola';
@@ -30,6 +30,17 @@ import {
 } from '../lib/context.js';
 import { preflight, parseCommonFlags, type PreflightCheck } from '../lib/preflight.js';
 import { getExplain } from '../lib/descriptors.js';
+import { writeLastDeploy, type DeployTarget } from '../lib/last-deploy.js';
+
+function recordDeploy(repo: 'open' | 'cloud', root: string, target: DeployTarget): void {
+    const git = readGitState(root);
+    writeLastDeploy({
+        repo,
+        target,
+        head: git.head,
+        timestamp: new Date().toISOString(),
+    });
+}
 
 export const deployHelp = `sm deploy <target> (cloud only) — deploy something.
 
@@ -177,7 +188,9 @@ async function deployFunctions(cloudRoot: string, flags: ReturnType<typeof parse
     const descriptor = getExplain('deploy', 'functions')!;
     const r = await preflight({ descriptor, checks, autoConfirm: flags.yes, explainOnly: flags.explain });
     if (!r.proceed) return r.reason === 'explain-only' ? 0 : 1;
-    return await spawnInherit(script, flags.passthrough, cloudRoot);
+    const exit = await spawnInherit(script, flags.passthrough, cloudRoot);
+    if (exit === 0) recordDeploy('cloud', cloudRoot, 'functions');
+    return exit;
 }
 
 async function deployFrontend(cloudRoot: string, flags: ReturnType<typeof parseCommonFlags>): Promise<number> {
@@ -193,7 +206,9 @@ async function deployFrontend(cloudRoot: string, flags: ReturnType<typeof parseC
     const descriptor = getExplain('deploy', 'frontend')!;
     const r = await preflight({ descriptor, checks, autoConfirm: flags.yes, explainOnly: flags.explain });
     if (!r.proceed) return r.reason === 'explain-only' ? 0 : 1;
-    return await spawnInherit('git', ['push', 'origin', 'main', ...flags.passthrough], cloudRoot);
+    const exit = await spawnInherit('git', ['push', 'origin', 'main', ...flags.passthrough], cloudRoot);
+    if (exit === 0) recordDeploy('cloud', cloudRoot, 'frontend');
+    return exit;
 }
 
 async function deploySchema(cloudRoot: string, flags: ReturnType<typeof parseCommonFlags>): Promise<number> {
@@ -226,7 +241,9 @@ async function deploySchema(cloudRoot: string, flags: ReturnType<typeof parseCom
 
     const args = ['run', 'schema:apply'];
     if (!apply) args.push('--', '--dry-run');
-    return await spawnInherit('npm', args, cloudPackageDir);
+    const exit = await spawnInherit('npm', args, cloudPackageDir);
+    if (exit === 0 && apply) recordDeploy('cloud', cloudRoot, 'schema');
+    return exit;
 }
 
 async function deployAll(cloudRoot: string, flags: ReturnType<typeof parseCommonFlags>): Promise<number> {
