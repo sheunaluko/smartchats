@@ -106,4 +106,40 @@ export {
     parseTimeSpec,
     parseDurationSpec,
 } from './cli/find_cli.js';
-export type { OutputFormat, ParsedFindArgs, RunFindCliOptions } from './cli/find_cli.js';
+export type { OutputFormat as FindOutputFormat, ParsedFindArgs, RunFindCliOptions } from './cli/find_cli.js';
+
+// ──────────────────────────────────────────────────────────────────────────
+// DB-side analysis modules (pure-aside-from-Client; see src/analysis_db/README.md)
+// ──────────────────────────────────────────────────────────────────────────
+
+export {
+    buildFilterClause,
+    combineWhere,
+} from './analysis_db/_query_helpers.js';
+export type { BaseFilter, FilterClause } from './analysis_db/_query_helpers.js';
+
+export {
+    renderTable,
+    renderCsv,
+    renderMarkdownTable,
+    renderJson,
+    renderRows,
+    fmtDuration as fmtDurationDb,
+    fmtUsd,
+} from './analysis_db/_format.js';
+export type { OutputFormat, FormatOpts } from './analysis_db/_format.js';
+
+export {
+    queryCostByCallTuple,
+    queryCostBySession,
+    queryCostByModel,
+    queryCostByUser,
+    formatCost,
+} from './analysis_db/cost.js';
+export type {
+    CostByCallTupleRow,
+    CostBySessionRow,
+    CostByModelRow,
+    CostByUserRow,
+    CostResult,
+} from './analysis_db/cost.js';

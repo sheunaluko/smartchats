@@ -25,10 +25,12 @@
     "analyze:inspect": "tsx scripts/session_inspect.ts",
     "analyze:summary": "tsx scripts/session_summary.ts",
     "triage:errors": "tsx scripts/session_triage_errors.ts",
-    "triage:mark": "tsx scripts/triage_mark.ts"
+    "triage:mark": "tsx scripts/triage_mark.ts",
+    "audit:cost": "tsx scripts/audit_cost.ts"
   },
   "dependencies": {
-    "smartchats-database": "*"
+    "smartchats-database": "*",
+    "cortex": "*"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

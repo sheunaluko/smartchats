@@ -128,15 +128,23 @@ tags: ['issue', '<kind>']
 ```ts
 // in smartchats-common/insights/issue_types.ts (proposed)
 export type KnownIssueKind =
-  | 'context_bloat'
-  | 'tool_error'
-  | 'directive_violation'
-  | 'silent_failure'
-  | 'cost_spike'
-  | 'cache_miss_spike';
+  | 'context_bloat_scm'         // system prompt grew unexpectedly (added modules, verbose system_msg)
+  | 'context_bloat_tool_return' // a tool's return payload got injected into conversation and was huge
+  | 'tool_error'                // function_error sub-event (sandbox timeout, runtime error)
+  | 'directive_violation'       // model didn't follow a documented contract
+  | 'silent_failure'            // turn started but never produced output
+  | 'cost_spike'                // cumulative cost / single-call cost crossed a threshold
+  | 'cache_miss_spike';         // cache_creation jumped without matching cache_read on subsequent calls
 // open-ended — string union pattern; detectors can emit unseen kinds.
 export type IssueKind = KnownIssueKind | (string & {});
 ```
+
+**Context bloat is two distinct detectors, not one** (worth surfacing because we already learned this the hard way — the 127K bloat we found in production wasn't SCM-side; it was the `metrics_context` background-loader injecting an unbounded `SELECT *` as a tool return). The two detection hooks live at different points in the runtime:
+
+- **`context_bloat_scm`** — hooks `SCM.build()`. Measures `system_prompt` token count against a per-session baseline. Fires when the static prefix grows by > X% within a session (e.g., a new module was loaded mid-session, or module state ballooned).
+- **`context_bloat_tool_return`** — hooks `update_workspace` / `add_user_data_input` (the points where tool results and loader payloads get appended to the conversation). Measures the size of the injected payload. Fires when a single tool return exceeds X tokens.
+
+Both emit the same `issue` event shape; the `kind` distinguishes them, and `metadata` carries the source-specific details (`module_id` for SCM, `function_name` + `args_summary` for tool returns).
 
 A new detector that emits `'kind: "embedding_dimension_drift"'` doesn't require a coordinated code change. Consumers (the `queryIssueEvents` analyzer) take `kind?: string | string[]` filters that work for any value, known or not.
 
