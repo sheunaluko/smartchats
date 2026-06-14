@@ -178,23 +178,6 @@ export {
     insertUsageRecord,
 } from './usage.js';
 
-// Onehand lab keyboard
-export type {
-    InsertOnehandTapArgs,
-    InsertOnehandWordArgs,
-    InsertOnehandSessionArgs,
-    UpdateOnehandSessionSummaryArgs,
-} from './onehand.js';
-export {
-    insertOnehandTaps,
-    insertOnehandWords,
-    insertOnehandSession,
-    updateOnehandSessionSummary,
-    getOnehandWpmByDate,
-    getOnehandRecentTaps,
-    getOnehandKeyStats,
-} from './onehand.js';
-
 // Import / export (generic SurrealQL constructors used by the MCP migration tools)
 export {
     IMPORT_STRIP_FIELDS,
