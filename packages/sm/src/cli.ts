@@ -20,6 +20,7 @@ import { runExplain, explainHelp } from './commands/explain.js';
 import { runSync, syncHelp } from './commands/sync.js';
 import { runDeploy, deployHelp } from './commands/deploy.js';
 import { runShip, shipHelp } from './commands/ship.js';
+import { runShipFull, shipFullHelp } from './commands/ship-full.js';
 import { runRollback, rollbackHelp } from './commands/rollback.js';
 import { runRelease, runPushPublic, releaseHelp, pushPublicHelp } from './commands/release.js';
 import { runTriage, triageHelp } from './commands/triage.js';
@@ -28,7 +29,7 @@ const KNOWN = new Set([
     // Phase 1
     'status', 'verify', 'dev', 'doctor', 'explain',
     // Phase 2
-    'sync', 'deploy', 'ship', 'rollback', 'release', 'push-public', 'triage',
+    'sync', 'deploy', 'ship', 'ship-full', 'rollback', 'release', 'push-public', 'triage',
     // help
     'help', '--help', '-h',
 ]);
@@ -54,7 +55,8 @@ Dev:
 Cloud actions:
   sync              rsync open → cloud
   deploy <target>   functions | frontend | schema | all
-  ship              sync + verify ci + deploy functions + push frontend
+  ship              sync + verify ci + deploy functions + push frontend  (~5 min)
+  ship-full         + verify e2e + schema (if drift) + post-deploy probes  (~25 min)
   rollback <t>      functions | frontend
 
 Open actions:
@@ -96,8 +98,8 @@ async function main(): Promise<void> {
         const helps: Record<string, string> = {
             status: statusHelp, verify: verifyHelp, dev: devHelp, doctor: doctorHelp,
             explain: explainHelp, sync: syncHelp, deploy: deployHelp, ship: shipHelp,
-            rollback: rollbackHelp, release: releaseHelp, 'push-public': pushPublicHelp,
-            triage: triageHelp,
+            'ship-full': shipFullHelp, rollback: rollbackHelp, release: releaseHelp,
+            'push-public': pushPublicHelp, triage: triageHelp,
         };
         const text = helps[sub];
         if (text) console.log(text); else console.log(topHelp());
@@ -121,6 +123,7 @@ async function main(): Promise<void> {
         case 'sync':        exit = await runSync(argv.slice(1)); break;
         case 'deploy':      exit = await runDeploy(argv.slice(1)); break;
         case 'ship':        exit = await runShip(argv.slice(1)); break;
+        case 'ship-full':   exit = await runShipFull(argv.slice(1)); break;
         case 'rollback':    exit = await runRollback(argv.slice(1)); break;
         case 'release':     exit = await runRelease(argv.slice(1)); break;
         case 'push-public': exit = await runPushPublic(argv.slice(1)); break;

@@ -654,6 +654,60 @@ function describeShip(): Explain {
     };
 }
 
+function describeShipFull(): Explain {
+    const repo = detectRepo();
+    const context: ExplainContext[] = [];
+    if (repo.kind === 'cloud' && repo.root) {
+        context.push(cloudEnvContext(repo.root));
+        const ports = probePorts([3000]);
+        context.push({
+            label: 'Port 3000 (e2e needs free)',
+            current: ports[0].inUse ? 'in use — e2e will refuse' : 'free',
+            impact: ports[0].inUse ? 'Step 4 (verify e2e) boots bin/test-bun-deploy on :3000. Stop the running stack first.' : 'OK for e2e to boot bun stack.',
+            status: ports[0].inUse ? 'warn' : 'ok',
+        });
+    }
+    return {
+        verb: 'ship-full',
+        summary: 'Comprehensive prod orchestrator: sync + verify ci + verify e2e + schema apply (if drift) + deploy functions + probe + push + Vercel wait + probe.',
+        audience: 'maintainer',
+        repos: ['cloud'],
+        toggles: [
+            { label: '--skip-e2e', current: 'off', impact: 'Off: verify e2e runs (~10 min). On: skipped — only when e2e infra is broken, not when code is suspect.' },
+            { label: '--skip-schema', current: 'off', impact: 'Off: schema applies if drift detected. On: schema apply skipped — only if already applied manually.' },
+        ],
+        context,
+        steps: [
+            'Preflight: on main, clean tree, sync state, e2e infra ready, schema drift detected.',
+            'Confirm (with --yes for CI).',
+            'sm sync from open (SKIPPED if .synced-from already on open HEAD).',
+            'sm verify ci — lint + build + unit + integration.',
+            'sm verify e2e — full bun stack + Playwright simi suite. (--skip-e2e to bypass).',
+            'Schema apply if drift detected: dry-run, then --apply. (--skip-schema to bypass).',
+            'sm deploy functions — firebase deploy.',
+            'Probe functions health URL ($SM_PROBE_FUNCTIONS_URL).',
+            'sm deploy frontend — git push origin main.',
+            'Poll production URL until healthy (up to 5 min, every 15s).',
+            'Print summary with phase durations + live URLs to spot-check.',
+        ],
+        sideEffects: [
+            { kind: 'process', description: 'Long-running: surreal + bun + Playwright workers spawn during e2e' },
+            { kind: 'deploy', description: 'LIVE: Functions + (maybe) schema + Vercel frontend' },
+            { kind: 'network', description: 'Firebase API + Vercel + production URLs probed' },
+            { kind: 'git', description: 'git push origin main' },
+        ],
+        gotchas: [
+            'Estimated wall time: 20-30 min when nothing is cached. Plan accordingly.',
+            'If e2e fails: NOTHING is deployed. Investigate the failure first.',
+            'If functions probe fails: Functions ARE LIVE but unreachable. Investigate before pushing frontend.',
+            'If Vercel wait times out: deploy is async — check vercel.com/dashboard manually. Frontend may still go green after the 5-min budget.',
+            'Schema apply has NO rollback — `--apply` against the wrong DB is unrecoverable. Use `sm ship` instead for non-schema deploys.',
+            'Probe URLs default to https://us-central1-tidyscripts.cloudfunctions.net/testAuth and https://smartchats.ai/. Override via $SM_PROBE_FUNCTIONS_URL / $SM_PROBE_FRONTEND_URL.',
+        ],
+        seeAlso: ['sm explain ship', 'sm explain deploy', 'sm explain rollback'],
+    };
+}
+
 function describeRollback(target?: string): Explain {
     return {
         verb: 'rollback' + (target ? ` ${target}` : ''),
@@ -825,6 +879,7 @@ export function getExplain(verb: string, sub?: string): Explain | null {
         case 'sync':         return describeSync();
         case 'deploy':       return describeDeploy(sub);
         case 'ship':         return describeShip();
+        case 'ship-full':    return describeShipFull();
         case 'rollback':     return describeRollback(sub);
         case 'release':      return describeRelease();
         case 'push-public':  return describePushPublic();
@@ -842,6 +897,7 @@ export function listVerbs(): Array<{ verb: string; summary: string }> {
         { verb: 'sync',        summary: describeSync().summary },
         { verb: 'deploy',      summary: describeDeploy().summary },
         { verb: 'ship',        summary: describeShip().summary },
+        { verb: 'ship-full',   summary: describeShipFull().summary },
         { verb: 'rollback',    summary: describeRollback().summary },
         { verb: 'release',     summary: describeRelease().summary },
         { verb: 'push-public', summary: describePushPublic().summary },
