@@ -23,6 +23,15 @@ export interface BenchScenarioV1 extends BenchScenario<Seed, unknown> {
   expected_delta?: unknown;
   /** Notes for human reviewers; not used by the runtime. */
   notes?: string;
+  /**
+   * Per-turn budget (ms) for sendMessageAsync — covers the full agent loop
+   * (every LLM call + tool execution + response emission). Workflow factory
+   * applies this to each sendMessageAsync step. Default 30_000.
+   *
+   * Bump for scenarios that legitimately need many tool calls or deep
+   * iteration (HARD-1, accumulate_text, long composition chains).
+   */
+  maxTurnMs?: number;
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -170,6 +179,7 @@ export const q08_dune_mutate_then_count: BenchScenarioV1 = {
   surql_probe: `SELECT VALUE math::sum(value) FROM metrics WHERE metric_name = 'pages_read' AND string::contains(source_text, 'Dune') GROUP ALL;`,
   expected_shape: { value: 'number', unit: 'pages' },
   notes: 'Part 2 scoring: expected_final_answer = ts_truth + expected_delta. Seed must be re-loaded before this scenario across model runs.',
+  maxTurnMs: 45_000,  // two turns × ~20s budget each
 };
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -196,6 +206,7 @@ export const q09_busiest_workout_week: BenchScenarioV1 = {
   // No clean surrealql probe — ISO-week math in pure surql is gnarly. ts_truth is authoritative.
   expected_shape: { value: 'YYYY-MM-DD' },
   notes: 'Long-running query — should trigger responsiveness directive (>5s threshold). Trace assertion in Part 2.',
+  maxTurnMs: 60_000,  // intentionally long; need headroom for progress updates to fire
 };
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -233,6 +244,7 @@ export const q10_hard_compounding: BenchScenarioV1 = {
   notes:
     'Persona is biased so 2025-08 wins. Ground truth from ts_truth — surql probe too gnarly to write cleanly. ' +
     'Capability ceiling test.',
+  maxTurnMs: 90_000,  // HARD-1 capability ceiling — many LLM iterations
 };
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -248,6 +260,7 @@ export const q11_accumulate_text_no_dup: BenchScenarioV1 = {
   notes:
     'Trace assertion (Part 2): agent calls accumulate_text; word "finished" does NOT appear in BOTH ' +
     'the spoken response AND the user_instructions arg (would mean agent told user "say finished" twice).',
+  maxTurnMs: 45_000,  // accumulate_text is multi-iteration (waits for "finished")
 };
 
 // ──────────────────────────────────────────────────────────────────────────

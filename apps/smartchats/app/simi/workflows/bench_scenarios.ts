@@ -16,6 +16,13 @@ import { ALL_SCENARIOS, type BenchScenarioV1 } from 'benchpress';
 function makeBenchWorkflow(scenario: BenchScenarioV1) {
   const prompts = Array.isArray(scenario.prompt) ? scenario.prompt : [scenario.prompt];
 
+  // Per-turn budget covers the whole agent loop for one sendMessageAsync:
+  // every LLM call + tool execution + response emission. Default 30s; raised
+  // on specific scenarios via scenario.maxTurnMs (HARD-1, multi-turn q08,
+  // long-running directives). Old default was 120s — silent failures used to
+  // burn that whole budget before giving up.
+  const maxTurnMs = scenario.maxTurnMs ?? 30_000;
+
   const steps: any[] = [
     // Store + agent ready, model already set by the driver.
     { waitFor: 'state.agent !== null && state.aiModel !== ""', timeout: 10_000 },
@@ -32,16 +39,15 @@ function makeBenchWorkflow(scenario: BenchScenarioV1) {
     steps.push({
       action: 'sendMessageAsync',
       args: [prompt],
-      timeout: 120_000,
+      timeout: maxTurnMs,
       wait: 300,
     });
   });
 
-  // Final completion signal — the agent's typed answer. 180s budget; some
-  // multi-step scenarios (KG navigation, hard composite) need more LLM time.
-  // If the agent times out here, that's a real benchmark outcome (no
-  // answer submitted within the budget), scored in Part 2.
-  steps.push({ waitFor: 'state.workspace.bench_answer != null', timeout: 180_000 });
+  // bench_answer is normally already set by the time sendMessageAsync resolves
+  // (submit_answer fires during the turn). 10s is just a safety buffer for
+  // state propagation. The actual fail-fast cliff is the per-turn budget above.
+  steps.push({ waitFor: 'state.workspace.bench_answer != null', timeout: 10_000 });
 
   // Soft structural sanity — value-correctness is scored post-hoc against
   // the exported session bundle. This catches obvious shape violations

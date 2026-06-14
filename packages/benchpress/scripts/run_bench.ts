@@ -238,7 +238,27 @@ for (const model of args.models) {
   try {
     const page = await bootPage(ctx, args.appUrl);
     await setModel(page, model);
-    for (const sid of args.scenarios) {
+    for (let i = 0; i < args.scenarios.length; i++) {
+      const sid = args.scenarios[i]!;
+      // Reload between scenarios to kill any orphaned llm-loops or stale
+      // workspace from the prior scenario's failure mode. localStorage
+      // persists across reload, so aiModel / backend_mode / onboarding-done
+      // all survive — no need to re-onboard or re-setModel. Skip on the
+      // first iteration (bootPage already gave us a fresh page).
+      if (i > 0) {
+        const tReload = Date.now();
+        await page.reload({ waitUntil: 'networkidle', timeout: 60_000 });
+        await page.waitForFunction(
+          () => {
+            const sm = (window as unknown as { __smartchats__?: { getState(): { agent: unknown; aiModel: string; settingsLoaded: boolean } } }).__smartchats__;
+            const st = sm?.getState();
+            return !!st && st.agent !== null && st.aiModel !== '' && st.settingsLoaded;
+          },
+          null,
+          { timeout: 30_000 },
+        );
+        console.log(`    [reload ${Date.now() - tReload}ms]`);
+      }
       const t0 = Date.now();
       try {
         const { wfCompleted, raw } = await runScenario(page, sid);
