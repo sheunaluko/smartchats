@@ -35,9 +35,27 @@ export function handleAnthropicStreamRequest(request: LLMStreamRequest): LLMStre
         ...(i === 0 ? { cache_control: { type: 'ephemeral' as const } } : {}),
       }))
     : undefined
-  const messages = input
-    .filter(m => m.role !== 'system')
-    .map(m => ({ role: m.role as 'user' | 'assistant', content: m.content }))
+  // See anthropic.ts for the full rationale — wrap ALL non-system message
+  // content in array-of-block form for shape-consistency across calls
+  // (Anthropic's cache matcher is shape-sensitive), then place a single
+  // cache_control marker on the LAST non-system message. Total: 2 markers
+  // (1 on system + 1 on tail). The deepest breakpoint is what the next
+  // call matches against; intermediate markers wouldn't help.
+  const nonSystemMessages = input.filter(m => m.role !== 'system')
+  const lastIdx = nonSystemMessages.length - 1
+  const messages = nonSystemMessages.map((m, i) => {
+    const marked = i === lastIdx
+    return {
+      role: m.role as 'user' | 'assistant',
+      content: [
+        {
+          type: 'text' as const,
+          text: m.content,
+          ...(marked ? { cache_control: { type: 'ephemeral' as const } } : {}),
+        },
+      ],
+    }
+  })
 
   // Shared state between stream iterator and aggregated promise
   let fullText = ''

@@ -24,9 +24,39 @@ export async function handleAnthropicRequest(request: LLMRequest): Promise<LLMRe
         ...(i === 0 ? { cache_control: { type: 'ephemeral' as const } } : {}),
       }))
     : undefined
-  const messages = input
-    .filter(m => m.role !== 'system')
-    .map(m => ({ role: m.role as 'user' | 'assistant', content: m.content }))
+  // Anthropic prefix-cache strategy.
+  //
+  // 1. ALL non-system message content is wrapped in array-of-block form
+  //    `[{type:'text', text: ...}]`, even when no cache_control is attached.
+  //    Reason: Anthropic's cache prefix matching is shape-sensitive — a
+  //    message whose content is `string` on one call won't match the same
+  //    text wrapped as `[{type:'text', text}]` on the next call. Mixing
+  //    shapes across turns silently breaks the cache. Keeping every
+  //    message in the same shape lets the cumulative prefix match cleanly.
+  //
+  // 2. We place a single `cache_control: ephemeral` marker on the LAST
+  //    non-system message. Combined with the marker on the first system
+  //    block above, we use 2 of Anthropic's allowed 4 markers per request.
+  //    The deepest breakpoint from call N is what call N+1 matches
+  //    against; intermediate breakpoints from call N don't help call N+1.
+  //    Extra markers would just write redundant cache entries without
+  //    deepening any match — empirically validated by comparing
+  //    "mark last 3" vs "mark last 1" with the same shape: same cache hit.
+  const nonSystemMessages = input.filter(m => m.role !== 'system')
+  const lastIdx = nonSystemMessages.length - 1
+  const messages = nonSystemMessages.map((m, i) => {
+    const marked = i === lastIdx
+    return {
+      role: m.role as 'user' | 'assistant',
+      content: [
+        {
+          type: 'text' as const,
+          text: m.content,
+          ...(marked ? { cache_control: { type: 'ephemeral' as const } } : {}),
+        },
+      ],
+    }
+  })
 
   const start = Date.now()
 
