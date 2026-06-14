@@ -2,13 +2,17 @@
  * Benchpress prototype — one scenario (q01_weight_lookup), one model
  * (claude-sonnet-4-6), one path validated end-to-end.
  *
- * Requires `window.__BENCHPRESS_MODE = true` set BEFORE the page boots
- * (via Playwright `addInitScript`). Otherwise the `submit_answer` tool
- * isn't registered and `state.workspace.bench_answer` never appears.
- *
- * Generalized into a per-scenario factory in Task #8.
+ * Post-2026-06-14 refactor: the directive ("set workspace.bench_answer =
+ * {...}") is inline in the user message, not a system-prompt module. SCM
+ * is identical to production. The agent writes to workspace from its
+ * sandboxed code; cortex syncs back via the workspace_update event.
  */
 import { defineWorkflow } from 'simi';
+
+const Q01_PROMPT_WITH_DIRECTIVE =
+  `What was my weight on 2026-03-15?` +
+  ` After computing the answer, set workspace.bench_answer = { value: <your_answer>, kind: 'scalar', unit: 'lbs' }.` +
+  ` Then briefly reply.`;
 
 export const benchQ01PrototypeFlow = defineWorkflow({
   id: 'bench_q01_prototype',
@@ -24,31 +28,27 @@ export const benchQ01PrototypeFlow = defineWorkflow({
     { action: 'saveSettings', args: [], timeout: 10000, wait: 500 },
     { waitFor: 'state.agent !== null && !state.llmRunning && state.settingsLoaded', timeout: 15000 },
 
-    // Clean transcript.
+    // Clean transcript + clear any prior bench_answer.
     { action: 'clearChat', args: [], wait: 500 },
+    { action: 'updateWorkspace', args: [{ bench_answer: null }], wait: 200 },
 
-    // q01 prompt.
+    // q01 prompt with inline directive.
     {
       action: 'sendMessageAsync',
-      args: ['What was my weight on 2026-03-15?'],
-      timeout: 90000,
+      args: [Q01_PROMPT_WITH_DIRECTIVE],
+      timeout: 60_000,
       wait: 500,
     },
 
-    // The agent calls submit_answer → workspace.bench_answer is populated.
-    // This is the cross-process signal that the turn produced a definitive answer.
-    { waitFor: 'state.workspace.bench_answer != null', timeout: 60000 },
+    // The agent writes workspace.bench_answer from its sandboxed code → cortex
+    // emits workspace_update → store reflects it → simi sees it.
+    { waitFor: 'state.workspace.bench_answer != null', timeout: 10_000 },
 
-    // Soft structural asserts only — exact-value scoring runs post-hoc against
-    // the exported session bundle. These fail loudly if the agent shipped a
-    // bench_answer with the wrong shape (e.g. forgot kind, returned a string).
+    // Lenient sanity — accept either a bare numeric or a {value: number} wrapper.
     {
-      assert: 'state.workspace.bench_answer.kind === "scalar"',
-      message: 'q01 expects kind=scalar',
-    },
-    {
-      assert: 'typeof state.workspace.bench_answer.value === "number"',
-      message: 'q01 expects a numeric value',
+      assert: 'typeof state.workspace.bench_answer === "number" || ' +
+              'typeof state.workspace.bench_answer.value === "number"',
+      message: 'q01 expects a numeric answer (bare or wrapped)',
     },
   ],
 });

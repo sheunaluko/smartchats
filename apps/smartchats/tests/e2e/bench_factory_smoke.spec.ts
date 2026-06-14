@@ -25,7 +25,6 @@ async function setupPage(): Promise<{ browser: Awaited<ReturnType<typeof chromiu
   const browser = await chromium.launch({ headless: !process.env.HEADED });
   const ctx = await browser.newContext();
   await ctx.addInitScript(() => {
-    (window as any).__BENCHPRESS_MODE = true;
     (window as any).__DISABLE_ONBOARDING__ = true;
     (window as any).__SIMI_DEBUG__ = true;
     try { localStorage.setItem('appdata::smartchats::__backend_mode__', 'local'); } catch { /* ignore */ }

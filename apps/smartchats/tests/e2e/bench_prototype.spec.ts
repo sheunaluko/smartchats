@@ -1,13 +1,13 @@
 /**
  * Benchpress prototype spec — proves the end-to-end path before we generalize.
  *
- *   - addInitScript sets `window.__BENCHPRESS_MODE = true` so the benchpress
- *     module registers in cortex_agent_web.ts during boot.
  *   - Forces local backend mode (no Firebase auth needed).
  *   - Disables onboarding so we land directly on the chat UI.
- *   - Runs the `bench_q01_prototype` simi workflow.
+ *   - Runs the `bench_q01_prototype` simi workflow — directive is inline
+ *     in the user prompt; SCM is identical to production.
  *   - Reads `state.workspace.bench_answer` + the exported session bundle.
- *   - Asserts the answer is the expected weight (158.4 lbs) for 2026-03-15.
+ *   - Asserts the answer is the expected weight (158.4 lbs) for 2026-03-15
+ *     (lenient: accepts bare number or {value: number} wrapper).
  *
  * Prereq: bin/test-bun-deploy --seed packages/benchpress/fixtures/canonical_user.surql
  *
@@ -27,9 +27,10 @@ test('bench_q01_prototype end-to-end', async () => {
   const browser = await chromium.launch({ headless: !process.env.HEADED });
   const ctx = await browser.newContext();
 
-  // Pre-boot setup: window flag + localStorage to skip auth/onboarding.
+  // Pre-boot setup: localStorage to force local mode + window flags to skip
+  // onboarding. No benchpress-mode flag — SCM is now identical to production
+  // and the directive lives inline in the user message.
   await ctx.addInitScript(() => {
-    (window as any).__BENCHPRESS_MODE = true;
     (window as any).__DISABLE_ONBOARDING__ = true;
     (window as any).__SIMI_DEBUG__ = true;
     try {
@@ -54,16 +55,6 @@ test('bench_q01_prototype end-to-end', async () => {
     null,
     { timeout: 30_000 },
   );
-
-  // Confirm the benchpress module actually registered (sanity check that
-  // the window flag flowed through to SCM at boot time).
-  const hasSubmitAnswer = await page.evaluate(() => {
-    const cor = (window as any).COR;
-    if (!cor) return false;
-    const fns = cor.function_dictionary ?? {};
-    return typeof fns['submit_answer']?.fn === 'function';
-  });
-  expect(hasSubmitAnswer, 'submit_answer tool was not registered — benchpress module did not load').toBe(true);
 
   // Drive the workflow.
   const wfResult = await page.evaluate(async () => {
@@ -92,12 +83,15 @@ test('bench_q01_prototype end-to-end', async () => {
     console.log(`  session bundle saved: ${p}`);
   }
 
-  // ── Assertions ────────────────────────────────────────────────────────
-  expect(benchAnswer, 'submit_answer was never called by the agent').toBeTruthy();
-  expect(benchAnswer.kind).toBe('scalar');
-  expect(typeof benchAnswer.value).toBe('number');
-  // Tolerant to rounding (truth is 158.4 from the generator; agent may say 158 or 158.4).
-  expect(Math.abs(benchAnswer.value - TRUTH_Q01)).toBeLessThanOrEqual(0.5);
+  // ── Assertions (lenient) ──────────────────────────────────────────────
+  expect(benchAnswer, 'workspace.bench_answer was never set by the agent').toBeTruthy();
+  // Accept bare number or {value: number} wrapper.
+  const numeric = typeof benchAnswer === 'number'
+    ? benchAnswer
+    : (benchAnswer as { value?: number }).value;
+  expect(typeof numeric).toBe('number');
+  // Tolerant to rounding (truth is 158.4; agent may say 158 or 158.4).
+  expect(Math.abs((numeric as number) - TRUTH_Q01)).toBeLessThanOrEqual(0.5);
 
   await browser.close();
 });

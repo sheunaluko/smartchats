@@ -3,24 +3,51 @@
  *
  * The Playwright matrix runner (packages/benchpress/scripts/run_bench.ts)
  * sets the model via updateSettings + saveSettings BEFORE invoking each
- * workflow, so the workflow itself never pins one. Run the workflows
- * sequentially (one per (scenario, model) pair) and the seeded DB gets
- * a fresh reload between runs that touch user_data (q08 mutation).
+ * workflow, so the workflow itself never pins one.
  *
- * Requires `window.__BENCHPRESS_MODE = true` at boot — see
- * `apps/smartchats/app/cortex_agent_web.ts`.
+ * Inline-directive design (2026-06-14):
+ *   The factory appends a per-scenario directive to the LAST user turn
+ *   telling the agent to set `workspace.bench_answer = { value, kind, ... }`.
+ *   This replaces the env-gated benchpress module that used to add a
+ *   `submit_answer` tool — SCM now matches production verbatim, so the
+ *   benchmark measures agents using only production primitives. The agent
+ *   writes to `workspace` from its sandboxed code (it's already a sandbox
+ *   global per `packages/cortex/src/cortex.ts:1093-1156`).
  */
 import { defineWorkflow } from 'simi';
 import { ALL_SCENARIOS, type BenchScenarioV1 } from 'benchpress';
 
+type Kind = NonNullable<BenchScenarioV1['kind']>;
+
+/**
+ * Per-scenario directive appended to the LAST user turn. Tells the agent
+ * exactly what shape to write into workspace.bench_answer. Scorer is lenient
+ * — accepts bare primitives OR wrapped {value, kind} — but giving the agent
+ * a concrete template improves compliance.
+ */
+function directive(scenario: BenchScenarioV1): string {
+  const shapes: Record<Kind, string> = {
+    scalar:     `{ value: <your_answer>, kind: 'scalar', unit: '<unit_if_applicable>' }`,
+    date:       `{ value: '<YYYY-MM-DD>', kind: 'date' }`,
+    list:       `{ value: [<items>], kind: 'list' }`,
+    comparison: `{ value: { ...all_values_compared, winner: '<label>' }, kind: 'comparison' }`,
+    negative:   `{ value: null, kind: 'negative', reason: '<why_no_data>' }`,
+    composite:  `{ value: { ...your_structured_answer }, kind: 'composite' }`,
+  };
+  return ` After computing the answer, set workspace.bench_answer = ${shapes[scenario.kind]}. Then briefly reply.`;
+}
+
 function makeBenchWorkflow(scenario: BenchScenarioV1) {
-  const prompts = Array.isArray(scenario.prompt) ? scenario.prompt : [scenario.prompt];
+  const rawPrompts = Array.isArray(scenario.prompt) ? scenario.prompt : [scenario.prompt];
+  // Directive on the LAST turn only — earlier turns may be mutations or
+  // setup that shouldn't trigger a bench_answer write yet.
+  const prompts = rawPrompts.map((p, i) =>
+    i === rawPrompts.length - 1 ? `${p}${directive(scenario)}` : p,
+  );
 
   // Per-turn budget covers the whole agent loop for one sendMessageAsync:
   // every LLM call + tool execution + response emission. Default 30s; raised
-  // on specific scenarios via scenario.maxTurnMs (HARD-1, multi-turn q08,
-  // long-running directives). Old default was 120s — silent failures used to
-  // burn that whole budget before giving up.
+  // on specific scenarios via scenario.maxTurnMs.
   const maxTurnMs = scenario.maxTurnMs ?? 30_000;
 
   const steps: any[] = [
@@ -34,7 +61,7 @@ function makeBenchWorkflow(scenario: BenchScenarioV1) {
     { action: 'updateWorkspace', args: [{ bench_answer: null }], wait: 200 },
   ];
 
-  // Sequential user turns.
+  // Sequential user turns. Directive baked into the LAST prompt.
   prompts.forEach((prompt) => {
     steps.push({
       action: 'sendMessageAsync',
@@ -44,18 +71,11 @@ function makeBenchWorkflow(scenario: BenchScenarioV1) {
     });
   });
 
-  // bench_answer is normally already set by the time sendMessageAsync resolves
-  // (submit_answer fires during the turn). 10s is just a safety buffer for
-  // state propagation. The actual fail-fast cliff is the per-turn budget above.
+  // bench_answer should be set during the last turn (agent's sandboxed code
+  // writes `workspace.bench_answer = {...}`, cortex syncs it back via the
+  // workspace_update event, store reflects it). 10s buffer for propagation.
   steps.push({ waitFor: 'state.workspace.bench_answer != null', timeout: 10_000 });
-
-  // Soft structural sanity — value-correctness is scored post-hoc against
-  // the exported session bundle. This catches obvious shape violations
-  // (no kind, no value) without coupling the workflow to per-scenario truths.
-  steps.push({
-    assert: 'state.workspace.bench_answer.kind != null',
-    message: `${scenario.id}: bench_answer.kind is required`,
-  });
+  // No structural assert — lenient scorer accepts bare values or {value, kind}.
 
   return defineWorkflow({
     id: `bench_${scenario.id}`,

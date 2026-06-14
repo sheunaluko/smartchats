@@ -104,7 +104,6 @@ async function setupContext(headed: boolean): Promise<{ browser: Awaited<ReturnT
   const browser = await chromium.launch({ headless: !headed });
   const ctx = await browser.newContext();
   await ctx.addInitScript(() => {
-    (window as unknown as { __BENCHPRESS_MODE: boolean }).__BENCHPRESS_MODE = true;
     (window as unknown as { __DISABLE_ONBOARDING__: boolean }).__DISABLE_ONBOARDING__ = true;
     try { localStorage.setItem('appdata::smartchats::__backend_mode__', 'local'); } catch { /* noop */ }
   });

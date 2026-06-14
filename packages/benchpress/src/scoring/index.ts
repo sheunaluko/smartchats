@@ -66,7 +66,12 @@ export interface ScenarioResult {
   /** Last LLM model observed in the session — usually constant across the scenario. */
   model: string | null;
   outcome: ScenarioOutcome;
-  bench_answer: SubmitAnswerPayload | null;
+  /**
+   * Whatever shape the agent stored at workspace.bench_answer — could be a
+   * bare primitive, the documented {value, kind, ...} wrapper, or a near-miss
+   * shape. Scorer's lenient unwrapValue() handles all three.
+   */
+  bench_answer: unknown;
   expected: unknown;
   correctness: CorrectnessResult | null;
   trace_metrics: TraceMetrics;
@@ -166,16 +171,20 @@ export function scoreScenario(
  * Walk the timeline for `action` events whose first arg sets `bench_answer`.
  * createInsightStore auto-instruments dispatches; updateWorkspace's arg is the
  * patch object, so we look for `payload.args[0].bench_answer` and take the latest.
+ *
+ * Returns whatever shape the agent wrote — could be a bare primitive
+ * (`workspace.bench_answer = 158.4`), a wrapper (`{value: 158.4, kind: 'scalar'}`),
+ * or anything else. Scorer handles the leniency.
  */
-function extractBenchAnswer(timeline: SessionTimelineEntry[]): SubmitAnswerPayload | null {
-  let latest: SubmitAnswerPayload | null = null;
+function extractBenchAnswer(timeline: SessionTimelineEntry[]): unknown {
+  let latest: unknown = null;
   for (const e of timeline) {
     if (e.event_type !== 'action') continue;
     const args = (e.payload as { args?: unknown[] }).args;
     if (!Array.isArray(args)) continue;
     for (const a of args) {
       if (a && typeof a === 'object' && 'bench_answer' in a) {
-        const v = (a as { bench_answer: SubmitAnswerPayload | null }).bench_answer;
+        const v = (a as { bench_answer: unknown }).bench_answer;
         if (v !== null && v !== undefined) latest = v;
       }
     }
@@ -206,32 +215,72 @@ function applyDelta(truth: unknown, delta: unknown): unknown {
   return truth;
 }
 
+/**
+ * Lenient extractor: peel a "value" out of whatever the agent stored at
+ * workspace.bench_answer. The agent might:
+ *   - set a bare primitive: workspace.bench_answer = 158.4
+ *   - set the documented wrapper: { value: 158.4, kind: 'scalar' }
+ *   - set a near-miss wrapper: { answer: 158.4 } or { val: 158.4 }
+ *
+ * We accept all three for the value field. The wrapper's `kind` is only
+ * required for `negative` scenarios (anti-hallucination check).
+ */
+function unwrapValue(submitted: unknown): unknown {
+  if (submitted === null || submitted === undefined) return null;
+  if (typeof submitted !== 'object') return submitted;       // bare primitive
+  const obj = submitted as Record<string, unknown>;
+  if ('value' in obj) return obj.value;                       // documented shape
+  if ('answer' in obj) return obj.answer;                     // common near-miss
+  if ('val' in obj) return obj.val;                           // shorter near-miss
+  return submitted;  // unknown shape; let the per-kind comparator decide
+}
+
 function compareAnswer(
-  submitted: SubmitAnswerPayload,
+  submitted: unknown,
   expectedKind: AnswerKind,
   expected: unknown,
   tolerance: number,
 ): CorrectnessResult {
-  if (submitted.kind !== expectedKind) {
-    return { passed: false, detail: `wrong_kind: expected=${expectedKind} got=${submitted.kind}` };
-  }
-  const got = submitted.value;
+  const got = unwrapValue(submitted);
+
   switch (expectedKind) {
     case 'scalar':
       return scalarCompare(got, expected, tolerance);
     case 'date':
-      return { passed: got === expected, detail: got === expected ? 'matched' : `diverged: ${got} vs ${expected}` };
+      return dateCompare(got, expected);
     case 'list':
       return listCompare(got, expected);
     case 'comparison':
       return objectCompare(got, expected, ['winner']);
-    case 'negative':
-      return { passed: got === null, detail: got === null ? 'matched' : `expected null, got ${JSON.stringify(got)}` };
+    case 'negative': {
+      // Anti-hallucination check: require BOTH (a) the value resolves to null
+      // AND (b) some indication the agent meant it (explicit kind=negative OR
+      // a reason field). Just-null could be the agent forgetting to answer.
+      const valueIsNull = got === null || got === undefined;
+      const wrapper = (submitted && typeof submitted === 'object') ? (submitted as Record<string, unknown>) : null;
+      const kindNeg = wrapper?.kind === 'negative';
+      const hasReason = typeof wrapper?.reason === 'string' && wrapper.reason.length > 0;
+      const passed = valueIsNull && (kindNeg || hasReason);
+      return {
+        passed,
+        detail: passed ? 'matched'
+          : valueIsNull ? 'null_without_intent (no kind=negative or reason)'
+          : `expected null, got ${JSON.stringify(got).slice(0, 80)}`,
+      };
+    }
     case 'composite':
-      // Composite scenarios rely on trace_assertions for v1 (q10's truth is too
-      // structured to deep-compare reliably without per-scenario logic).
       return { passed: got !== null && got !== undefined, detail: 'shape_only' };
   }
+}
+
+function dateCompare(got: unknown, expected: unknown): CorrectnessResult {
+  // Accept exact 'YYYY-MM-DD' OR a string containing it OR a Date-ish object.
+  if (typeof got === 'string' && typeof expected === 'string') {
+    if (got === expected) return { passed: true, detail: 'matched' };
+    if (got.includes(expected)) return { passed: true, detail: 'matched (substring)' };
+    return { passed: false, detail: `diverged: ${got} vs ${expected}` };
+  }
+  return { passed: got === expected, detail: got === expected ? 'matched' : `wrong_type: ${typeof got}` };
 }
 
 function scalarCompare(got: unknown, expected: unknown, tolerance: number): CorrectnessResult {
