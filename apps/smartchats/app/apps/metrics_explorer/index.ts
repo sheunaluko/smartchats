@@ -504,7 +504,7 @@ const FN_LOAD_CONTEXT = `async function(fnArgs, app, util) {
     var ctx = await util.smartchats.get_metrics_context();
     app.setState({
       tracked_metrics: ctx && ctx.tracked_metrics ? ctx.tracked_metrics : [],
-      recent_entries: ctx && ctx.recent_entries ? ctx.recent_entries : [],
+      latest_per_metric: ctx && ctx.latest_per_metric ? ctx.latest_per_metric : [],
       loading: false,
     });
     return { metric_count: (app.state.tracked_metrics || []).length };
@@ -651,7 +651,7 @@ export const metricsExplorerApp: AppManifest = {
         filter_recency:     { type: 'string',  default: '4w',   description: 'Active date range filter', persist: true },
         filter_aggregation: { type: 'string',  default: 'raw',  description: 'Active aggregation mode', persist: true },
         tracked_metrics:    { type: 'array',   default: [],      description: 'All tracked metric summaries', persist: false },
-        recent_entries:     { type: 'array',   default: [],      description: 'Recent metric entries', persist: false },
+        latest_per_metric:  { type: 'array',   default: [],      description: 'Most recent entry per tracked metric_name', persist: false },
         selected_metric:    { type: 'string',  default: '',      description: 'Currently selected metric name', persist: false },
         metric_data:        { type: 'object',  default: {},      description: 'Retrieved data for selected metric', persist: false },
         habit_summary:      { type: 'object',  default: {},      description: 'Habit summary for selected boolean metric', persist: false },

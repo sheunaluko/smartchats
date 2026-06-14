@@ -9,7 +9,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join, resolve, dirname, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { scoreScenario, type ScenarioResult } from '../src/index.js';
+import { scoreScenario, type ScenarioResult } from '../src/scoring/index.js';
 import type { TruthsSnapshot } from '../src/types.js';
 
 const here = dirname(fileURLToPath(import.meta.url));

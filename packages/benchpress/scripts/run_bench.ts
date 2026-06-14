@@ -22,7 +22,8 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { ALL_SCENARIOS, scoreScenario, type ScenarioResult } from '../src/index.js';
+import { ALL_SCENARIOS } from '../src/index.js';
+import { scoreScenario, type ScenarioResult } from '../src/scoring/index.js';
 import type { TruthsSnapshot } from '../src/types.js';
 
 // ──────────────────────────────────────────────────────────────────────────

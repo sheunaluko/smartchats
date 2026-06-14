@@ -13,11 +13,26 @@ import { getStartupLoaders } from '../lib/background_loaders';
 /** Shared ctx for the time-filter / metrics-query builders. */
 const TIME_FILTER_CTX: MetricsTimeFilterCtx = { getCurrentLocalDate }
 
-/** Fetch metrics context (summary + recent) — reusable by prefetch and module fn */
-export async function fetchMetricsContext(): Promise<{ tracked_metrics: any[]; recent_entries: any[] }> {
-    const [summaryRes, recentRes, preparedRes] = await Promise.all([
+/**
+ * Fetch metrics context (summary + latest-per-name) — reusable by prefetch
+ * and module fn.
+ *
+ * Shape change 2026-06-13 (see packages/benchpress/STATUS.txt): `recent_entries`
+ * (an unbounded `SELECT *` of every metric row, costing ~127K tokens on a
+ * 1456-row DB) was replaced by `latest_per_metric` (one row per distinct
+ * metric_name, with that metric's current value). Same signal, 100× smaller.
+ *
+ * Consumers updated in the same commit:
+ *   - apps/smartchats/app/lib/background_loaders/index.ts (fallback shape)
+ *   - apps/smartchats/app/apps/metrics_explorer/index.ts (widget binding)
+ *
+ * The MCP `get_metrics_summary` tool calls `queries.getRecentMetrics()`
+ * directly (not via this fetcher) and is unaffected by this change.
+ */
+export async function fetchMetricsContext(): Promise<{ tracked_metrics: any[]; latest_per_metric: any[] }> {
+    const [summaryRes, latestRes, preparedRes] = await Promise.all([
         getBackend().data.query(queries.getMetricsSummary()) as any,
-        getBackend().data.query(queries.getRecentMetrics()) as any,
+        getBackend().data.query(queries.getLatestMetricPerName()) as any,
         getBackend().data.query(queries.getPreparedMetricDefinitions()).catch(() => []) as any,
     ])
     const tracked = summaryRes.rows
@@ -36,7 +51,7 @@ export async function fetchMetricsContext(): Promise<{ tracked_metrics: any[]; r
             })
         }
     }
-    return { tracked_metrics: tracked, recent_entries: recentRes.rows }
+    return { tracked_metrics: tracked, latest_per_metric: latestRes.rows }
 }
 
 /** Duration units to milliseconds */

@@ -107,6 +107,36 @@ export function getRecentMetrics(opts: { limit?: number } = {}): QuerySpec {
 }
 
 /**
+ * One row per distinct `metric_name`, populated with that metric's most
+ * recent entry. Used by `fetchMetricsContext` to give the agent a compact
+ * "current state of each tracked metric" snapshot.
+ *
+ * Replaces the previous "dump all recent entries" shape (`getRecentMetrics`
+ * with no limit), which sent ~127K tokens of context for a 1456-row DB
+ * because every conversation turn shipped the whole metrics table. This
+ * version returns N rows where N = distinct metric_name count (typically
+ * 5-20 in practice).
+ *
+ * Single-statement RETURN expression so the result lands in
+ * `body.statements[0].result`, which `data.query` surfaces as `.rows`.
+ * Field projection mirrors `getRecentMetrics`'s `SELECT *` minus
+ * `embedding` / `created_at` / `updated_at` / `id` — the agent doesn't
+ * need internal IDs or table-stamped timestamps to reason about metric
+ * state.
+ */
+export function getLatestMetricPerName(): QuerySpec {
+    return {
+        query: `RETURN (SELECT VALUE metric_name FROM metrics GROUP BY metric_name).map(|$n| (
+            SELECT metric_name, value, unit, category, metric_type, ts, local_date, source, source_text
+            FROM metrics
+            WHERE metric_name = $n
+            ORDER BY ts DESC LIMIT 1
+        )[0]);`,
+        variables: {},
+    };
+}
+
+/**
  * Fetch all `metric_definition` rows from `user_data` — metrics the
  * user has prepared but hasn't yet recorded data for. Merged into the
  * tracked-metrics summary in the in-app prefetch.

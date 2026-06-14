@@ -120,7 +120,7 @@ export function createStartupLoaders(deps: StartupLoaderDeps): StartupLoaders {
 
         metrics_context: createBackgroundLoader({
             id: 'metrics_context',
-            fetch: () => fetchMetricsContext().catch(() => ({ tracked_metrics: [], recent_entries: [] })),
+            fetch: () => fetchMetricsContext().catch(() => ({ tracked_metrics: [], latest_per_metric: [] })),
             onResolve: injector(deps, 'metrics_context'),
             insights: i,
         }),

@@ -43,6 +43,7 @@ export {
     getMetrics,
     getMetricsSummary,
     getRecentMetrics,
+    getLatestMetricPerName,
     getPreparedMetricDefinitions,
     insertMetric,
     updateMetric,
