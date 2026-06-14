@@ -57,9 +57,45 @@ Embeddings — wired but uncommitted
     (manual probe: "tennis match" → running/swimming logs at sim ~0.24).
     verify_seed still passes (truth probes don't touch embeddings).
   - Files: canonical_user.surql ballooned 0.6M → 24M; embeddings.json 11M.
-  - NOT YET committed. Open question: commit the 24M .surql for "one-step
-    clone-and-run" or gitignore it + commit only the cache? Cache makes
-    regeneration free (~2s).
+  - Committed in dcd1e89: both .surql + embeddings.json. "Clone-and-run"
+    path preserved; cache makes regeneration free if anyone wants to
+    rebuild.
+
+Metrics_context dump fix (commit c6ffb18, open repo)
+  - Root: fetchMetricsContext was returning recent_entries from a
+    `SELECT * FROM metrics ORDER BY ts DESC` query with NO LIMIT. On
+    1456-row seed, ~127K tokens per call. Production: ~30-50K tokens.
+  - Replaced with getLatestMetricPerName() — single RETURN statement
+    that returns one row per distinct metric_name (the latest entry per
+    type). 4 rows × ~200 bytes ≈ 225 tokens vs 127K. ~565× reduction.
+  - Measured impact, benchpress q01 × gpt-5.5:
+        before: 194,479 prompt_tokens, $1.08, 9.1s
+        after:   16,380 prompt_tokens, $0.11, 7.2s
+  - Field shape now { tracked_metrics, latest_per_metric } (was
+    recent_entries). 4 callers updated; MCP get_metrics_summary tool
+    untouched (calls getRecentMetrics directly — separate surface).
+  - Side effect: benchpress/src/index.ts had to split — now exports
+    only browser-safe surface; scoring moved behind 'benchpress/scoring'
+    subpath to keep smartchats-sessions's node:* deps out of the SPA
+    bundle.
+
+Investigation finding: SCM trailing state message is innocent of cache misses
+  - Suspected the SCM's trailing state msg (timing module's per-call
+    `turns: N` / `time_since_last_speech: Ns` stamps) might shift in
+    the messages array as conversation grows and break OpenAI prefix
+    cache.
+  - Confirmed via cloud-session survey (12 historical sessions, 5-69
+    LLM calls each): the call-by-call cache miss pattern is fully
+    explained by **OpenAI's automatic cache TTL eviction** (~5-20 min
+    idle, hard hourly bound). Two June 13 sessions both showed a miss
+    at call 5 because the user paused for 76 min and 5.2 hours
+    respectively between turns. The June 10 session (69 calls, 93.5%
+    hit, only call 0 missed) confirms the cache stays warm when the
+    user is actively engaging.
+  - Resolution: state message at index [N+1] (after conversation) does
+    not affect prefix matching. SCM design is correct. The cold-start
+    cost on resumed sessions is now mostly mitigated by the
+    metrics_context fix anyway (~$0.05 cold vs ~$0.43 cold before).
 
 
 OPEN — KNOWN ISSUES (in rough priority order)
@@ -74,12 +110,23 @@ P0  Anthropic prompt cache is broken
     Fix: probably one line in packages/llm-service/src/providers/anthropic
     .ts to move the cache_control breakpoint. Untouched so far.
 
-P0  Prompt size is ~200K tokens per call
-    This is the *real* cost driver. $1 for a "what was my weight"
-    question is not sustainable; a full matrix today is ~$100. SCM
-    composes 25+ modules and 7 background loaders fire context into
-    every call — that's where the bulk lives. Mitigation discussion is
-    its own thread (see DESIGN QUESTIONS below).
+P0  Prompt size — partially addressed (c6ffb18); more to do
+    The dominant single source (metrics_context dumping all 1456 rows)
+    was fixed in c6ffb18: per-call dropped 194K → 16K for benchpress
+    q01 × gpt-5.5, $1.08 → $0.11. Cloud sessions get a smaller absolute
+    cut (real users have fewer metrics) but same proportional win.
+    Remaining angles for further reduction:
+      - Dynamic on-demand module loading (DESIGN QUESTIONS below).
+        Today the agent boots with ~17K of SCM modules in context
+        whether or not it needs them.
+      - Cache-aware module ordering — keep dynamic state (timing
+        module etc.) strictly trailing so it never disrupts the
+        cacheable prefix. Confirmed the current design already does
+        this; worth a code-comment / test pinning it down.
+      - SCM composition as a benchmark axis (DESIGN QUESTIONS).
+    Anthropic side is dominated by the broken cache marker (P0 above),
+    not prompt size — fix that first before measuring further size
+    reductions there.
 
 P1  Matrix runner exhibits "agent silence" under some conditions
     Observed twice:
