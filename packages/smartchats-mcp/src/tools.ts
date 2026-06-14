@@ -253,23 +253,29 @@ export function registerTools(server: McpServer, opts: RegisterToolsOptions): vo
     );
 
     // -------------------------------------------------------------------------
-    // get_metrics_summary — aggregated overview + recent entries
+    // get_metrics_summary — aggregated overview + latest entry per metric
     // -------------------------------------------------------------------------
+    // Replaces a previous shape that paired the summary with an unbounded
+    // SELECT * FROM metrics ORDER BY ts DESC ("10 most recent metric entries"
+    // by description, but no LIMIT in the query — actually returned all rows,
+    // ~127K tokens on a 1456-row DB). Same fix the in-app loader got in the
+    // open repo at c6ffb18: one row per distinct metric_name, populated with
+    // that metric's most recent value. Compact + useful instead of bloated.
     server.tool(
         "get_metrics_summary",
-        "Get a summary of all tracked metrics: names, units, categories, entry counts, and min/max values. Also returns the 10 most recent metric entries. Useful for understanding what the user tracks.",
+        "Get a summary of all tracked metrics: names, units, categories, entry counts, min/max values. Also returns one row per tracked metric showing its most recent value (`latest_per_metric`: { metric_name, value, unit, category, ts, local_date, source }). Useful for understanding what the user tracks and the current state of each metric.",
         {},
         async () => {
             try {
-                const [summary, recent_entries] = await Promise.all([
+                const [summary, latest_per_metric] = await Promise.all([
                     handle.data.query(queries.getMetricsSummary()).then((r) => r.rows),
-                    handle.data.query(queries.getRecentMetrics()).then((r) => r.rows),
+                    handle.data.query(queries.getLatestMetricPerName()).then((r) => r.rows),
                 ]);
                 return {
                     content: [
                         {
                             type: "text" as const,
-                            text: JSON.stringify({ summary, recent_entries }, null, 2),
+                            text: JSON.stringify({ summary, latest_per_metric }, null, 2),
                         },
                     ],
                 };

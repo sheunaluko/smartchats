@@ -26,8 +26,8 @@ const TIME_FILTER_CTX: MetricsTimeFilterCtx = { getCurrentLocalDate }
  *   - apps/smartchats/app/lib/background_loaders/index.ts (fallback shape)
  *   - apps/smartchats/app/apps/metrics_explorer/index.ts (widget binding)
  *
- * The MCP `get_metrics_summary` tool calls `queries.getRecentMetrics()`
- * directly (not via this fetcher) and is unaffected by this change.
+ * The MCP `get_metrics_summary` tool got the matching shape change in
+ * a follow-up — it now returns { summary, latest_per_metric } too.
  */
 export async function fetchMetricsContext(): Promise<{ tracked_metrics: any[]; latest_per_metric: any[] }> {
     const [summaryRes, latestRes, preparedRes] = await Promise.all([
