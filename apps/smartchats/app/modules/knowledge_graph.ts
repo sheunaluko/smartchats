@@ -37,6 +37,7 @@ export function createKnowledgeGraphFunctionsModule() {
                 enabled: true,
                 description: `Semantic search of knowledge graph. Returns ranked entities and relations. Use depth > 0 for multi-hop expansion. IMPORTANT: search this before telling the user you don't know something.`,
                 name: 'retrieve_declarative_knowledge',
+                return_shape: `A FORMATTED STRING (not an object) describing matched entities + relations, ready for the LLM to read. Includes entity names, distances, and entity-relation-entity triples. The return value IS the human-readable summary. Empty/no-results case: string indicating nothing found.`,
                 parameters: { query: 'string', limit: 'number', depth: 'number' },
                 fn: async (ops: any) => {
                     let { query, limit, depth } = ops.params;
@@ -135,6 +136,7 @@ export function createKnowledgeGraphFunctionsModule() {
                 enabled: true,
                 description: `Get all relationships for a specific entity.`,
                 name: 'get_entity_detail',
+                return_shape: `{ name: string, relations: Relation[] } where Relation = { sourceName: string, targetName: string, kind: string, name: string, ts?: string }. Access via result.name and result.relations[i].kind / .targetName.`,
                 parameters: { entity: 'string' },
                 fn: async (ops: any) => {
                     let { entity } = ops.params;

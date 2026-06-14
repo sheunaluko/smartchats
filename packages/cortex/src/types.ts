@@ -20,6 +20,28 @@ export interface Function {
   return_type: FunctionReturnType
   fn: (p: FunctionParameters) => FunctionReturnType
   enabled?: boolean
+  /**
+   * Informal TS-ish shape string describing what the function returns.
+   * Surfaces to the LLM via `SCM.build()` alongside `parameters`, giving
+   * weaker models concrete field-name guidance without trial-and-error.
+   *
+   * Format is intentionally loose — covers the common case in one line, and
+   * the model can read either an inline-typed shape or a quick union for
+   * success vs error variants. Examples:
+   *
+   *   '{ rows: Row[], row_count: number, metric_name: string, unit: string,
+   *      aggregation: string, query: string }
+   *      where Row = { value: number, ts: string, local_date: string }'
+   *
+   *   '{ id: string, saved: true } | { error: string }'
+   *
+   *   'string'   (when the function returns a primitive)
+   *
+   * Not machine-validated; consumer is the LLM, not a runtime checker.
+   * Omit when the return is trivially a single primitive that
+   * `return_type` already describes.
+   */
+  return_shape?: string
 }
 
 export interface FunctionCall {

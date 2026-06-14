@@ -117,6 +117,7 @@ export function createLoggingModule() {
                 enabled: true,
                 description: `Save a journal/log entry with category. Auto-embeds for semantic search.`,
                 name: 'save_log',
+                return_shape: `{ saved: true, id: string, category: string } on success. { saved: false, error: string } if the insert returned no row. { error: 'text is required' } if text param missing.`,
                 parameters: {
                     text: 'string',
                     category: 'string',
@@ -250,6 +251,7 @@ export function createLoggingModule() {
                 enabled: true,
                 description: `Get recent logs with optional category/date filtering.`,
                 name: 'get_recent_logs',
+                return_shape: `Array of log row objects: [{ id: string, content: string, category: string, ts: string, local_date: string, local_tz: string, metadata?: object }]. Sorted ts DESC. Access via result[i].content / result[i].local_date. Empty array if no logs match.`,
                 parameters: {
                     category: 'string',
                     date: 'string',
@@ -284,6 +286,7 @@ export function createLoggingModule() {
                 enabled: true,
                 description: `Search logs by text substring (case-insensitive). Optional category/date filter.`,
                 name: 'search_logs',
+                return_shape: `Array of log row objects matching the substring search: [{ id, content, category, ts, local_date, local_tz, metadata? }]. Sorted ts DESC. Returns empty array if no matches. { error: 'text is required' } if text param missing.`,
                 parameters: {
                     text: 'string',
                     category: 'string',
@@ -324,6 +327,7 @@ export function createLoggingModule() {
                 enabled: true,
                 description: `Semantic search: find logs by meaning, ranked by similarity.`,
                 name: 'search_logs_semantic',
+                return_shape: `Array of log row objects ranked by semantic similarity: [{ id, content, category, ts, local_date, local_tz, distance: number, metadata? }]. Smaller distance = closer match. Sorted distance ASC. Returns empty array if no matches. { error: 'text is required' } if text param missing.`,
                 parameters: {
                     text: 'string',
                     category: 'string',

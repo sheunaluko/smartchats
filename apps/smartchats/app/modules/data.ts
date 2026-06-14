@@ -82,6 +82,7 @@ Parameters:
 - variables: (optional) key-value map of variable values referenced in the query
 `,
                 name: 'access_database_with_surreal_ql',
+                return_shape: `For a single-statement query: an array of row objects matching the SELECT projection. For a multi-statement query (separated by ;): an array of arrays, one per statement, in order. SurrealDB datetime fields come back as ISO strings. Access first row of single query via result[0]; multi-statement via result[i][j].`,
                 parameters: {
                     query: 'string',
                     variables: 'object'

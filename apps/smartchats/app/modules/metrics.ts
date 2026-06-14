@@ -681,6 +681,7 @@ export function createMetricsModule() {
                 enabled: true,
                 description: `Save a metric data point. Supports numeric values and boolean habits (metric_type='boolean').`,
                 name: 'save_metric',
+                return_shape: `Array of inserted row(s): [{ id: string, metric_name: string, value: number, unit: string, metric_type: string, ts: string, local_date: string, local_tz: string, source: string, category?: string }]. On error: { error: string }. Access via result[0].id to confirm save.`,
                 parameters: {
                     metric_name: 'string',
                     value: 'number',
@@ -741,6 +742,7 @@ export function createMetricsModule() {
                 enabled: true,
                 description: `Get summary of all tracked metrics: names, units, categories, recent entries. Call at session start.`,
                 name: 'get_metrics_context',
+                return_shape: `{ tracked_metrics: [{ metric_name: string, unit: string, category: string, metric_type: string, entry_count: number, max_value: number, min_value: number, prepared?: boolean }], latest_per_metric: [{ metric_name: string, value: number, unit: string, category: string, metric_type: string, ts: string, local_date: string, source: string }] }. The latest_per_metric array has one entry per distinct metric_name with that metric's most recent value.`,
                 parameters: null,
                 fn: async (ops: any) => {
                     const { log } = ops.util
@@ -850,6 +852,7 @@ export function createMetricsModule() {
                 enabled: true,
                 description: `Retrieve raw metric data rows for analysis (no visualization). Use this to answer questions about data; use display_metrics to show charts/tables. Date filter priority: date > from_date/to_date > recency > date_range.`,
                 name: 'retrieve_metrics',
+                return_shape: `{ rows: Row[], row_count: number, metric_name: string, unit: string, aggregation: string, date_filter_used: string, query: string } where Row = { value: number, ts: string, local_date: string, unit: string, metric_name: string, category?: string }. Empty case: { rows: [], row_count: 0, metric_name, message, query }. Error case: { error: string, query: string }. Access values via result.rows[i].value — the return value is NOT itself an array.`,
                 parameters: {
                     metric_name: 'string',
                     metric_names: 'array',

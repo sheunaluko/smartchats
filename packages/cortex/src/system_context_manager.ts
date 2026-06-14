@@ -153,19 +153,25 @@ export class SystemContextManager {
             }
         }
 
-        // 2. Collect function infos from all modules and render as section
+        // 2. Collect function infos from all modules and render as section.
+        // `return_shape` (when authored on the function) surfaces alongside
+        // parameters so the LLM gets field-name guidance for the return value
+        // — addresses the "every return_type is 'object'" documentation gap.
         const allFunctions: CortexFunction[] = []
         const functionInfoBlocks: string[] = []
         for (const mod of sorted) {
             if (mod.functions && mod.functions.length > 0) {
                 allFunctions.push(...mod.functions)
-                // Extract info-only representation for prompt
-                const infos = mod.functions.map(f => ({
-                    description: f.description,
-                    name: f.name,
-                    parameters: f.parameters,
-                    return_type: f.return_type
-                }))
+                const infos = mod.functions.map(f => {
+                    const info: Record<string, unknown> = {
+                        description: f.description,
+                        name: f.name,
+                        parameters: f.parameters,
+                        return_type: f.return_type,
+                    }
+                    if (f.return_shape) info.return_shape = f.return_shape
+                    return info
+                })
                 functionInfoBlocks.push(...infos.map(i => JSON.stringify(i)))
             }
         }

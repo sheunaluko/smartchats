@@ -334,6 +334,7 @@ export function createTodosModule() {
                 enabled: true,
                 description: `Save a todo item. Supports priority, due date, recurrence rules, and metric linking.`,
                 name: 'save_todo',
+                return_shape: `Array of inserted todo row(s): [{ id: string, type: 'todo', status: 'active', data: { title, description?, priority?, recurrence? }, due_at?: string, ts: string, local_date: string }]. On error: { error: 'title is required' } or similar.`,
                 parameters: {
                     title: 'string',
                     description: 'string',
@@ -505,6 +506,7 @@ export function createTodosModule() {
                 enabled: true,
                 description: `Get todo context (overdue, due today, upcoming, recurring due). Pass display:true to show the interactive todo list.`,
                 name: 'get_todos_context',
+                return_shape: `{ overdue: Todo[], due_today: Todo[], upcoming_7d: Todo[], no_date: Todo[], recurring_due: Todo[], total_active: number } where Todo = { id: string, title: string, description?: string, priority?: string, due_at?: string, recurrence?: object, ts: string }. Use total_active for count of all active todos.`,
                 parameters: {
                     display: 'boolean',
                     category: 'string',
