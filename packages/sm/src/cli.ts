@@ -5,23 +5,9 @@
  * One verb grammar, shared across the open + cloud repos. `sm` walks up
  * from cwd to figure out which repo you're in, then dispatches.
  *
- * Phase 1 verbs:
- *   sm                  status + recommended next (alias for `sm status`)
- *   sm status           read-only snapshot
- *   sm verify [level]   run tests at the chosen scope
- *   sm dev              start the dev environment for this repo
- *   sm doctor           environment health check
- *   sm explain <verb>   verbose state-aware description of what a verb does
- *   sm help [verb]      help text
- *
- * Later phases:
- *   sm release vX.Y.Z   (open) bump + tag + push
- *   sm push-public      (open) push to github.com/sheunaluko/smartchats
- *   sm sync             (cloud) sync from open
- *   sm deploy <target>  (cloud) functions / frontend / schema / all
- *   sm ship             (cloud) sync + verify + deploy + push
- *   sm rollback         (cloud) firebase / vercel rollback
- *   sm triage           wrap bin/triage-local or bin/triage-cloud
+ * Phase 1: status, verify, dev, doctor, explain, help
+ * Phase 2: sync, deploy, ship, rollback, release, push-public, triage
+ * Later:   API-driven status + diff-aware recommendations + cleanup pass
  */
 
 import consola from 'consola';
@@ -31,13 +17,19 @@ import { runVerify, verifyHelp } from './commands/verify.js';
 import { runDev, devHelp } from './commands/dev.js';
 import { runDoctor, doctorHelp } from './commands/doctor.js';
 import { runExplain, explainHelp } from './commands/explain.js';
+import { runSync, syncHelp } from './commands/sync.js';
+import { runDeploy, deployHelp } from './commands/deploy.js';
+import { runShip, shipHelp } from './commands/ship.js';
+import { runRollback, rollbackHelp } from './commands/rollback.js';
+import { runRelease, runPushPublic, releaseHelp, pushPublicHelp } from './commands/release.js';
+import { runTriage, triageHelp } from './commands/triage.js';
 
 const KNOWN = new Set([
-    'status',
-    'verify',
-    'dev',
-    'doctor',
-    'explain',
+    // Phase 1
+    'status', 'verify', 'dev', 'doctor', 'explain',
+    // Phase 2
+    'sync', 'deploy', 'ship', 'rollback', 'release', 'push-public', 'triage',
+    // help
     'help', '--help', '-h',
 ]);
 
@@ -47,35 +39,45 @@ function topHelp(): string {
 Usage:
   sm [verb] [args]
 
-Phase 1 verbs:
-  status            Read-only snapshot + recommended next step
-  verify [level]    Run tests (quick | unit | integration | e2e | install | stripe | all | ci)
-  dev               Start the dev environment for this repo
-  doctor            Environment health check
+Awareness:
+  status            Read-only snapshot + recommended next step (default; bare \`sm\`)
   explain <verb>    Verbose state-aware description of a verb
+  doctor            Environment health check
   help [verb]       Detailed help
 
-Bare \`sm\` is equivalent to \`sm status\`.
+Verify:
+  verify [level]    quick | lint | build | unit | integration | e2e | install | stripe | all | ci
 
-Planned (later phases):
-  release vX.Y.Z    (open)  bump CLI version + tag
-  push-public       (open)  push to github.com/sheunaluko/smartchats
-  sync              (cloud) rsync from open repo
-  deploy <target>   (cloud) functions | frontend | schema | all
-  ship              (cloud) sync + verify + deploy + push
-  rollback <target> (cloud) firebase / vercel rollback
-  triage            local / cloud session error triage
+Dev:
+  dev               Start the dev environment for this repo
 
-Environment:
-  NO_COLOR          Suppress color codes.
+Cloud actions:
+  sync              rsync open → cloud
+  deploy <target>   functions | frontend | schema | all
+  ship              sync + verify ci + deploy functions + push frontend
+  rollback <t>      functions | frontend
+
+Open actions:
+  release vX.Y.Z    Bump CLI + tag (with --push-tags fires release.yml)
+  push-public       git push origin main (open repo → public)
+
+Both:
+  triage [local|cloud]   End-to-end error session triage
+
+Common flags on destructive verbs:
+  --yes / -y     Skip preflight prompt (CI / scripting)
+  --explain      Print descriptor + checks then exit (no execution)
+  --dry-run      Where supported (sync, deploy schema)
+  --             Forward remaining args to the wrapped script
 
 Examples:
   sm
-  sm status
-  sm verify
+  sm explain ship
   sm verify e2e
-  sm verify e2e -- --headed
-  sm explain dev
+  sm deploy schema             # dry-run
+  sm deploy schema --apply -y  # commit, no prompt
+  sm ship --quick-verify
+  sm release v0.3.3 --push-tags
 `;
 }
 
@@ -91,12 +93,14 @@ async function main(): Promise<void> {
     if (first === 'help' || first === '--help' || first === '-h') {
         const sub = argv[1];
         if (!sub) { console.log(topHelp()); return; }
-        if (sub === 'status') console.log(statusHelp);
-        else if (sub === 'verify') console.log(verifyHelp);
-        else if (sub === 'dev') console.log(devHelp);
-        else if (sub === 'doctor') console.log(doctorHelp);
-        else if (sub === 'explain') console.log(explainHelp);
-        else console.log(topHelp());
+        const helps: Record<string, string> = {
+            status: statusHelp, verify: verifyHelp, dev: devHelp, doctor: doctorHelp,
+            explain: explainHelp, sync: syncHelp, deploy: deployHelp, ship: shipHelp,
+            rollback: rollbackHelp, release: releaseHelp, 'push-public': pushPublicHelp,
+            triage: triageHelp,
+        };
+        const text = helps[sub];
+        if (text) console.log(text); else console.log(topHelp());
         return;
     }
 
@@ -109,11 +113,18 @@ async function main(): Promise<void> {
 
     let exit = 0;
     switch (first) {
-        case 'status': exit = await runStatus(argv.slice(1)); break;
-        case 'verify': exit = await runVerify(argv.slice(1)); break;
-        case 'dev': exit = await runDev(argv.slice(1)); break;
-        case 'doctor': exit = await runDoctor(argv.slice(1)); break;
-        case 'explain': exit = await runExplain(argv.slice(1)); break;
+        case 'status':      exit = await runStatus(argv.slice(1)); break;
+        case 'verify':      exit = await runVerify(argv.slice(1)); break;
+        case 'dev':         exit = await runDev(argv.slice(1)); break;
+        case 'doctor':      exit = await runDoctor(argv.slice(1)); break;
+        case 'explain':     exit = await runExplain(argv.slice(1)); break;
+        case 'sync':        exit = await runSync(argv.slice(1)); break;
+        case 'deploy':      exit = await runDeploy(argv.slice(1)); break;
+        case 'ship':        exit = await runShip(argv.slice(1)); break;
+        case 'rollback':    exit = await runRollback(argv.slice(1)); break;
+        case 'release':     exit = await runRelease(argv.slice(1)); break;
+        case 'push-public': exit = await runPushPublic(argv.slice(1)); break;
+        case 'triage':      exit = await runTriage(argv.slice(1)); break;
     }
     process.exit(exit);
 }

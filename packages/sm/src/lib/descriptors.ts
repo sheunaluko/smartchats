@@ -427,6 +427,370 @@ function gotchasForDev(repo: 'open' | 'cloud' | 'unknown'): string[] {
     return ['Run from inside an open or cloud repo.'];
 }
 
+// ---------------------------------------------------------------------------
+// Phase 2: action verbs
+// ---------------------------------------------------------------------------
+
+function describeSync(): Explain {
+    const repo = detectRepo();
+    const context: ExplainContext[] = [];
+    const openHome = process.env.SMARTCHATS_PATH ?? `${process.env.HOME}/dev/smartchats`;
+    context.push({
+        label: '$SMARTCHATS_PATH (open repo)',
+        current: openHome,
+        impact: 'rsync source. Must be a valid git checkout.',
+        status: 'ok',
+    });
+    if (repo.kind === 'cloud' && repo.root) {
+        context.push(cloudEnvContext(repo.root));
+    }
+    return {
+        verb: 'sync',
+        summary: 'rsync open packages + app into the cloud vendored tree.',
+        audience: 'maintainer',
+        repos: ['cloud'],
+        toggles: [
+            {
+                label: '--dry-run',
+                current: 'off',
+                impact: 'Off: actually rsync. On: print what would happen, no writes.',
+            },
+            {
+                label: '--no-install',
+                current: 'off',
+                impact: 'Off: runs npm install after sync (slower but consistent). On: skips install.',
+            },
+        ],
+        context,
+        steps: [
+            'rsync open/packages/* into this repo packages/ (vendored)',
+            'rsync open/apps/smartchats/ into apps/smartchats/',
+            'rsync overlays/smartchats-app/ on top (closed-only overrides win)',
+            'npm install (unless --no-install)',
+            'Write .synced-from with open SHA, subject, timestamp, captured commits',
+        ],
+        sideEffects: [
+            { kind: 'disk', description: 'Overwrites vendored packages/* and apps/smartchats/ files. Updates .synced-from.' },
+            { kind: 'process', description: 'npm install (unless --no-install)' },
+        ],
+        gotchas: [
+            'Anything in vendored packages/* that is NOT in open will be DELETED by rsync.',
+            'Overlay shadowing: overlays/smartchats-app/ ALWAYS wins after the open sync — edit there for closed-only changes.',
+            'Open uncommitted changes ARE synced (rsync looks at the working tree, not git HEAD).',
+        ],
+        seeAlso: ['sm explain ship', 'sm explain deploy'],
+    };
+}
+
+function describeDeploy(target?: string): Explain {
+    const repo = detectRepo();
+    const context: ExplainContext[] = [];
+    if (repo.kind === 'cloud' && repo.root) {
+        context.push(cloudEnvContext(repo.root));
+    }
+
+    const targetToggle: ExplainToggle = {
+        label: 'target',
+        current: target ?? '(none — specify)',
+        impact: target ? deployTargetImpact(target) : 'Pick one of: functions / frontend / schema / all',
+        alternatives: [
+            { value: 'functions', impact: 'Firebase Functions + Firestore indexes via bin/deploy-functions (forces .env→.env.cloud, type-checks, firebase deploy).' },
+            { value: 'frontend', impact: 'git push origin main (Vercel auto-deploys within ~1 min).' },
+            { value: 'schema', impact: 'SurrealDB DDL apply. Defaults to --dry-run; needs --apply to commit. Requires SMARTCHATS_CLOUD_* root creds in env.' },
+            { value: 'all', impact: 'functions, then frontend. Bails on first failure.' },
+        ],
+    };
+
+    return {
+        verb: 'deploy' + (target ? ` ${target}` : ''),
+        summary: 'Deploy a specific target. Preflights before doing anything destructive.',
+        audience: 'maintainer',
+        repos: ['cloud'],
+        toggles: [targetToggle],
+        context,
+        steps: stepsForDeploy(target),
+        sideEffects: sideEffectsForDeploy(target),
+        gotchas: gotchasForDeploy(target),
+        seeAlso: ['sm explain ship', 'sm explain rollback'],
+    };
+}
+
+function deployTargetImpact(target: string): string {
+    switch (target) {
+        case 'functions': return 'Wraps bin/deploy-functions. Forces .env→.env.cloud, type-checks, firebase deploy. LIVE keys, LIVE Surreal.';
+        case 'frontend': return 'git push origin main. Vercel watches origin/main and auto-deploys.';
+        case 'schema': return 'npm run schema:apply against SMARTCHATS_CLOUD_*. --dry-run by default; --apply to commit (irreversible).';
+        case 'all': return 'functions + frontend in sequence.';
+        default: return `Custom target: ${target}`;
+    }
+}
+
+function stepsForDeploy(target?: string): string[] {
+    switch (target) {
+        case 'functions':
+            return [
+                'Preflight: on main, tree clean, last verify fresh + on current HEAD, .env→.env.cloud (or warn).',
+                'Confirm.',
+                'bin/deploy-functions: rebuild functions/lib, then ./deploy (forces .env→.env.cloud, type-checks, firebase deploy --only functions,firestore:indexes).',
+            ];
+        case 'frontend':
+            return [
+                'Preflight: on main, tree clean, ahead of origin.',
+                'Confirm.',
+                'git push origin main → Vercel watches origin/main and auto-deploys within ~1 min.',
+            ];
+        case 'schema':
+            return [
+                'Preflight: all SMARTCHATS_CLOUD_* env vars set. Mode (--dry-run default vs --apply).',
+                'Confirm.',
+                'npm run schema:apply (with --dry-run unless --apply).',
+                'Reads version stamp, applies any new migrations idempotently.',
+            ];
+        case 'all':
+            return [
+                'sm deploy functions (with its own preflight).',
+                'If pass: sm deploy frontend.',
+                'Bails on first failure — frontend is NOT pushed if functions fail.',
+            ];
+        default:
+            return ['Pick a target: functions / frontend / schema / all.'];
+    }
+}
+
+function sideEffectsForDeploy(target?: string): Explain['sideEffects'] {
+    switch (target) {
+        case 'functions':
+            return [
+                { kind: 'network', description: 'Firebase API calls (auth + deploy)' },
+                { kind: 'deploy', description: 'Replaces LIVE production Functions + Firestore indexes' },
+                { kind: 'disk', description: 'functions/.env symlink forced to .env.cloud' },
+            ];
+        case 'frontend':
+            return [
+                { kind: 'git', description: 'git push origin main' },
+                { kind: 'deploy', description: 'Vercel watches the push and auto-deploys (async)' },
+            ];
+        case 'schema':
+            return [
+                { kind: 'network', description: 'WebSocket/HTTPS to SMARTCHATS_CLOUD_URL with root creds' },
+                { kind: 'deploy', description: '--apply: idempotent DDL changes against LIVE Surreal (irreversible)' },
+            ];
+        case 'all':
+            return [
+                { kind: 'deploy', description: 'See deploy functions + deploy frontend' },
+            ];
+        default:
+            return [{ kind: 'none', description: '(no target)' }];
+    }
+}
+
+function gotchasForDeploy(target?: string): string[] {
+    switch (target) {
+        case 'functions': return [
+            'bin/deploy-functions FORCES .env→.env.cloud — if you had it on .env.local-test for dev, you must re-symlink it back after deploy.',
+            'firebase.json has a predeploy assertion as backstop; deploy refuses if .env isn\'t .env.cloud.',
+            'Type-check failure in functions/src will abort BEFORE shipping (good — calculateCost NaN incident of 2026-06-09 motivated this).',
+            'Vercel is NOT touched by this deploy. Use `sm deploy all` for both.',
+        ];
+        case 'frontend': return [
+            'This is `git push`, not `vercel deploy` — Vercel watches the git source and deploys async.',
+            'No way to dry-run; use `git push --dry-run` directly to preview.',
+            'Functions are NOT touched. Use `sm deploy all` for both.',
+        ];
+        case 'schema': return [
+            'No rollback. Schema migrations are idempotent only — `--apply` against the wrong DB is unrecoverable.',
+            'Test on cloud_test_db first via `bin/devserve` (cloud_test_db applies schema on boot).',
+            'Production: needs SMARTCHATS_CLOUD_URL/USER/PASSWORD + SMARTCHATS_CLOUD_USER_AUTH_SECRET — read packages/smartchats-cloud/.env.cloud for values.',
+        ];
+        case 'all': return [
+            'Functions deploy first. If it fails, frontend is NOT pushed (avoids a half-deploy where Vercel ships against old Functions).',
+            'If functions succeed but frontend push fails: Functions ARE LIVE — you can re-push or fix manually.',
+        ];
+        default: return [];
+    }
+}
+
+function describeShip(): Explain {
+    const repo = detectRepo();
+    const context: ExplainContext[] = [];
+    if (repo.kind === 'cloud' && repo.root) {
+        context.push(cloudEnvContext(repo.root));
+    }
+    return {
+        verb: 'ship',
+        summary: 'Full deploy: sync → verify ci → deploy functions → deploy frontend.',
+        audience: 'maintainer',
+        repos: ['cloud'],
+        toggles: [
+            {
+                label: '--quick-verify',
+                current: 'off',
+                impact: 'Off: verify ci (quick + unit + integration, ~2 min). On: verify quick (lint + build, ~30s).',
+            },
+            {
+                label: '--skip-verify',
+                current: 'off',
+                impact: 'Off: verify runs. On: verify SKIPPED entirely (debugging only).',
+            },
+        ],
+        context,
+        steps: [
+            'sm sync (rsync open → cloud)',
+            'sm verify ci (or quick / skipped per flags)',
+            'sm deploy functions (firebase deploy, with its own preflight)',
+            'sm deploy frontend (git push origin main, Vercel auto-deploys)',
+        ],
+        sideEffects: [
+            { kind: 'disk', description: 'sync writes vendored tree' },
+            { kind: 'deploy', description: 'LIVE Functions + Vercel deploys' },
+            { kind: 'git', description: 'git push origin main' },
+        ],
+        gotchas: [
+            'Each downstream step preflights itself; bail-on-failure is automatic.',
+            'If functions succeed but frontend push fails, Functions are LIVE — re-run `sm deploy frontend`.',
+            '--skip-verify exists for emergencies; the default (ci) is what you want.',
+        ],
+        seeAlso: ['sm explain deploy', 'sm explain rollback'],
+    };
+}
+
+function describeRollback(target?: string): Explain {
+    return {
+        verb: 'rollback' + (target ? ` ${target}` : ''),
+        summary: 'Roll back a deployed target.',
+        audience: 'maintainer',
+        repos: ['cloud'],
+        toggles: [
+            {
+                label: 'target',
+                current: target ?? '(none — specify)',
+                impact: target === 'functions'
+                    ? 'Guided: lists recent commits touching functions/, you check out an earlier SHA and re-deploy.'
+                    : target === 'frontend'
+                        ? 'Delegates to `vercel rollback` (interactive list + prompt).'
+                        : 'Pick: functions or frontend.',
+                alternatives: [
+                    { value: 'functions', impact: 'No single-command rollback; guided manual SHA-based redeploy.' },
+                    { value: 'frontend', impact: 'Native `vercel rollback` — fast, supported.' },
+                ],
+            },
+        ],
+        context: [],
+        steps: target === 'functions'
+            ? [
+                'Show last 10 commits touching packages/smartchats-cloud/functions/.',
+                'Instruct: git checkout <sha> && sm deploy functions && git checkout main.',
+            ]
+            : target === 'frontend'
+                ? [
+                    'Delegate to `vercel rollback` (interactive).',
+                ]
+                : ['Pick a target.'],
+        sideEffects: target === 'functions'
+            ? [{ kind: 'none', description: 'Guided steps only; you run the deploy yourself.' }]
+            : target === 'frontend'
+                ? [{ kind: 'deploy', description: 'Promotes an earlier Vercel deployment to production.' }]
+                : [],
+        gotchas: target === 'functions'
+            ? [
+                'Firebase Functions has no atomic rollback — you re-deploy an earlier git state.',
+                'After rollback, `git checkout main` and decide: fix forward, or commit a revert.',
+            ]
+            : target === 'frontend'
+                ? ['Database / Functions stay as-is — only the Vercel frontend rolls back.']
+                : [],
+    };
+}
+
+function describeRelease(): Explain {
+    return {
+        verb: 'release',
+        summary: 'Bump packages/smartchats-cli version + tag. Optionally push tags to trigger release.yml.',
+        audience: 'maintainer',
+        repos: ['open'],
+        toggles: [
+            { label: '--push-tags', current: 'off', impact: 'Off: bin/release just creates the tag locally. On: git push --follow-tags afterward — fires release.yml workflow.' },
+            { label: '--npm', current: 'off', impact: 'Off: CI publishes via OIDC after tag push. On: publish to npm directly (manual / testing / hotfix).' },
+        ],
+        context: [],
+        steps: [
+            'Preflight: clean tree, on main.',
+            'Confirm.',
+            'bin/release <version>: validates semver, bumps packages/smartchats-cli/package.json, commits, tags.',
+            '(if --push-tags) git push --follow-tags — fires .github/workflows/release.yml.',
+        ],
+        sideEffects: [
+            { kind: 'git', description: 'Creates commit + annotated tag.' },
+            { kind: 'deploy', description: '(if --push-tags) triggers GitHub Actions: 5-platform tarball matrix + npm publish' },
+        ],
+        gotchas: [
+            'No `--push` from bin/release per project rule; sm release adds it explicitly behind --push-tags.',
+            'Once tag is pushed, release.yml runs unattended — npm publish happens automatically.',
+            'Use --npm for hotfix flows when you do not want to push the tag yet.',
+        ],
+        seeAlso: ['sm explain push-public'],
+    };
+}
+
+function describePushPublic(): Explain {
+    return {
+        verb: 'push-public',
+        summary: 'Routine git push origin main from the open repo.',
+        audience: 'maintainer',
+        repos: ['open'],
+        toggles: [],
+        context: [],
+        steps: [
+            'Preflight: on main, clean tree, ahead of origin.',
+            'Confirm.',
+            'git push origin main → github.com/sheunaluko/smartchats',
+        ],
+        sideEffects: [
+            { kind: 'git', description: 'Publishes local commits to the public repo.' },
+        ],
+        gotchas: [
+            'Not a force push. If origin has diverged, this errors — investigate before resolving.',
+        ],
+        seeAlso: ['sm explain release'],
+    };
+}
+
+function describeTriage(): Explain {
+    const repo = detectRepo();
+    return {
+        verb: 'triage',
+        summary: 'End-to-end error session triage (local AIO or cloud Surreal).',
+        audience: 'maintainer',
+        repos: ['open', 'cloud'],
+        toggles: [
+            {
+                label: 'target',
+                current: repo.kind === 'open' ? 'local (default in open repo)' : repo.kind === 'cloud' ? 'cloud (default in cloud repo)' : '(specify local | cloud)',
+                impact: 'local: bin/triage-local against local AIO DB. cloud: bin/triage-cloud against production Surreal.',
+                alternatives: [
+                    { value: 'local', impact: 'bin/triage-local — needs local AIO running.' },
+                    { value: 'cloud', impact: 'bin/triage-cloud — needs cloud creds reachable.' },
+                ],
+            },
+        ],
+        context: [],
+        steps: [
+            'find-sessions --has-error --since <window> (default: 30d)',
+            'Skip session_ids whose bundle is already on disk (--force re-pulls)',
+            'save-session for each missing id',
+            'triage:errors over the bundle dir (HTML report)',
+        ],
+        sideEffects: [
+            { kind: 'network', description: 'Cloud target: WebSocket/HTTPS to production Surreal' },
+            { kind: 'disk', description: 'Bundles written to ~/.smartchats/{session_bundles, cloud_sessions/cloud}' },
+        ],
+        gotchas: [
+            'Cloud triage needs root creds resolvable by packages/smartchats-cloud (its .env).',
+            'jq must be installed (used to read session_id from existing bundles).',
+        ],
+    };
+}
+
 function describeDoctor(): Explain {
     return {
         verb: 'doctor',
@@ -454,24 +818,33 @@ function describeDoctor(): Explain {
 export function getExplain(verb: string, sub?: string): Explain | null {
     const head = verb.toLowerCase();
     switch (head) {
-        case 'status':
-            return describeStatus();
-        case 'verify':
-            return describeVerify(sub);
-        case 'dev':
-            return describeDev();
-        case 'doctor':
-            return describeDoctor();
-        default:
-            return null;
+        case 'status':       return describeStatus();
+        case 'verify':       return describeVerify(sub);
+        case 'dev':          return describeDev();
+        case 'doctor':       return describeDoctor();
+        case 'sync':         return describeSync();
+        case 'deploy':       return describeDeploy(sub);
+        case 'ship':         return describeShip();
+        case 'rollback':     return describeRollback(sub);
+        case 'release':      return describeRelease();
+        case 'push-public':  return describePushPublic();
+        case 'triage':       return describeTriage();
+        default:             return null;
     }
 }
 
 export function listVerbs(): Array<{ verb: string; summary: string }> {
     return [
-        { verb: 'status', summary: describeStatus().summary },
-        { verb: 'verify', summary: describeVerify().summary },
-        { verb: 'dev', summary: describeDev().summary },
-        { verb: 'doctor', summary: describeDoctor().summary },
+        { verb: 'status',      summary: describeStatus().summary },
+        { verb: 'verify',      summary: describeVerify().summary },
+        { verb: 'dev',         summary: describeDev().summary },
+        { verb: 'doctor',      summary: describeDoctor().summary },
+        { verb: 'sync',        summary: describeSync().summary },
+        { verb: 'deploy',      summary: describeDeploy().summary },
+        { verb: 'ship',        summary: describeShip().summary },
+        { verb: 'rollback',    summary: describeRollback().summary },
+        { verb: 'release',     summary: describeRelease().summary },
+        { verb: 'push-public', summary: describePushPublic().summary },
+        { verb: 'triage',      summary: describeTriage().summary },
     ];
 }
