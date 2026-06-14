@@ -106,6 +106,7 @@ If \`fallback_used\` is set or \`confidence\` is "low", mention to the user that
                 enabled: true,
                 description: `Find a Bible verse whose chapter:verse reference matches a given time (defaults to the current time). Prefers wisdom books (Proverbs, Psalms). Always returns a verse — falls back to Proverbs 3:5 when no plausible match is surfaced. Returns { time, reference, verse_text, source_url, confidence, fallback_used }.`,
                 name: 'find_scripture_for_time',
+                return_shape: `{ time: string (H:MM), reference: string (e.g. "Proverbs 3:5"), verse_text: string, source_url: string, confidence: 'high' | 'medium' | 'low' | 'none', fallback_used: 'hardcoded' | null }. ALWAYS returns a verse — falls back to a hardcoded verse with confidence='none' if no match found.`,
                 parameters: {
                     time: 'string (optional, format "H:MM"; defaults to current local time)',
                 },

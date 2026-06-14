@@ -55,6 +55,7 @@ export function createVoiceMemosModule() {
                 enabled: true,
                 description: `Record a voice memo. Speaks user_instructions aloud, then collects audio + transcript chunks until the user says "finished" (or "cancel" to abort). Saves the audio to local device storage and the transcript as a voice_memo log entry. You MUST return the result to retrieve the memo_id and transcript.`,
                 name: 'save_memo',
+                return_shape: `Success: { saved: true, memo_id: string, transcript: string, duration_seconds: number }. Cancel: { cancelled: true }. Errors: { error: 'Microphone unavailable' } or { error: 'Failed to save audio locally' }. If transcript was empty but audio saved, saved may be true with empty transcript.`,
                 parameters: {
                     user_instructions: 'string',
                     title: 'string (optional)',

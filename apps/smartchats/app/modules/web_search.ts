@@ -10,6 +10,7 @@ export function createWebSearchModule() {
                 enabled: true,
                 description: 'Searches the web via Google. Returns organic results, knowledge graph, and answer box when available. Use when the user asks about current events, facts you are unsure about, or anything that benefits from up-to-date web information.',
                 name: 'web_search',
+                return_shape: `Array of search result rows: [{ title: string, url: string, snippet: string, extra?: { position?: number, date?: string, thumbnail?: string } }]. Access via result[i].title / result[i].url / result[i].snippet. Empty array if no results.`,
                 parameters: { query: 'string' },
                 fn: async (ops: any) => {
                     const { query } = ops.params
@@ -30,6 +31,7 @@ export function createWebSearchModule() {
                 enabled: true,
                 description: 'Fetches a web page and extracts its readable text content. Use after web_search to read the full content of a relevant URL. Returns the page title and extracted text.',
                 name: 'get_text_from_url',
+                return_shape: `{ text: string, title?: string }. Access body via result.text. The title field may be absent if the page had no <title>.`,
                 parameters: { url: 'string', max_chars: 'number (optional, default ~7500)' },
                 fn: async (ops: any) => {
                     const { url, max_chars } = ops.params

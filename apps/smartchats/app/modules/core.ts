@@ -29,6 +29,7 @@ export function createCoreModule() {
                 enabled: true,
                 description: `Collect extended text input from the user until they say "finished" (or "cancel" to abort). The user_instructions parameter is spoken aloud — either pass instructions there OR speak them in your response, never both. You must RETURN the result of this function to retrieve the collected text.`,
                 name: 'accumulate_text',
+                return_shape: `A string. On success: the user's joined input, one chunk per line ('\\n' separator). On cancellation: the literal string "User cancelled the text accumulation". The return value is the string itself — not wrapped in an object.`,
                 parameters: { user_instructions: 'string' },
                 fn: async (ops: any) => {
 
@@ -80,6 +81,7 @@ export function createCoreModule() {
                 enabled: true,
                 description: `Check the user's login status and storage mode (local or cloud).`,
                 name: 'check_login_status',
+                return_shape: `{ isAuthenticated: boolean, storageMode: 'cloud' | 'local' | 'unknown', userName: string (may be empty), message: string (user-facing description of the auth state) }. Branch on isAuthenticated and storageMode.`,
                 parameters: null,
                 fn: async (ops: any) => {
                     const { log } = ops.util;

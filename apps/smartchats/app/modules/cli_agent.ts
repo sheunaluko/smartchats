@@ -136,6 +136,7 @@ Do NOT poll — just acknowledge the command and WAIT for the idle notification.
                 enabled: true,
                 description: 'Connect to the PTY WebSocket server. Call this first or to reconnect. Optionally provide a custom WebSocket URL.',
                 name: 'cli_connect',
+                return_shape: `{ connected: true, url: string } on success. Throws on connect failure (no error-object return path).`,
                 parameters: { url: 'string' },
                 fn: async (ops: any) => {
                     const { url } = ops.params
@@ -157,6 +158,7 @@ Do NOT poll — just acknowledge the command and WAIT for the idle notification.
                 enabled: true,
                 description: 'Send a command or prompt to the CLI agent. Returns immediately — output arrives asynchronously when the agent goes idle.',
                 name: 'cli_send_command',
+                return_shape: `{ sent: true, command: string (truncated to 100 chars in the echo) }. Returns immediately; the actual output arrives later via cli_idle notification — call cli_read_output then.`,
                 parameters: { command: 'string' },
                 fn: async (ops: any) => {
                     const { command } = ops.params
@@ -180,6 +182,7 @@ Do NOT poll — just acknowledge the command and WAIT for the idle notification.
                 enabled: true,
                 description: 'Read the last N lines of terminal output from the CLI agent without sending any input.',
                 name: 'cli_read_output',
+                return_shape: `Success: { output: string (lines joined by '\\n'), lineCount: number, source?: 'local_buffer' (set when the WS read timed out and we fell back to the local buffer) }. Error: { error: 'Not connected. Call cli_connect first.' }.`,
                 parameters: { lines: 'number' },
                 fn: async (ops: any) => {
                     const { lines } = ops.params
@@ -226,6 +229,7 @@ Blocks until the user says "finished" (or "cancel"). Each voice chunk is sent as
 Set submit=true to append a newline after each chunk (submits to the CLI). While this function
 is running, voice input routes here automatically via the function_input_ch channel.`,
                 name: 'cli_voice_forward',
+                return_shape: `Completion: { status: 'VOICE MODE COMPLETE', sentChars: number, sentMessages: number }. Cancellation: { status: 'VOICE MODE CANCELLED', sentChars: number, sentMessages: number }. Error: { error: 'Not connected. Call cli_connect first.' }.`,
                 parameters: { submit: 'boolean', instructions: 'string' },
                 fn: async (ops: any) => {
                     const { submit, instructions } = ops.params
@@ -277,6 +281,7 @@ is running, voice input routes here automatically via the function_input_ch chan
                 enabled: true,
                 description: 'Check the connection status and idle state of the CLI agent.',
                 name: 'cli_status',
+                return_shape: `{ connected: boolean, url: string, idle: boolean, idleSeconds: number (0 when not idle), bufferedLines: number }.`,
                 parameters: null,
                 fn: async (ops: any) => {
                     const { log } = ops.util

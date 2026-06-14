@@ -38,6 +38,7 @@ Use console.log() to emit output to stdout. Use return to produce the final resu
                 enabled: true,
                 description: 'Lists all background processes with their status, elapsed time, and output line counts.',
                 name: 'ps',
+                return_shape: `Array of process summaries: [{ process_id: string, id: string, name: string, mode: string, status: 'running' | 'completed' | 'failed' | 'killed', completionMode: 'immediate' | 'standard', startedAt: number (epoch ms), finishedAt?: number, exitCode?: number, elapsed: number (ms), stdoutLines: number, stderrLines: number }]. Empty array if no processes.`,
                 parameters: null,
                 fn: async (ops: any) => {
                     const COR = (typeof window !== 'undefined' ? (window as any).COR : null);
@@ -50,6 +51,7 @@ Use console.log() to emit output to stdout. Use return to produce the final resu
                 enabled: true,
                 description: `Read stdout/stderr output from a background process.`,
                 name: 'read_process',
+                return_shape: `{ stdout: [{ ts: number, line: string }], stderr: [{ ts: number, line: string }] } where ts is epoch ms. Returns null if the process_id is unknown. When 'stream' param is set, the unfiltered stream is an empty array.`,
                 parameters: { process_id: 'string', stream: 'string', last: 'number' },
                 fn: async (ops: any) => {
                     const { process_id, stream, last } = ops.params;

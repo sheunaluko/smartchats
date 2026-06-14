@@ -555,6 +555,7 @@ To iterate on an app without installing: preview_app → modify workspace.__prev
                 enabled: true,
                 description: `Create a new mini-app, save to registry, install, and activate. Function signature: (fnArgs, app, util). app = { dom, state, fns, manifest, el(selector) }. util = { smartchats, user_output, get_user_input, update_workspace, get_workspace, log, feedback }. The html parameter is the app's iframe HTML template.`,
                 name: 'create_app',
+                return_shape: `{ app_id: string, name: string, message: string }. Use app_id for any subsequent activate/update/uninstall calls. message is a user-facing confirmation string.`,
                 parameters: {
                     name: 'string',
                     description: 'string',
@@ -611,6 +612,7 @@ To iterate on an app without installing: preview_app → modify workspace.__prev
                 enabled: true,
                 description: 'Update an existing app. Can modify HTML, state_schema, description, or functions. Bumps the version and hot-reloads if the app is currently active.',
                 name: 'update_app',
+                return_shape: `{ app_id: string, version: string (the new bumped version), message: string }. Throws (no error-object return) if app_id is not found.`,
                 parameters: {
                     app_id: 'string',
                     html: 'string',
