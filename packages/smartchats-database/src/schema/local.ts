@@ -60,7 +60,7 @@ export interface LocalSchemaLogger {
     success?: (msg: string) => void;
 }
 
-export const LOCAL_SCHEMA_VERSION = '1.0.2';
+export const LOCAL_SCHEMA_VERSION = '1.0.0';
 
 export const LOCAL_DDL = `
 -- ─── schema version marker ────────────────────────────────────────
