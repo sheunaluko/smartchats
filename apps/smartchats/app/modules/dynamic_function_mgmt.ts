@@ -15,6 +15,7 @@ export function createDynamicFunctionMgmtModule() {
                 enabled: true,
                 description: `Create and save a reusable async function to the database.`,
                 name: 'create_dynamic_function',
+                return_shape: `Success: { success: true, name: string, message: string }. Throws Error on invalid syntax or embedding failure (no error-object return path).`,
                 parameters: {
                     name: 'string',
                     description: 'string',
@@ -55,6 +56,7 @@ export function createDynamicFunctionMgmtModule() {
                 enabled: true,
                 description: `Load a saved dynamic function by name.`,
                 name: 'load_dynamic_function',
+                return_shape: `The function definition row: { name: string, code: string, description: string, params_schema?: object, ... } (other fields like timestamps). Throws Error if not found.`,
                 parameters: {
                     name: 'string'
                 },
@@ -83,6 +85,7 @@ export function createDynamicFunctionMgmtModule() {
                 enabled: true,
                 description: `List all saved dynamic functions with descriptions.`,
                 name: 'list_dynamic_functions',
+                return_shape: `Array of dynamic function definitions: [{ name: string, code: string, description: string, params_schema?: object, ... }]. Empty array if none stored.`,
                 parameters: null,
                 fn: async (ops: any) => {
                     const { log } = ops.util;
@@ -106,6 +109,7 @@ export function createDynamicFunctionMgmtModule() {
                 enabled: true,
                 description: `Update a dynamic function's code, description, or params. Only provided fields change.`,
                 name: 'update_dynamic_function',
+                return_shape: `Success: { success: true, name: string, message: string }. Throws Error on invalid syntax or if no fields supplied to update.`,
                 parameters: {
                     name: 'string',
                     code: 'string',
@@ -163,6 +167,7 @@ export function createDynamicFunctionMgmtModule() {
                 enabled: true,
                 description: `Delete a dynamic function by name.`,
                 name: 'delete_dynamic_function',
+                return_shape: `{ success: true, name: string, message: string }.`,
                 parameters: {
                     name: 'string'
                 },

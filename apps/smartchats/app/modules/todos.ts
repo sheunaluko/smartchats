@@ -399,6 +399,7 @@ export function createTodosModule() {
                 enabled: true,
                 description: `Manage a todo by id. Actions: complete, cancel, defer, reschedule, edit, delete.`,
                 name: 'manage_todo',
+                return_shape: `Shape depends on the action arg. complete: { completed: true, id, had_recurrence: boolean, title }. cancel: { cancelled: true, id }. defer: { deferred: true, id }. reschedule: { rescheduled: true, id, new_due_date?, new_recurrence? }. edit: { edited: true, id, updated_fields: string[] }. delete: { deleted: true, id }. Error variants: { error: string }.`,
                 parameters: {
                     id: 'string',
                     action: 'string',

@@ -56,6 +56,7 @@ export function createProceduralInstructionsModule() {
                 enabled: true,
                 description: `Fetch all procedural instructions, optionally filtered by category.`,
                 name: 'get_procedural_instructions',
+                return_shape: `Array of instruction rows: [{ id: string, content: string, category?: string, created_at?: string, updated_at?: string }]. Sorted id ASC (stable across DB re-imports). Empty array if none match.`,
                 parameters: {
                     category: 'string',
                 },
@@ -78,6 +79,7 @@ export function createProceduralInstructionsModule() {
                 enabled: true,
                 description: `Create a new procedural instruction. Computes an embedding for semantic search.`,
                 name: 'create_procedural_instruction',
+                return_shape: `Success: { created: true, id: string, content: string, category: string | null }. DB returned no row: { created: false, error: 'No result from DB' }. Missing arg: { error: 'content is required' }.`,
                 parameters: {
                     content: 'string',
                     category: 'string',
@@ -120,6 +122,7 @@ export function createProceduralInstructionsModule() {
                 enabled: true,
                 description: `Update a procedural instruction's content and/or category. Recomputes embedding if content changes.`,
                 name: 'update_procedural_instruction',
+                return_shape: `Success: { updated: true, id: string, result: any (the updated row or null) }. Missing id: { error: 'id is required' }. No fields supplied: { error: 'No fields provided to update' }.`,
                 parameters: {
                     id: 'string',
                     content: 'string',
@@ -171,6 +174,7 @@ export function createProceduralInstructionsModule() {
                 enabled: true,
                 description: `Delete a procedural instruction by id.`,
                 name: 'delete_procedural_instruction',
+                return_shape: `Success: { deleted: true, id: string }. Missing arg: { error: 'id is required' }.`,
                 parameters: {
                     id: 'string',
                 },
@@ -195,6 +199,7 @@ export function createProceduralInstructionsModule() {
                 enabled: true,
                 description: `Semantic search across procedural instructions. Use to check for duplicates before creating.`,
                 name: 'search_procedural_instructions',
+                return_shape: `Array of instructions ranked by semantic similarity: [{ id: string, content: string, category?: string, created_at?: string, distance: number }]. Smaller distance = closer match. Missing arg: { error: 'text is required' }.`,
                 parameters: {
                     text: 'string',
                     limit: 'number',

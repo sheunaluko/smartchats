@@ -758,6 +758,7 @@ export function createMetricsModule() {
                 enabled: true,
                 description: `Batch-save accepted/edited metrics from extraction review. Reads from workspace automatically.`,
                 name: 'save_reviewed_metrics',
+                return_shape: `{ saved: number, failed: number, skipped: number, errors: string[] }. Counts of metrics from workspace.structured_extractions_review that were persisted, that failed, and that were not flagged as accepted/edited.`,
                 parameters: null,
                 fn: async (ops: any) => {
                     const { log, get_workspace } = ops.util;
@@ -1022,6 +1023,7 @@ export function createMetricsModule() {
                 enabled: true,
                 description: `Get habit completion stats: streak, days done, completion rate. For boolean metrics only.`,
                 name: 'retrieve_habit_summary',
+                return_shape: `{ metric_name: string, days_done: number, days_in_range: number, completion_rate: string (formatted percentage), current_streak: number, longest_streak: number, last_done_date: string | null, date_range_used: string } on success. { error: 'metric_name is required' } if missing.`,
                 parameters: {
                     metric_name: 'string',
                     date: 'string',
@@ -1148,6 +1150,7 @@ export function createMetricsModule() {
                 enabled: true,
                 description: `Register a metric the user intends to track, without saving an actual data point. Use during onboarding or when the user says "I want to track X" but hasn't reported a value yet. This makes the metric visible in get_metrics_context so you know about it on future sessions.`,
                 name: 'prepare_metric',
+                return_shape: `Success (new): { ok: true, metric_name: string, unit: string, metric_type: string, category: string, prepared: true }. Already prepared: { ok: true, metric_name: string, already_prepared: true }. Already has entries: { ok: true, metric_name: string, already_tracked: true, message: string }. Error: { error: 'metric_name is required' }.`,
                 parameters: {
                     metric_name: 'string',
                     unit: 'string',
@@ -1198,6 +1201,7 @@ export function createMetricsModule() {
                 enabled: true,
                 description: `Update a metric entry by id. Whitelisted fields: value, category, note, source_text. metric_name / unit / metric_type are NOT editable — those define what the metric IS; correct via delete + re-save instead.`,
                 name: 'update_metric',
+                return_shape: `Success: { updated: true, id: string }. Not found / no fields: { updated: false, error: string }.`,
                 parameters: {
                     id: 'string',
                     value: 'number',
@@ -1233,6 +1237,7 @@ export function createMetricsModule() {
                 enabled: true,
                 description: `Delete a metric entry by id. Returns the deleted row. Use for cleanup of mistaken entries.`,
                 name: 'delete_metric',
+                return_shape: `Success: { deleted: true, id: string, before: object (the deleted row) }. Not found: { deleted: false, error: 'Metric not found' }. Missing arg: { error: 'id is required' }.`,
                 parameters: {
                     id: 'string',
                 },

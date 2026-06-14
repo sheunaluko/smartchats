@@ -160,6 +160,7 @@ export function createLoggingModule() {
                 enabled: true,
                 description: `Update log content, category, or timestamp. Re-embeds on content change.`,
                 name: 'update_log',
+                return_shape: `Success: { updated: true, id: string }. Not found / no fields: { updated: false, error: string }. Missing arg: { error: 'id is required' }.`,
                 parameters: {
                     id: 'string',
                     text: 'string',
@@ -229,6 +230,7 @@ export function createLoggingModule() {
                 enabled: true,
                 description: `Delete a log entry by id. Returns the deleted row. Logs are otherwise append-only — use for cleanup of garbled / test entries only.`,
                 name: 'delete_log',
+                return_shape: `Success: { deleted: true, id: string, before: object (the deleted row) }. Not found: { deleted: false, error: 'Log not found' }. Missing arg: { error: 'id is required' }.`,
                 parameters: {
                     id: 'string',
                 },
@@ -363,6 +365,7 @@ export function createLoggingModule() {
                 enabled: true,
                 description: `List all log categories with entry counts.`,
                 name: 'get_log_categories',
+                return_shape: `Array of category objects: [{ category: string, count: number, prepared?: boolean, description?: string }]. count is the number of logs with that category; prepared=true marks placeholder categories with no actual logs yet.`,
                 parameters: null,
                 fn: async (ops: any) => {
                     const { log } = ops.util
@@ -422,6 +425,7 @@ export function createLoggingModule() {
                 enabled: true,
                 description: `Register a log category the user intends to use, without creating an actual log entry. Use during onboarding or when the user says "I want to journal about X" but hasn't written anything yet. This makes the category visible in get_log_categories so you know about it on future sessions.`,
                 name: 'prepare_log_category',
+                return_shape: `Success (new): { ok: true, category: string, description: string, prepared: true }. Already prepared: { ok: true, category: string, already_prepared: true }. Already has entries: { ok: true, category: string, already_exists: true }. Error: { error: 'category is required' }.`,
                 parameters: {
                     category: 'string',
                     description: 'string',

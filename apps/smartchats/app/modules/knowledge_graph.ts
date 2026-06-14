@@ -16,6 +16,7 @@ export function createKnowledgeGraphFunctionsModule() {
                 enabled: true,
                 description: `Store entity-relation-entity triples as permanent facts. Triples: [[subject, relation, object], ...]. Auto-normalizes, embeds, deduplicates. Only for enduring facts — not logs, metrics, or conversation data.`,
                 name: 'store_declarative_knowledge',
+                return_shape: `{ entities: { new: number, existing: number }, relations: { new: number, existing: number } }. Counts of entities and relations created vs already present in the KG.`,
                 parameters: { triples: 'array' },
                 fn: async (ops: any) => {
                     let { triples } = ops.params;
@@ -80,6 +81,7 @@ export function createKnowledgeGraphFunctionsModule() {
                 enabled: true,
                 description: `Delete triples or entire entities. Pass { triples: [[s,r,o]] } or { entity: 'name' }.`,
                 name: 'delete_declarative_knowledge',
+                return_shape: `With triples arg: { deleted: number, total: number, results: any[] } (per-triple results). With entity arg: indirect shape from graph_utils.delete_entity (typically { deleted: boolean, name: string }). Missing args: { error: 'Provide either triples or entity parameter' }.`,
                 parameters: { triples: 'array', entity: 'string' },
                 fn: async (ops: any) => {
                     let { triples, entity } = ops.params;
@@ -111,6 +113,7 @@ export function createKnowledgeGraphFunctionsModule() {
                 enabled: true,
                 description: `List all entities with relation counts.`,
                 name: 'get_knowledge_graph_entities',
+                return_shape: `Array of entity summaries: [{ name: string, relation_count: number }]. Sorted by relation_count DESC (most connected first).`,
                 parameters: { limit: 'number' },
                 fn: async (ops: any) => {
                     let { limit } = ops.params;

@@ -153,6 +153,7 @@ export function createSessionsModule() {
                 enabled: true,
                 description: `List recent saved sessions with metadata, ordered by most recently updated.`,
                 name: 'list_sessions',
+                return_shape: `Array of session summary rows: [{ id: string, label: string, message_count: number, chat_history: any[], workspace: object, ts: string, local_date: string, local_tz: string, created_at: string, updated_at: string }]. Sorted updated_at DESC. Empty array if no sessions saved.`,
                 parameters: { limit: 'number' },
                 fn: async (ops: any) => {
                     const { log } = ops.util
@@ -167,6 +168,7 @@ export function createSessionsModule() {
                 enabled: true,
                 description: `Search session labels and conversation content by keyword.`,
                 name: 'search_sessions',
+                return_shape: `Array of matching session rows (same shape as list_sessions). Missing arg: { error: 'query is required' }.`,
                 parameters: { query: 'string', limit: 'number' },
                 fn: async (ops: any) => {
                     const { log } = ops.util
@@ -182,6 +184,7 @@ export function createSessionsModule() {
                 enabled: true,
                 description: `Read the full conversation history and workspace of a specific session by id.`,
                 name: 'read_session',
+                return_shape: `Full session record: { id: string, label: string, message_count: number, chat_history: any[], workspace: object, thought_history?: any[], execution_history?: any[], settings?: object, ts: string, local_date: string, local_tz: string }. Truncates very large arrays before returning. Errors: { error: 'session_id is required' } or { error: 'Session not found' }.`,
                 parameters: { session_id: 'string' },
                 fn: async (ops: any) => {
                     const { log } = ops.util
@@ -202,6 +205,7 @@ export function createSessionsModule() {
                 enabled: true,
                 description: `Restore a previous session, replacing the current conversation. The current session is auto-saved first.`,
                 name: 'activate_session',
+                return_shape: `Success: { activated: true, label: string, message_count: number }. Errors: { error: 'session_id is required' }, { error: 'Session not found' }, or { error: string } on activation failure.`,
                 parameters: { session_id: 'string' },
                 fn: async (ops: any) => {
                     const { log } = ops.util

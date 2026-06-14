@@ -416,6 +416,7 @@ To iterate on an app without installing: preview_app → modify workspace.__prev
                 enabled: true,
                 description: 'List all installed apps with their summaries.',
                 name: 'list_apps',
+                return_shape: `Array of installed app summaries: [{ app_id: string, name: string, description: string, version: string, activation_count: number, is_active: boolean }]. is_active=true marks the currently activated app (only one at a time).`,
                 parameters: null,
                 fn: async (ops: any) => {
                     const { log } = ops.util
@@ -444,6 +445,7 @@ To iterate on an app without installing: preview_app → modify workspace.__prev
                 enabled: true,
                 description: 'Search for apps in the registry by natural language query. Returns matching apps with relevance scores.',
                 name: 'search_apps',
+                return_shape: `Array of matched apps with semantic-similarity scores: [{ id: string, name: string, description: string, icon: string, source: string, score: number }]. Sorted by score DESC (highest match first).`,
                 parameters: { query: 'string' },
                 fn: async (ops: any) => {
                     const { query } = ops.params
@@ -848,6 +850,7 @@ To iterate on an app without installing: preview_app → modify workspace.__prev
                 enabled: true,
                 description: 'Read from the active app\'s state. Pass a key to read one value, or omit key to get the full state object. Reads directly from the app\'s iframe.',
                 name: 'get_app_state',
+                return_shape: `When called without a key: { [key: string]: any } — the full active-app state object (workspace entries with the app's prefix, stripped). When called with a key: any (the single value at that key, or undefined). Throws if no app is currently active.`,
                 parameters: { key: 'string' },
                 fn: async (ops: any) => {
                     const { key } = ops.params
@@ -877,6 +880,7 @@ To iterate on an app without installing: preview_app → modify workspace.__prev
                 enabled: true,
                 description: 'Write a value to the active app\'s state. Keys are automatically scoped to the app.',
                 name: 'set_app_state',
+                return_shape: `{ ok: true } on success. Throws if no app is currently active.`,
                 parameters: { key: 'string', value: 'any' },
                 fn: async (ops: any) => {
                     const { key, value } = ops.params

@@ -83,6 +83,7 @@ export function createInitializationModule() {
                 enabled: true,
                 description: `Create a new initialization instruction that loads at session start.`,
                 name: 'create_init_instruction',
+                return_shape: `Success: { created: true, id: string, content: string, category: string | null }. DB returned no row: { created: false, error: 'No result from DB' }. Missing arg: { error: 'content is required' }.`,
                 parameters: {
                     content: 'string',
                     category: 'string',
@@ -125,6 +126,7 @@ export function createInitializationModule() {
                 enabled: true,
                 description: `Update an initialization instruction's content and/or category.`,
                 name: 'update_init_instruction',
+                return_shape: `Success: { updated: true, id: string, result: any (the updated row or null) }. Missing id: { error: 'id is required' }. No fields supplied: { error: 'No fields provided to update' }.`,
                 parameters: {
                     id: 'string',
                     content: 'string',
@@ -175,6 +177,7 @@ export function createInitializationModule() {
                 enabled: true,
                 description: `Delete an initialization instruction by id.`,
                 name: 'delete_init_instruction',
+                return_shape: `Success: { deleted: true, id: string }. Missing arg: { error: 'id is required' }.`,
                 parameters: {
                     id: 'string',
                 },
