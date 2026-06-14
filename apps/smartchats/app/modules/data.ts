@@ -1,5 +1,5 @@
 /**
- * Data & embedding functions: compute_embedding, array_nth_value, access_database_with_surreal_ql
+ * Data & embedding functions: compute_embedding, access_database_with_surreal_ql
  */
 
 import { embed_vector, getBackend } from '@/lib/backend';
@@ -55,19 +55,6 @@ Use the workspace object for persisting structured data across turns in multi-st
                     return embedding;
                 },
                 return_type: 'array'
-            },
-            {
-                enabled: true,
-                description: `
-           Return the nth value of an array
-	`,
-                name: 'array_nth_value',
-                parameters: { a: 'array', n: 'number' },
-                fn: async (ops: any) => {
-                    let { a, n } = ops.params;
-                    return (a as any)[Number(n)];
-                },
-                return_type: 'any'
             },
             {
                 enabled: true,

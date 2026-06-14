@@ -352,27 +352,6 @@ type FunctionParameters = (Record<string, any> | null)
   ],
   return_indeces: [0]
 }
-
-[Example] Get 5th value of the embedding of the text "hello"
-This demonstrates referencing the result of a prior call using $N syntax:
-{
-  thoughts: "Need to use compute_embedding and then array_nth_value",
-  calls: [
-    { name: "compute_embedding", parameters: { text: "hello" } },
-    { name: "array_nth_value", parameters: { a: "$0", n: 5 } }
-  ],
-  return_indeces: [1]
-}
-
-[Example] Log a value in CortexRAM
-This shows how to reference a value in CortexRAM using @ syntax:
-{
-  thoughts: "Need to reference the value in RAM to log it",
-  calls: [
-    { name: "console_log", parameters: { data: "@dc5a7a9940da" } }
-  ],
-  return_indeces: [0]
-}
 `
 }
 

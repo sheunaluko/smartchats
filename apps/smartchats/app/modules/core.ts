@@ -1,6 +1,6 @@
 /**
- * Core utility functions: format_string, respond_to_user, console_log,
- * accumulate_text, reset_sandbox, check_login_status, initialize
+ * Core utility functions: respond_to_user, accumulate_text, reset_sandbox,
+ * check_login_status, initialize
  */
 
 import { getAuthProvider } from '@/lib/auth'
@@ -11,35 +11,6 @@ export function createCoreModule() {
         name: 'Core Functions',
         position: 10,
         functions: [
-            {
-                enabled: true,
-                description: `Format a string by replacing {key} placeholders with values from args.`,
-                name: 'format_string',
-                parameters: { string_template: 'string', args: 'object' },
-                fn: async (ops: any) => {
-                    let { string_template, args } = ops.params
-                    let { log } = ops.util
-
-                    log(`Formatting string`)
-                    if (typeof args == 'string') {
-                        log(`Received string arguments will parse`)
-                        args = JSON.parse(args)
-                    }
-
-                    log(`Formatting string template with args: ${JSON.stringify(args)}`)
-
-                    let result = string_template
-                    for (const [key, value] of Object.entries(args || {})) {
-                        const strValue = (typeof value === 'object' && value !== null)
-                            ? JSON.stringify(value)
-                            : String(value)
-                        result = result.replace(new RegExp(`\\{${key}\\}`, 'g'), strValue)
-                    }
-
-                    return result
-                },
-                return_type: 'string'
-            },
             {
                 enabled: true,
                 description: `Function for responding to the user`,
@@ -53,17 +24,6 @@ export function createCoreModule() {
                     return `Responded to user with: ${response}`;
                 },
                 return_type: 'string',
-            },
-            {
-                enabled: true,
-                description: 'logs data to the console',
-                name: 'console_log',
-                parameters: { data: 'any' },
-                fn: async (ops: any) => {
-                    console.log(ops.params.data)
-                    return 'console data logged'
-                },
-                return_type: 'string'
             },
             {
                 enabled: true,
