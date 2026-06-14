@@ -37,6 +37,8 @@ export interface LogRow extends EventTimeFields {
   content: string;
   category: string;
   metadata?: Record<string, unknown>;
+  /** Set by attachEmbeddings(); 1536-dim text-embedding-3-small vector. */
+  embedding?: number[];
 }
 
 export interface MetricRow extends EventTimeFields {
@@ -56,6 +58,8 @@ export interface EntityRow extends EventTimeFields {
   name: string;
   kind: 'book' | 'project' | 'person';
   data: Record<string, unknown>;
+  /** Set by attachEmbeddings(); 1536-dim text-embedding-3-small vector. */
+  embedding?: number[];
 }
 
 export interface RelationRow extends EventTimeFields {

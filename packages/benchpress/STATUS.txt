@@ -1,0 +1,194 @@
+benchpress — status as of 2026-06-13 (mid-flight)
+====================================================
+
+This document captures what's working, what's open, and what's worth doing
+next. It's a working notebook — replace or trim freely. The committed README
+(when written) will be more polished.
+
+
+WHAT'S DONE
+-----------
+
+Part 1 — Dataset & verifier (commit 47b25c9)
+  - packages/benchpress/ scaffolded
+  - Persona generator emits 17 months of bench_user data:
+    1591 logs, 1456 metrics, 35 KG entities, 29 todos, 977 completions
+  - 11 scenarios across 9 categories (scalar / date / list / comparison /
+    negative / composite). 2025-08 deliberately biased so HARD-1 has a
+    unique winner.
+  - bin/test-bun-deploy --seed <path> wired (uses surreal sql, not
+    surreal import, so schema VALUE-defaults still fire)
+  - scripts/verify_seed.ts runs every surql_probe against a live DB and
+    asserts equality with ts_truth. Green: 8 ok / 3 skipped (trace-only) /
+    0 diverged.
+
+Part 2a — Harness (commit 4b834a1)
+  - apps/smartchats/app/modules/benchpress.ts: env-gated submit_answer
+    tool (window.__BENCHPRESS_MODE === true at boot). Writes payload to
+    state.workspace.bench_answer via ops.util.update_workspace.
+  - apps/smartchats/app/simi/workflows/bench_scenarios.ts: factory that
+    consumes ALL_SCENARIOS and registers one simi workflow per scenario.
+    No setupWorkflows (complete_onboarding overwrites aiModel — driver
+    does it once at session start instead).
+  - apps/smartchats/app/simi/workflows/bench_q01_prototype.ts: model-pinned
+    smoke. Sonnet 4.6 + q01 → 158.4 lbs in 16s. Still good as a canary.
+  - apps/smartchats/tests/e2e/bench_factory_smoke.spec.ts + bench_prototype
+    .spec.ts: e2e validation specs (q01 only).
+
+Part 2b — Scoring + runner (commit 860c2c9)
+  - src/scoring/index.ts: pure-function scorer. Reuses smartchats-sessions
+    analyzers (rowsToTimeline, analyzePerformance, analyzeExecutions).
+    Per-kind correctness comparators + cost via cortex model_registry
+    prices. Trace assertions wired for q09 (responsiveness directive)
+    and q11 (accumulate_text no-duplication).
+  - scripts/score_local_sessions.ts: re-score any bundle without re-running
+    the agent.
+  - scripts/run_bench.ts: programmatic Playwright matrix driver. Flags
+    --models / --scenarios / --include-mutation / --headed / --app-url.
+    Writes results/run_<iso>/{session_*.json, run.json, matrix.csv}.
+
+Embeddings — wired but uncommitted
+  - src/generator/embed.ts: OpenAI text-embedding-3-small (1536-dim) with
+    sha1(model|text) cache to fixtures/embeddings.json. 376 unique strings
+    across logs+entities, ~$0.30 first run, $0 thereafter.
+  - persona.ts + emit_surql.ts now carry/emit embedding field for logs
+    and entities.
+  - Verified: KNN search against logs now returns results
+    (manual probe: "tennis match" → running/swimming logs at sim ~0.24).
+    verify_seed still passes (truth probes don't touch embeddings).
+  - Files: canonical_user.surql ballooned 0.6M → 24M; embeddings.json 11M.
+  - NOT YET committed. Open question: commit the 24M .surql for "one-step
+    clone-and-run" or gitignore it + commit only the cache? Cache makes
+    regeneration free (~2s).
+
+
+OPEN — KNOWN ISSUES (in rough priority order)
+---------------------------------------------
+
+P0  Anthropic prompt cache is broken
+    Per-call payload shows cache_creation_input_tokens = 16,988 — the
+    cache_control marker is being set ~17K into the ~210K prompt instead
+    of after the whole static prefix. Cache hit rate is 8% on Sonnet 4.6;
+    GPT-5.5 hits 99.6% (OpenAI auto-caches prefixes server-side).
+    Impact: 5× cost penalty for every Anthropic call in the matrix.
+    Fix: probably one line in packages/llm-service/src/providers/anthropic
+    .ts to move the cache_control breakpoint. Untouched so far.
+
+P0  Prompt size is ~200K tokens per call
+    This is the *real* cost driver. $1 for a "what was my weight"
+    question is not sustainable; a full matrix today is ~$100. SCM
+    composes 25+ modules and 7 background loaders fire context into
+    every call — that's where the bulk lives. Mitigation discussion is
+    its own thread (see DESIGN QUESTIONS below).
+
+P1  Matrix runner exhibits "agent silence" under some conditions
+    Observed twice:
+      - claude-haiku-4-5 × q01/q03: ONE llm_invocation event with
+        prompt_tokens=0, completion_tokens=0, output={thoughts:"",code:""},
+        loop=4. StreamingRunnerV3 retried up to its limit of empty
+        structured outputs.
+      - claude-sonnet-4-6 × q06/q07 (post-embeddings, matrix runner):
+        ZERO llm_invocation events. sendMessageAsync logs status=ok in
+        simi_step, then nothing for 180s.
+    The two patterns may not have the same root cause. Haiku looks like
+    a model/runner schema-handshake issue ("doesn't produce valid
+    structured output for streaming_v3_structured"). Sonnet's silent
+    failure in the matrix runner — unclear; possibly a regression in
+    run_bench.ts vs the simpler factory_smoke spec, or post-embedding
+    side effect.
+
+P1  Workflow timeout is too generous
+    bench_answer waitFor is 180s. When the model hangs/silent-fails,
+    every scenario costs 3 min wall before the timeout fires. A 2×2
+    failure run was 6 min today. Should be ~30-60s + fail-fast on
+    "no llm_invocation N seconds after sendMessageAsync".
+
+P2  Seed reset between models not wired
+    q08 (mutation: log 30 pages of Dune on 2026-06-08) accumulates +30
+    pages per model run, so multi-model q08 reads a drifting baseline.
+    Currently q08 is skipped by default in run_bench.ts. Needs an
+    in-place purge (DELETE FROM logs WHERE ... + re-import via
+    `surreal sql --file ...`) between models.
+
+P2  prompt_tokens=0 in llm_invocation payload on empty-output calls
+    Either the local server's emitter isn't reading the count or the
+    response is failing before parse. Conflated with the streaming_v3
+    "empty structured output" bug. Worth tracing but distinct from the
+    bigger prompt-cost issue.
+
+P3  Untested models
+    claude-opus-4-7, claude-opus-4-5, gemini-3.1-pro-preview, gemini-3
+    -flash-preview, gemini-3.1-flash-lite, gpt-5.2, gpt-5-nano not yet
+    exercised. Should wait for Anthropic cache fix + agent-silence
+    diagnosis before doing the cheap-but-slow first sweep.
+
+
+DESIGN QUESTIONS BEING THOUGHT THROUGH
+--------------------------------------
+
+(1) SCM module composition as a benchmark dimension
+    The 25+ module SCM is the dominant cost source AND probably affects
+    correctness/latency/UX-directive adherence in non-obvious ways. Treat
+    SCM composition as a configurable axis of the benchmark — sweep
+    several SCM variants (full / lean / minimal) × models × scenarios
+    and report the (correctness, $-per-turn, directive-adherence) cube.
+    Open: what variants exactly? "full prod", "lean (drop ancillary
+    modules)", "minimal (only data + KG + core)" feel like the obvious
+    three starting points.
+
+(2) Dynamic / on-demand module loading
+    Agent boots with a small index ("I have X tools/modules available;
+    call open_module(name) to load it"). When it needs a capability, it
+    loads the module's full system_msg + functions. When done, it can
+    close_module(name) to evict.
+    Implications:
+      - Dramatic cost reduction for simple queries (no need for KG,
+        web_search, scripture, etc. for "what was my weight")
+      - Adds reasoning overhead (model must know what it needs)
+      - Could *help* weak models (less context to navigate) or *hurt*
+        them (need metacognition)
+      - Benchmark gets richer: now we measure "did the agent open the
+        right modules?" alongside correctness
+    Mechanism sketch:
+      - SCM gains a "core" + "expandable" partition
+      - At boot: only "core" + index of expandable modules included
+      - open_module / close_module tools exposed in core
+      - Module state tracked in workspace (or sandbox state)
+      - Re-open is cheap (cached system_msg blocks)
+
+(3) Cache-aware module ordering
+    Even with the full SCM, putting the *static* modules (intro, values,
+    platform, scoping, responsiveness, conversational, …) before the
+    *dynamic* ones (todos_context, metrics_context, kg) lets prompt
+    caching catch the static prefix. Cheap win independent of (1)/(2).
+
+
+WORKFLOW STATE / OPEN BRANCHES
+------------------------------
+
+Working tree as of this note:
+  M packages/benchpress/package.json         (added deps)
+  M packages/benchpress/src/generator/persona.ts   (embedding field)
+  M packages/benchpress/src/generator/emit_surql.ts (vec emitter)
+  M packages/benchpress/scripts/generate.ts  (attachEmbeddings step)
+  ?? packages/benchpress/src/generator/embed.ts    (new)
+  ?? packages/benchpress/fixtures/embeddings.json  (11M cache, new)
+  ?? packages/benchpress/fixtures/canonical_user.surql (24M regenerated, new)
+  ?? packages/benchpress/STATUS.txt          (this file)
+
+Stack is currently running on :3000 with the embedded seed loaded.
+
+
+NEXT STEPS — IN ORDER
+---------------------
+
+  a. Verify the prompt-bloat hypothesis: dump the actual prompt for a
+     single turn, identify the big sections (SCM modules + loader
+     injection), confirm what we suspect.
+  b. Discuss mitigation options with user (this is where we are).
+  c. Tactical: fix Anthropic cache_control breakpoint — small change
+     in llm-service, ~5× cost reduction for Anthropic models.
+  d. Strategic: decide on SCM composition as a benchmark axis vs
+     dynamic module loading vs both.
+  e. Re-validate agent-silence cases against whichever direction we take.
+  f. Decide commit strategy for embeddings (commit .surql or gitignore).

@@ -26,16 +26,16 @@ export function emitSurql(seed: Seed, opts: EmitSurqlOptions): string {
   // ── user_entities ────────────────────────────────────────────────────
   out.push(`-- user_entities`);
   for (const e of seed.entities) {
-    out.push(
-      `CREATE user_entities:${e.id} CONTENT { ` +
-        `name: ${str(e.name)}, ` +
-        `kind: ${str(e.kind)}, ` +
-        `data: ${obj(e.data)}, ` +
-        `ts: ${dt(e.ts)}, ` +
-        `local_date: ${str(e.local_date)}, ` +
-        `local_tz: ${str(e.local_tz)} ` +
-      `};`
-    );
+    const parts = [
+      `name: ${str(e.name)}`,
+      `kind: ${str(e.kind)}`,
+      `data: ${obj(e.data)}`,
+      `ts: ${dt(e.ts)}`,
+      `local_date: ${str(e.local_date)}`,
+      `local_tz: ${str(e.local_tz)}`,
+    ];
+    if (e.embedding) parts.push(`embedding: ${vec(e.embedding)}`);
+    out.push(`CREATE user_entities:${e.id} CONTENT { ${parts.join(', ')} };`);
   }
   out.push('');
 
@@ -50,6 +50,7 @@ export function emitSurql(seed: Seed, opts: EmitSurqlOptions): string {
       `local_tz: ${str(l.local_tz)}`,
     ];
     if (l.metadata) parts.push(`metadata: ${obj(l.metadata)}`);
+    if (l.embedding) parts.push(`embedding: ${vec(l.embedding)}`);
     out.push(`CREATE logs:${l.id} CONTENT { ${parts.join(', ')} };`);
   }
   out.push('');
@@ -131,6 +132,26 @@ function num(n: number): string {
 function dt(isoUtc: string): string {
   // d'YYYY-MM-DDTHH:MM:SS.sssZ' — SurrealDB datetime literal.
   return `d'${isoUtc}'`;
+}
+
+/**
+ * Emit a numeric vector as a SurrealQL array literal. Inlined (not parameter-
+ * bound) because SurrealDB's CREATE/CONTENT path doesn't always accept array
+ * variables across driver/SDK versions — see `knowledge_graph.ts` query
+ * builder for the same workaround.
+ *
+ * Uses fixed precision so the .surql output stays byte-deterministic across
+ * regenerations (different float→string defaults across runtimes shouldn't
+ * cause spurious diffs).
+ */
+function vec(v: number[]): string {
+  let out = '[';
+  for (let i = 0; i < v.length; i++) {
+    if (i > 0) out += ',';
+    out += v[i]!.toFixed(6);
+  }
+  out += ']';
+  return out;
 }
 
 function obj(o: Record<string, unknown>): string {
