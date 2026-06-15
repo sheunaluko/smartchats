@@ -162,3 +162,14 @@ export type {
     FunctionCallHistogramRow,
     FunctionCallHistogramResult,
 } from './analysis_db/function_calls.js';
+
+export {
+    queryFunctionCallsByArgs,
+    formatFunctionArgsCalls,
+} from './analysis_db/function_args.js';
+export type {
+    ArgPredicate,
+    FunctionArgsArgs,
+    FunctionArgsCallRow,
+    FunctionArgsResult,
+} from './analysis_db/function_args.js';
