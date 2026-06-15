@@ -14,7 +14,7 @@ import type { SessionBundle, SessionTimelineEntry } from 'smartchats-sessions';
 import { rowsToTimeline, computeSummary, analyzePerformance, analyzeExecutions } from 'smartchats-sessions';
 import { getModelInfo } from 'cortex';
 
-import type { AnswerKind, SubmitAnswerPayload, TruthsSnapshot } from '../types.js';
+import type { AnswerKind, SubmitAnswerPayload, TruthsSnapshot, ExpectedCall, ArgMatcher } from '../types.js';
 
 // ──────────────────────────────────────────────────────────────────────────
 // Types
@@ -84,6 +84,12 @@ export interface ScoreOptions {
   expectedDelta?: unknown;
   /** Tolerance for scalar number equality (default 0.5). */
   numericTolerance?: number;
+  /**
+   * For tool_sequence scenarios — the ordered list of tool calls the agent
+   * must make. Pass from scenario.expected_calls. When omitted on a
+   * tool_sequence scenario, scoring degrades to "did any execution happen?"
+   */
+  expectedCalls?: ExpectedCall[];
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -136,7 +142,13 @@ export function scoreScenario(
 
   let outcome: ScenarioOutcome;
   let correctness: CorrectnessResult | null;
-  if (bench_answer === null) {
+
+  if (truthEntry.kind === 'tool_sequence') {
+    // Tool-sequence scenarios are scored entirely off the function-call
+    // trace — bench_answer doesn't participate.
+    correctness = scoreToolSequence(bundle, opts.expectedCalls ?? []);
+    outcome = correctness.passed ? 'submitted_correct' : 'submitted_wrong';
+  } else if (bench_answer === null) {
     outcome = 'no_submission';
     correctness = null;
   } else {
@@ -161,6 +173,118 @@ export function scoreScenario(
     trace_metrics,
     trace_assertions,
   };
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Tool-sequence scoring — walks function_calls, asserts ordered match
+// ──────────────────────────────────────────────────────────────────────────
+
+/**
+ * Walk every execution's function_calls in order, attempt to match each
+ * ExpectedCall in turn. Subsequent calls may appear interleaved between
+ * matched ones — the assertion is "every expected call happened, IN ORDER,
+ * with args matching." Returns the first call that fails to match (or
+ * "all matched" on success).
+ */
+function scoreToolSequence(
+  bundle: SessionBundle,
+  expectedCalls: ExpectedCall[],
+): CorrectnessResult {
+  if (expectedCalls.length === 0) {
+    return { passed: false, detail: 'no expected_calls provided in ScoreOptions' };
+  }
+
+  // Flatten every function_call across every execution event, in order.
+  const exec = analyzeExecutions(bundle);
+  const allCalls: Array<{ name: string; args: unknown }> = [];
+  for (const e of exec.executions) {
+    for (const fc of e.function_calls) {
+      allCalls.push({ name: fc.name, args: fc.args });
+    }
+  }
+
+  let cursor = 0;
+  for (let i = 0; i < expectedCalls.length; i++) {
+    const expected = expectedCalls[i]!;
+    let matched = -1;
+
+    // Find the next call from cursor onward whose name matches AND args pass.
+    for (let j = cursor; j < allCalls.length; j++) {
+      if (allCalls[j]!.name !== expected.tool) continue;
+      if (!matchArgs(allCalls[j]!.args, expected.args)) continue;
+      matched = j;
+      break;
+    }
+
+    if (matched === -1) {
+      const seenNames = allCalls.slice(cursor).map((c) => c.name).join(',') || '(none)';
+      return {
+        passed: false,
+        detail: `expected call #${i + 1} (${expected.tool}) not found after cursor ${cursor}. ` +
+          `Remaining calls seen: [${seenNames}]`,
+      };
+    }
+    cursor = matched + 1;
+  }
+
+  return {
+    passed: true,
+    detail: `matched all ${expectedCalls.length} expected calls in order across ${allCalls.length} total calls`,
+  };
+}
+
+/**
+ * Apply ArgMatchers to a call's args object. If `matchers` is missing the
+ * call passes name-match alone. For each declared matcher, the corresponding
+ * arg must satisfy it. Args not mentioned in `matchers` are ignored.
+ */
+function matchArgs(rawArgs: unknown, matchers: Record<string, ArgMatcher> | undefined): boolean {
+  if (!matchers || Object.keys(matchers).length === 0) return true;
+  if (!rawArgs || typeof rawArgs !== 'object') return false;
+  // function_start events carry args as a wrapping array: `[{user_instructions, ...}]`.
+  // analyzeExecutions stores that array verbatim. Unwrap if we got an array of one
+  // object so the lookup-by-key path works for normal positional-object signatures.
+  const unwrapped = Array.isArray(rawArgs) && rawArgs.length === 1 && rawArgs[0] && typeof rawArgs[0] === 'object'
+    ? rawArgs[0]
+    : rawArgs;
+  if (!unwrapped || typeof unwrapped !== 'object') return false;
+  const args = unwrapped as Record<string, unknown>;
+  for (const [argName, matcher] of Object.entries(matchers)) {
+    const value = args[argName];
+    if (!matchOne(value, matcher)) return false;
+  }
+  return true;
+}
+
+function matchOne(value: unknown, matcher: ArgMatcher): boolean {
+  if ('equals' in matcher) return deepEqual(value, matcher.equals);
+  if ('matches' in matcher) {
+    if (typeof value !== 'string') return false;
+    return new RegExp(matcher.matches, 'i').test(value);
+  }
+  if ('includes' in matcher) {
+    if (typeof value === 'string' && typeof matcher.includes === 'string') {
+      return value.toLowerCase().includes(matcher.includes.toLowerCase());
+    }
+    if (Array.isArray(value)) return value.includes(matcher.includes);
+    return false;
+  }
+  if ('predicate' in matcher) {
+    try { return matcher.predicate(value); } catch { return false; }
+  }
+  return false;
+}
+
+function deepEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (typeof a !== typeof b) return false;
+  if (a === null || b === null) return a === b;
+  if (typeof a !== 'object') return false;
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  const ak = Object.keys(a as object); const bk = Object.keys(b as object);
+  if (ak.length !== bk.length) return false;
+  for (const k of ak) if (!deepEqual((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k])) return false;
+  return true;
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -270,6 +394,11 @@ function compareAnswer(
     }
     case 'composite':
       return { passed: got !== null && got !== undefined, detail: 'shape_only' };
+    case 'tool_sequence':
+      // Tool-sequence scoring doesn't use bench_answer at all — scoreScenario
+      // routes to scoreToolSequence() before reaching compareAnswer. This
+      // case is here only so the switch is exhaustive at the type level.
+      return { passed: false, detail: 'tool_sequence should be scored via scoreToolSequence (not compareAnswer)' };
   }
 }
 

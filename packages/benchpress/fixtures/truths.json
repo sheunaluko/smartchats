@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-06-13T19:16:54.210Z",
+  "generated_at": "2026-06-14T18:34:12.914Z",
   "seed_version": "0.1.0",
   "scenarios": {
     "q01_weight_lookup": {
@@ -162,6 +162,10 @@
         "note": "trace-scored — see Part 2 trace_assertion"
       },
       "kind": "composite"
+    },
+    "q12_dream_record_chain": {
+      "truth": null,
+      "kind": "tool_sequence"
     }
   }
 }

@@ -271,11 +271,17 @@ for (const model of args.models) {
           resolve(runDir, `session_${model}_${sid}.json`),
           JSON.stringify(raw, null, 2),
         );
+        // For tool_sequence scenarios, look up expected_calls from the
+        // scenario definition so the scorer can verify the trace.
+        const scenarioDef = ALL_SCENARIOS.find((s) => s.id === sid);
         const result = scoreScenario(
           raw as Parameters<typeof scoreScenario>[0],
           sid,
           truths,
-          { expectedDelta: EXPECTED_DELTAS[sid] },
+          {
+            expectedDelta: EXPECTED_DELTAS[sid],
+            expectedCalls: scenarioDef?.expected_calls,
+          },
         );
         records.push({ model, scenario_id: sid, workflow_completed: wfCompleted, result });
         const tm = result.trace_metrics;

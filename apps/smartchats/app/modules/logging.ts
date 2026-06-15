@@ -85,6 +85,10 @@ Logs are the user's personal journal. Each log has: content (text), category (lo
 
 ### Creating Logs
 - Use accumulate_text() first to collect the full log text, then save_log() to persist it.
+- For text-based log entries (anything not explicitly invoking voice / audio /
+  dictate), use accumulate_text + save_log — NOT save_memo. save_memo is for
+  voice memos only; phrases like "I want to create a dream log" or "save a
+  journal entry about X" are text logs and should go through accumulate_text.
 - Always use lowercase for categories (e.g. "general", "water", "exercise", "dreams").
 - "captain's log" means category "general".
 - Do not manually set timestamps — save_log handles them automatically.

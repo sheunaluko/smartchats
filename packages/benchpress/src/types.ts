@@ -8,14 +8,18 @@
  */
 
 /**
- * Shapes the agent may submit via the `submit_answer` tool.
+ * Shape of what success looks like for a scenario.
  *
- *   scalar     — single number/string/boolean answer
- *   date       — YYYY-MM-DD string
- *   list       — array of items (order is normalized before comparison)
- *   comparison — { winner, a, b } where winner ∈ {'a','b'} or labels
- *   negative   — value === null because the data truthfully doesn't exist
- *   composite  — multi-field object (e.g. HARD-1's monthly matrix + argmin)
+ *   scalar         — single number/string/boolean answer at workspace.bench_answer
+ *   date           — YYYY-MM-DD string at workspace.bench_answer
+ *   list           — array of items (order is normalized before comparison)
+ *   comparison     — { winner, a, b } where winner ∈ {'a','b'} or labels
+ *   negative       — value === null because the data truthfully doesn't exist
+ *   composite      — multi-field object (e.g. HARD-1's monthly matrix + argmin)
+ *   tool_sequence  — success is measured by the function-call trace, not
+ *                    bench_answer. Tests the agent's ability to infer a
+ *                    multi-step plan (e.g. "I want to record a dream"
+ *                    → accumulate_text → save_log).
  */
 export type AnswerKind =
   | 'scalar'
@@ -23,7 +27,40 @@ export type AnswerKind =
   | 'list'
   | 'comparison'
   | 'negative'
-  | 'composite';
+  | 'composite'
+  | 'tool_sequence';
+
+// ──────────────────────────────────────────────────────────────────────────
+// tool_sequence kind — for action-plan inference scenarios
+// ──────────────────────────────────────────────────────────────────────────
+
+/**
+ * Matcher for a single argument value on an expected tool call. Defaults are
+ * lenient: omit the field entirely if you don't care about an arg.
+ */
+export type ArgMatcher =
+  | { equals: unknown }
+  | { matches: string }                          // regex source for strings
+  | { includes: unknown }                        // substring or array-includes
+  | { predicate: (v: unknown) => boolean };
+
+/** One expected tool invocation in the sequence. */
+export interface ExpectedCall {
+  tool: string;                                  // e.g. 'accumulate_text', 'save_log'
+  args?: Record<string, ArgMatcher>;
+}
+
+/**
+ * Scripted text chunks to feed into a blocking function (e.g. accumulate_text,
+ * save_memo). The simi workflow dispatches each chunk via setChatInput +
+ * sendChatMessage, which routes to handle_function_input while
+ * `cor.is_running_function === true`.
+ *
+ * Keyed by tool name — chunks for accumulate_text go under 'accumulate_text';
+ * chunks for save_memo go under 'save_memo'. Most scenarios only need one
+ * blocking tool.
+ */
+export type ScriptedResponses = Record<string, string[]>;
 
 /** Payload the agent passes to the benchpress `submit_answer` tool. */
 export interface SubmitAnswerPayload {

@@ -13,7 +13,7 @@
  * off trace, the procedural multi-turn) skip it — ts_truth alone defines
  * correctness, and Part 2 trace assertions cover what the probe couldn't.
  */
-import type { BenchScenario } from '../types.js';
+import type { BenchScenario, ExpectedCall, ScriptedResponses } from '../types.js';
 import type { Seed } from '../generator/persona.js';
 import { pagesForBook, sumPagesInRange } from '../generator/persona.js';
 import { yearMonth } from '../generator/time.js';
@@ -32,6 +32,41 @@ export interface BenchScenarioV1 extends BenchScenario<Seed, unknown> {
    * iteration (HARD-1, accumulate_text, long composition chains).
    */
   maxTurnMs?: number;
+
+  // ── tool_sequence kind fields (only used when kind === 'tool_sequence') ──
+
+  /**
+   * Ordered tool calls the agent must make. Subsequent ones may have
+   * unrelated calls between them; the scorer asserts each appears IN ORDER
+   * with matching args. For the dream scenario: [accumulate_text, save_log].
+   */
+  expected_calls?: ExpectedCall[];
+
+  /**
+   * Text chunks to feed into blocking functions, keyed by tool name. Each
+   * chunk is dispatched via setChatInput + sendChatMessage; while the
+   * agent's cor.is_running_function is true, transcriptionCb routes
+   * through handle_function_input instead of starting a new turn.
+   *
+   * For accumulate_text, the final chunk must be "finished" (or the
+   * function never returns).
+   */
+  scripted_responses?: ScriptedResponses;
+
+  /**
+   * Time budget (ms) to wait for the agent to enter is_running_function
+   * after the initial sendChatMessage. Defaults to 15_000. If exceeded,
+   * the workflow fails — the scorer will see no matching tool in the
+   * trace and report "agent didn't reach the expected first call."
+   */
+  functionStartTimeoutMs?: number;
+
+  /**
+   * Time budget (ms) to wait for state.llmRunning to become false after
+   * the scripted_responses are fed in. Covers the agent's post-function
+   * processing (e.g. save_log + reply). Defaults to 20_000.
+   */
+  turnCompleteTimeoutMs?: number;
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -264,6 +299,66 @@ export const q11_accumulate_text_no_dup: BenchScenarioV1 = {
 };
 
 // ──────────────────────────────────────────────────────────────────────────
+// 12 · tool_sequence — agent must infer the multi-step plan
+// ──────────────────────────────────────────────────────────────────────────
+/**
+ * "I want to write down a dream — going to be a detailed entry"
+ *   → agent should call accumulate_text first to collect the dream content,
+ *   THEN call save_log with category='dream' and the collected content.
+ *
+ * The prompt is deliberately text-biased ("write down", "detailed entry"):
+ *   - "record" alone leads Haiku/Sonnet to save_memo (voice memo path),
+ *     which errors with "Microphone unavailable" headlessly.
+ *   - "write down" + "detailed" signals (a) text modality and
+ *     (b) multi-chunk content — the cues accumulate_text was designed for.
+ * Tests whether the model infers the multi-step plan from minimal context.
+ *
+ * Workflow mechanics: the matrix runner sends the prompt via sendChatMessage
+ * (non-blocking — runs sendMessageSync internally). When the agent reaches
+ * accumulate_text and `cor.is_running_function` flips true, the workflow
+ * dispatches the scripted_responses chunks via the same sendChatMessage
+ * path — they auto-route through handle_function_input. The agent then
+ * receives the dream text, accumulate_text returns, and the agent (we hope)
+ * calls save_log with the content.
+ */
+export const q12_dream_record_chain: BenchScenarioV1 = {
+  id: 'q12_dream_record_chain',
+  category: 'tool_sequence_inference',
+  kind: 'tool_sequence',
+  prompt: 'I want to create a dream log',
+  // ts_truth and surql_probe aren't used for tool_sequence; placeholder
+  // for type compatibility.
+  ts_truth: () => null,
+  expected_calls: [
+    { tool: 'accumulate_text' },
+    {
+      tool: 'save_log',
+      args: {
+        category: { matches: 'dream' },           // case-insensitive substring via regex
+        text: { includes: 'flying' },             // save_log's content param is `text`, not `content`
+      },
+    },
+  ],
+  scripted_responses: {
+    accumulate_text: [
+      'I dreamt about flying over the ocean for hours',
+      'finished',
+    ],
+  },
+  // Slow models (nano, reasoning models) need 30-45s just to produce
+  // their first tool call. Sonnet's full post-accumulate_text loop
+  // (receive result → next LLM call → save_log → final reply) needs
+  // ~25-35s. Generous budgets here keep the cliff above realistic
+  // completion times.
+  functionStartTimeoutMs: 45_000,
+  turnCompleteTimeoutMs: 45_000,
+  notes:
+    'Tests whether the agent infers "record a dream" → accumulate_text (gather content) ' +
+    '→ save_log (persist) instead of jumping straight to save_log with empty content. ' +
+    'Measures action-plan reasoning, not data retrieval correctness.',
+};
+
+// ──────────────────────────────────────────────────────────────────────────
 // Registry
 // ──────────────────────────────────────────────────────────────────────────
 export const ALL_SCENARIOS: readonly BenchScenarioV1[] = [
@@ -278,6 +373,7 @@ export const ALL_SCENARIOS: readonly BenchScenarioV1[] = [
   q09_busiest_workout_week,
   q10_hard_compounding,
   q11_accumulate_text_no_dup,
+  q12_dream_record_chain,
 ];
 
 // ──────────────────────────────────────────────────────────────────────────

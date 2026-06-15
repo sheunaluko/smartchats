@@ -27,11 +27,16 @@ Voice memos let the user dictate a thought; the raw audio is saved on
 their device and the transcript becomes a log entry with
 category='voice_memo'.
 
-- Call **save_memo** when the user asks to "record a memo", "take a
-  voice memo", "dictate a note", or similar. The function speaks the
+- Call **save_memo** ONLY when the user explicitly invokes the
+  voice/audio modality: "record a memo", "take a voice memo", "dictate
+  a note", "voice journal", "audio note", etc. The function speaks the
   prompt aloud, then collects audio + transcript chunks until the user
   says "finished" (or "cancel" to abort). Pass a short
   user_instructions string; the function will speak it.
+- If the user wants to write / create / save / log something without
+  explicitly mentioning voice or audio (e.g. "I want to create a dream
+  log", "save a journal entry about X"), this is a TEXT log — use
+  accumulate_text + save_log instead. See the Logging section.
 - To **list** or **search** memos, use the standard log tools with
   category='voice_memo' — do NOT add separate list/search tools.
   Examples: \`get_recent_logs({category: 'voice_memo', limit: 10})\`,
