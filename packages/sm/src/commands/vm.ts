@@ -286,6 +286,21 @@ function spawnInherit(cmd: string, args: string[], extraEnv: Record<string, stri
     });
 }
 
+/**
+ * Lima's `limactl shell` auto-CDs to the host's pwd inside the guest.
+ * Since the repo is mounted at /work (not the host's absolute path), every
+ * shell invocation emits `cd: /Users/.../dev/smartchats: No such file`
+ * noise. --workdir overrides the auto-CD with a path that exists in the
+ * guest. Centralizing here so all invocations get the same treatment.
+ */
+const LIMA_DEFAULT_WORKDIR = '/work';
+
+function limaShellArgs(name: string, command?: string): string[] {
+    const base = ['shell', '--workdir', LIMA_DEFAULT_WORKDIR, name];
+    if (!command) return base;
+    return [...base, 'bash', '-c', command];
+}
+
 function limactlIsRunning(name: string): boolean {
     try {
         const out = execFileSync('limactl', ['list', '--format', '{{.Name}} {{.Status}}'], { encoding: 'utf8' });
@@ -351,10 +366,7 @@ async function limaUp(cfg: VMConfig, repoRoot: string, opts: { fresh: boolean; i
         const remoteCmd = envInline
             ? `${envInline} bash ${provisionGuest}`
             : `bash ${provisionGuest}`;
-        const exit = await spawnInherit(
-            'limactl',
-            ['shell', cfg.name, 'bash', '-c', remoteCmd],
-        );
+        const exit = await spawnInherit('limactl', limaShellArgs(cfg.name, remoteCmd));
         if (exit !== 0) { consola.fail('[lima] provision failed'); return exit; }
     }
 
@@ -367,8 +379,8 @@ async function limaInto(cfg: VMConfig): Promise<number> {
         consola.error(`[lima] ${cfg.name} is not running. Start with: sm vm up ${cfg.name}`);
         return 1;
     }
-    // `limactl shell` with no command → interactive shell.
-    return spawnInherit('limactl', ['shell', cfg.name]);
+    // Interactive shell; --workdir avoids the host-pwd auto-CD noise.
+    return spawnInherit('limactl', limaShellArgs(cfg.name));
 }
 
 async function limaDown(cfg: VMConfig): Promise<number> {
