@@ -110,8 +110,15 @@ else
 fi
 
 # ─── 2. Compile CLI + server (bun build --compile) ────────────────────
-info "Compiling smartchats (CLI) for ${BUN_TARGET}..."
+# Version embed: bake the smartchats-cli package.json version into the
+# binary via --define. Lets `smartchats --version` work at runtime
+# without bundling package.json into the compiled binary. The runtime
+# falls back to package.json reading for npm/source paths where this
+# constant is undefined.
+CLI_VERSION=$(node -p "require('./packages/smartchats-cli/package.json').version")
+info "Compiling smartchats (CLI) v${CLI_VERSION} for ${BUN_TARGET}..."
 bun build --compile \
+    --define "__SMARTCHATS_VERSION__=\"${CLI_VERSION}\"" \
     --target="$BUN_TARGET" \
     packages/smartchats-cli/src/cli.ts \
     --outfile "$DIST/bin/smartchats${EXE_EXT}"

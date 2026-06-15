@@ -35,6 +35,8 @@
  * once, all tools see the same account.
  */
 
+import * as fs from 'node:fs';
+
 import consola from 'consola';
 
 import { runLaunch, parseLaunchArgs, launchHelp } from './commands/launch.js';
@@ -108,9 +110,54 @@ Examples:
 `;
 }
 
+/**
+ * Resolve the CLI version across all three install paths:
+ *
+ *   1. Binary install (curl|bash → bun-compiled standalone). The package
+ *      .json is NOT bundled into the binary, so we need a compile-time
+ *      embed. scripts/build-release.sh passes `--define
+ *      __SMARTCHATS_VERSION__='"<version>"'` to bun build; that constant
+ *      gets inlined into the compiled bytecode.
+ *
+ *   2. npm install -g smartchats-ai. The package.json is at
+ *      node_modules/smartchats-ai/package.json — same directory as
+ *      dist/cli.js's parent. Read it via import.meta.url path resolution.
+ *
+ *   3. Source / dev. Same as (2) — the workspace package.json sits
+ *      adjacent to dist/.
+ *
+ * Tries (1) first because it's deterministic; falls back to (2)/(3) if
+ * the constant wasn't defined (i.e., we're not running a release build).
+ */
+declare const __SMARTCHATS_VERSION__: string | undefined;
+
+function resolveVersion(): string {
+    try {
+        // The `typeof` check guards against the constant being
+        // undefined when running uncompiled (tsx, node dist/cli.js, etc.).
+        if (typeof __SMARTCHATS_VERSION__ !== 'undefined' && __SMARTCHATS_VERSION__) {
+            return __SMARTCHATS_VERSION__;
+        }
+    } catch { /* fall through to package.json */ }
+    try {
+        const pkgUrl = new URL('../package.json', import.meta.url);
+        return (JSON.parse(fs.readFileSync(pkgUrl, 'utf8')) as { version: string }).version;
+    } catch {
+        return 'dev';
+    }
+}
+
 async function main(): Promise<void> {
     const argv = process.argv;
     const first = argv[2];
+
+    // Short-circuit on --version BEFORE the bare-invocation or any-flag
+    // routing — otherwise it falls through to launch and prompts for
+    // Docker, which is a long-standing CLI bug.
+    if (first === '--version' || first === '-v' || first === '-V') {
+        console.log(resolveVersion());
+        process.exit(0);
+    }
 
     // Bare invocation routing:
     //   - Any flag (e.g. `npx smartchats --no-prompt -d`) → `launch`. Preserves
