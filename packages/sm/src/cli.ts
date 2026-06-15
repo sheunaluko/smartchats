@@ -24,12 +24,15 @@ import { runShipFull, shipFullHelp } from './commands/ship-full.js';
 import { runRollback, rollbackHelp } from './commands/rollback.js';
 import { runRelease, runPushPublic, releaseHelp, pushPublicHelp } from './commands/release.js';
 import { runTriage, triageHelp } from './commands/triage.js';
+import { runCommit, commitHelp } from './commands/commit.js';
 
 const KNOWN = new Set([
     // Phase 1
     'status', 'verify', 'dev', 'doctor', 'explain',
     // Phase 2
     'sync', 'deploy', 'ship', 'ship-full', 'rollback', 'release', 'push-public', 'triage',
+    // Phase 3
+    'commit',
     // help
     'help', '--help', '-h',
 ]);
@@ -65,6 +68,7 @@ Open actions:
 
 Both:
   triage [local|cloud]   End-to-end error session triage
+  commit                 Diff preview + prompt + bin/checkpoint wrapper
 
 Common flags on destructive verbs:
   --yes / -y     Skip preflight prompt (CI / scripting)
@@ -107,6 +111,7 @@ async function main(): Promise<void> {
             explain: explainHelp, sync: syncHelp, deploy: deployHelp, ship: shipHelp,
             'ship-full': shipFullHelp, rollback: rollbackHelp, release: releaseHelp,
             'push-public': pushPublicHelp, triage: triageHelp,
+            commit: commitHelp,
         };
         const text = helps[sub];
         if (text) console.log(text); else console.log(topHelp());
@@ -135,6 +140,7 @@ async function main(): Promise<void> {
         case 'release':     exit = await runRelease(argv.slice(1)); break;
         case 'push-public': exit = await runPushPublic(argv.slice(1)); break;
         case 'triage':      exit = await runTriage(argv.slice(1)); break;
+        case 'commit':      exit = await runCommit(argv.slice(1)); break;
     }
     process.exit(exit);
 }
