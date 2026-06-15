@@ -208,7 +208,17 @@ exit [lindex \\$result 3]
     });
 }
 
-/** ssh args common to all our connections (after bootstrap). */
+/** ssh args common to all our connections (after bootstrap).
+ *
+ * When a command is given, wraps it in `bash -l -c '<cmd>'` — a login
+ * shell. macOS reads /etc/paths.d/* via path_helper(8) on login-shell
+ * startup, which is how /usr/local/bin enters PATH for non-interactive
+ * ssh. Without this wrap, `ssh user@vm smartchats start` fails with
+ * "command not found" even though the binary is symlinked.
+ *
+ * Interactive shells (no command) skip the wrap — ssh picks the user's
+ * default login shell, which is already login-mode.
+ */
 function sshArgs(user: string, ip: string, command?: string): string[] {
     const base = [
         '-i', VM_PRIVATE_KEY,
@@ -217,7 +227,9 @@ function sshArgs(user: string, ip: string, command?: string): string[] {
         '-o', 'LogLevel=ERROR',
         `${user}@${ip}`,
     ];
-    return command ? [...base, command] : base;
+    if (!command) return base;
+    // Wrap in login shell so /etc/paths.d/* and /etc/profile.d/* apply.
+    return [...base, 'bash', '-l', '-c', command];
 }
 const ALLOWED_KEY_NAMES = new Set([
     'OPENAI_API_KEY',

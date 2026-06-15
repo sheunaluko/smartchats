@@ -23,6 +23,15 @@ if [ ! -e /usr/local/bin/smartchats ]; then
     sudo ln -sf /opt/smartchats/bin/smartchats /usr/local/bin/smartchats
 fi
 
+# macOS's default non-interactive ssh PATH doesn't include /usr/local/bin
+# (where we symlink the binary). path_helper(8) reads /etc/paths.d/* on
+# shell init for both login and non-login shells — drop a file there so
+# `ssh <vm> smartchats <cmd>` works without a full path.
+if [ ! -f /etc/paths.d/smartchats ]; then
+    echo "[provision] adding /usr/local/bin to system PATH via /etc/paths.d/"
+    echo "/usr/local/bin" | sudo tee /etc/paths.d/smartchats >/dev/null
+fi
+
 version=$(smartchats --version 2>/dev/null || echo "(unknown)")
 echo "[provision] smartchats version: $version"
 
