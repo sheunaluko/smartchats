@@ -212,3 +212,14 @@ export type {
     IssueKindRow,
     IssuesResult,
 } from './analysis_db/issues.js';
+
+export { liveMonitor } from './analysis_db/monitor.js';
+export type {
+    MonitorAnalyzerResult,
+    RowKeyFn,
+    LiveDiff,
+    AlertRule,
+    RenderMode,
+    LiveMonitorOptions,
+    LiveMonitorController,
+} from './analysis_db/monitor.js';

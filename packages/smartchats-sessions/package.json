@@ -33,7 +33,8 @@
     "audit:errors": "tsx scripts/audit_errors.ts",
     "audit:users": "tsx scripts/audit_users.ts",
     "audit:context-growth": "tsx scripts/audit_context_growth.ts",
-    "audit:issues": "tsx scripts/audit_issues.ts"
+    "audit:issues": "tsx scripts/audit_issues.ts",
+    "monitor": "tsx scripts/monitor.ts"
   },
   "dependencies": {
     "smartchats-database": "*",
