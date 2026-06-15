@@ -24,6 +24,7 @@ import {
 } from './context.js';
 import { categorizeChanges, type CategorizedChanges } from './changes.js';
 import { readAllDeploys, type LastDeploy } from './last-deploy.js';
+import { computeOpenVerifyGate } from './open_verify_gate.js';
 
 export interface Recommendation {
     verb: string;
@@ -125,6 +126,11 @@ function ruleCommitDirty(s: RepoSnapshot, recs: Recommendation[]): void {
 }
 
 function ruleVerifyStale(s: RepoSnapshot, recs: Recommendation[]): void {
+    // Cloud doesn't run its own verify — bin/test-e2e lives in open only.
+    // The open-verify gate is checked separately (ruleCloudOpenVerifyGate);
+    // recommending `sm verify` in cloud would always be wrong.
+    if (s.repo === 'cloud') return;
+
     const last = readLastVerify(s.repo);
     if (!last) {
         recs.push({ verb: 'sm verify', reason: 'no verify run cached', priority: 80 });
@@ -140,6 +146,41 @@ function ruleVerifyStale(s: RepoSnapshot, recs: Recommendation[]): void {
             reason: `last verify on ${last.head.slice(0, 7)}; HEAD has moved`,
             priority: 75,
         });
+    }
+}
+
+function ruleCloudOpenVerifyGate(s: RepoSnapshot, recs: Recommendation[]): void {
+    if (s.repo !== 'cloud') return;
+    const gate = computeOpenVerifyGate(s.root);
+    switch (gate.kind) {
+        case 'ok':
+            return;
+        case 'no_sync':
+            // ruleSyncFromOpen already covers the "never synced" case; nothing
+            // to add here.
+            return;
+        case 'no_verify':
+            recs.push({
+                verb: 'sm verify (in open repo)',
+                reason: 'cloud has synced code but open has no verify cached',
+                priority: 88,
+            });
+            return;
+        case 'verify_failed':
+            recs.push({
+                verb: 'sm verify (in open repo)',
+                reason: `open's last verify (${gate.openVerify!.level}) FAILED on ${gate.openVerify!.head.slice(0, 7)}`,
+                priority: 95,
+                severity: 'urgent',
+            });
+            return;
+        case 'sha_mismatch':
+            recs.push({
+                verb: 'sm sync',
+                reason: `cloud is synced from ${gate.openSha!.slice(0, 7)} but open verified ${gate.openVerify!.head.slice(0, 7)} — re-sync to bring verified code over`,
+                priority: 85,
+            });
+            return;
     }
 }
 
@@ -262,6 +303,7 @@ export function recommend(s: RepoSnapshot): Recommendation[] {
     const recs: Recommendation[] = [];
     ruleCommitDirty(s, recs);
     ruleVerifyStale(s, recs);
+    ruleCloudOpenVerifyGate(s, recs);
     ruleSyncFromOpen(s, recs);
     ruleEnvSymlink(s, recs);
     ruleDeploySchema(s, recs);

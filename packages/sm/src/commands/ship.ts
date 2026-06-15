@@ -1,11 +1,17 @@
 /**
  * `sm ship` (cloud) — the single-command full deploy.
  *
- * Sequence: sync → verify ci → deploy functions → deploy frontend (push).
- * Each step preflights itself and bails on first failure.
+ * Sequence: sync → check open-verify gate → deploy functions → deploy frontend.
  *
- * The verify level is `ci` by default (quick + unit + integration; ~2 min).
- * Use --quick-verify to drop to `quick` (lint + build only) when iterating.
+ * Cloud doesn't re-run verify locally — bin/test-e2e lives in open only
+ * and the code being shipped IS open's code (rsynced in). The
+ * "verify step" is now a gate check that confirms open's verify cache
+ * matches the synced SHA. Failure modes (open didn't verify; verify
+ * FAILED; verify was at a different SHA) all surface with concrete
+ * fixes via sm/lib/open_verify_gate.ts.
+ *
+ * --skip-verify still bypasses the gate for emergency hotfixes.
+ * --quick-verify is a no-op alias for backwards compatibility.
  */
 
 import consola from 'consola';
@@ -13,24 +19,25 @@ import consola from 'consola';
 import { detectRepo } from '../lib/context.js';
 import { preflight, parseCommonFlags, type PreflightCheck } from '../lib/preflight.js';
 import { getExplain } from '../lib/descriptors.js';
+import { computeOpenVerifyGate, openVerifyGateAsCheck } from '../lib/open_verify_gate.js';
 import { runSync } from './sync.js';
-import { runVerify } from './verify.js';
 import { runDeploy } from './deploy.js';
 
-export const shipHelp = `sm ship (cloud only) — sync + verify + deploy functions + push frontend.
+export const shipHelp = `sm ship (cloud only) — sync + check open-verify + deploy functions + push frontend.
 
 Usage:
-  sm ship [--quick-verify] [--skip-verify] [--yes] [--explain]
+  sm ship [--skip-verify] [--yes] [--explain]
 
 Flags:
-  --quick-verify  Use verify level "quick" (lint + build only) instead of "ci"
-  --skip-verify   Skip the verify step entirely (NOT RECOMMENDED — debugging only)
-  --yes           Auto-confirm every preflight (CI / scripting)
-  --explain       Print descriptor + checks then exit
+  --skip-verify   Skip the open-verify gate (emergency hotfix only).
+  --yes           Auto-confirm every preflight (CI / scripting).
+  --explain       Print descriptor + checks then exit.
 
 What it does, in order:
-  1. sm sync                 (rsync open → cloud)
-  2. sm verify ci            (or --quick-verify → quick; or --skip-verify → skip)
+  1. sm sync                 (rsync open → cloud, updates .synced-from)
+  2. open-verify gate        (confirms open verified the synced SHA;
+                              cloud does NOT re-run verify — bin/test-e2e
+                              lives only in open)
   3. sm deploy functions     (firebase deploy)
   4. sm deploy frontend      (git push origin main → Vercel auto-deploys)
 
@@ -51,16 +58,18 @@ export async function runShip(argv: string[]): Promise<number> {
     }
 
     const flags = parseCommonFlags(argv);
-    const quickVerify = argv.includes('--quick-verify');
     const skipVerify = argv.includes('--skip-verify');
-    const verifyLevel = skipVerify ? null : (quickVerify ? 'quick' : 'ci');
+    // --quick-verify is silently accepted for backwards compatibility — no
+    // longer meaningful since we're not re-running verify in cloud.
 
     // Top-level ship preflight — checks before kicking off the chain.
     const checks: PreflightCheck[] = [
         {
             label: 'verify plan',
             severity: skipVerify ? 'warn' : 'pass',
-            detail: skipVerify ? '⚠ SKIPPED' : `will run: sm verify ${verifyLevel}`,
+            detail: skipVerify
+                ? '⚠ open-verify gate SKIPPED'
+                : 'will check open-verify gate after sync (cloud does not re-run verify)',
             fix: skipVerify ? 'Only use --skip-verify when you have already verified manually.' : undefined,
         },
         {
@@ -78,16 +87,23 @@ export async function runShip(argv: string[]): Promise<number> {
     const syncExit = await runSync(['--yes']);
     if (syncExit !== 0) { consola.fail('sync failed; aborting ship'); return syncExit; }
 
-    // Step 2: verify
-    if (verifyLevel) {
-        consola.start(`sm ship → verify ${verifyLevel}`);
-        const verifyExit = await runVerify([verifyLevel]);
-        if (verifyExit !== 0) { consola.fail(`verify ${verifyLevel} failed; aborting ship`); return verifyExit; }
+    // Step 2: open-verify gate. Reads .synced-from (just updated by sync) +
+    // ~/.smartchats/sm/last-verify-open.json. Cheap.
+    if (!skipVerify) {
+        consola.start('sm ship → open-verify gate');
+        const gate = computeOpenVerifyGate(repo.root);
+        const check = openVerifyGateAsCheck(gate);
+        if (check.severity === 'block') {
+            consola.fail(`${check.label}: ${check.detail}`);
+            if (check.fix) consola.info(`  → ${check.fix}`);
+            return 1;
+        }
+        consola.success(`open-verify gate OK: ${check.detail}`);
     } else {
-        consola.warn('sm ship → verify SKIPPED (--skip-verify)');
+        consola.warn('sm ship → open-verify gate SKIPPED (--skip-verify)');
     }
 
-    // Step 3: deploy functions
+    // Step 3: deploy functions (will run its own open-verify gate too — belt-and-braces)
     consola.start('sm ship → deploy functions');
     const funcExit = await runDeploy(['functions', '--yes']);
     if (funcExit !== 0) { consola.fail('functions deploy failed; frontend NOT pushed'); return funcExit; }

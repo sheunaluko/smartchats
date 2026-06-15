@@ -37,34 +37,38 @@ import { preflight, parseCommonFlags, type PreflightCheck } from '../lib/preflig
 import { getExplain } from '../lib/descriptors.js';
 import { pollUntilHealthy, probeUrl } from '../lib/probe.js';
 import { runSync } from './sync.js';
-import { runVerify } from './verify.js';
 import { runDeploy } from './deploy.js';
+import { computeOpenVerifyGate, openVerifyGateAsCheck, checkOpenVerifyLevel } from '../lib/open_verify_gate.js';
 
 export const shipFullHelp = `sm ship-full (cloud only) — comprehensive prod orchestrator.
 
 Usage:
-  sm ship-full [--skip-e2e] [--skip-schema] [--yes] [--explain]
+  sm ship-full [--skip-verify] [--skip-schema] [--yes] [--explain]
 
 Chain (each step bails on failure):
   1. preflight + confirm
   2. sync from open (skipped if .synced-from already on open HEAD)
-  3. verify ci   (lint + build + unit + integration)
-  4. verify e2e  (full bun stack — slowest gate)        --skip-e2e to bypass
-  5. schema apply if drift detected                     --skip-schema to bypass
-  6. deploy functions
-  7. post-functions probe                               (curl health URL)
-  8. deploy frontend (git push origin main)
-  9. wait for Vercel deploy + probe                     (poll up to 5 min)
- 10. summary
+  3. open-verify gate at level 'all' or 'e2e'             --skip-verify to bypass
+                                                          (cloud does NOT re-run
+                                                          verify — bin/test-e2e
+                                                          is open-only)
+  4. schema apply if drift detected                       --skip-schema to bypass
+  5. deploy functions
+  6. post-functions probe                                 (curl health URL)
+  7. deploy frontend (git push origin main)
+  8. wait for Vercel deploy + probe                       (poll up to 5 min)
+  9. summary
 
 Flags:
-  --skip-e2e     Skip step 4 (use only when e2e is broken on infra, not code)
-  --skip-schema  Skip step 5 (use only if you already applied manually)
-  --yes          Auto-confirm preflight (CI / scripting)
-  --explain      Print descriptor + checks then exit
+  --skip-verify  Skip step 3 (use only if you have manually verified).
+                 --skip-e2e is accepted as an alias for backwards compat.
+  --skip-schema  Skip step 4 (use only if you already applied manually).
+  --yes          Auto-confirm preflight (CI / scripting).
+  --explain      Print descriptor + checks then exit.
 
-Wall time: ~20-30 min when nothing is cached. Use \`sm ship\` for routine
-fast-path deploys that don't touch schema or need e2e coverage.
+Wall time: with the gate replacing the local verify phases, ~10-15 min
+typical (was 20-30 min). The cost moves to open, where verify runs once
+and cloud commands all consume the result.
 
 See: sm explain ship-full
 `;
@@ -131,7 +135,9 @@ export async function runShipFull(argv: string[]): Promise<number> {
         return 1;
     }
     const flags = parseCommonFlags(argv);
-    const skipE2e = argv.includes('--skip-e2e');
+    // --skip-verify is the new flag; --skip-e2e is accepted as a backwards-
+    // compatible alias since it used to skip the verify-e2e phase.
+    const skipVerify = argv.includes('--skip-verify') || argv.includes('--skip-e2e');
     const skipSchema = argv.includes('--skip-schema');
 
     const git = readGitState(repo.root);
@@ -147,9 +153,13 @@ export async function runShipFull(argv: string[]): Promise<number> {
     const syncStale = !!(snapshot.openHead && snapshot.syncedFrom && snapshot.syncedFrom.sha !== snapshot.openHead);
     const syncWillRun = syncStale;
 
-    // --- e2e port check
-    const e2ePort = probePorts([3000])[0];
-    const e2eBlocked = !skipE2e && e2ePort.inUse;
+    // --- Open-verify gate state. We don't re-run verify in cloud — we check
+    // open's verify cache. The gate state changes after sync runs, so we
+    // also compute the post-sync state below before actually executing.
+    const preGate = computeOpenVerifyGate(repo.root);
+    const preGateLevelGap = checkOpenVerifyLevel(preGate, ['all', 'e2e']);
+    // Note about port :3000: was only relevant when we ran e2e locally.
+    // Cloud no longer runs e2e, so that check is dropped.
 
     const checks: PreflightCheck[] = [
         {
@@ -171,12 +181,31 @@ export async function runShipFull(argv: string[]): Promise<number> {
                 ? `will run sync (open ${snapshot.openHead?.slice(0, 7)} ≠ synced ${snapshot.syncedFrom?.sha.slice(0, 7)})`
                 : 'sync up to date — will skip',
         },
-        {
-            label: 'verify e2e',
-            severity: e2eBlocked ? 'block' : (skipE2e ? 'warn' : 'pass'),
-            detail: skipE2e ? '⚠ SKIPPED (--skip-e2e)' : e2eBlocked ? 'port :3000 in use; e2e will fail' : 'will run (boots bin/test-bun-deploy + Playwright)',
-            fix: e2eBlocked ? 'Stop the running stack first: bin/kill-dev (cloud) or pkill on the open stack.' : (skipE2e ? 'Only use --skip-e2e when e2e infra is broken, not when code is suspect.' : undefined),
-        },
+        // Replace the old "verify e2e" check with the open-verify gate. Note
+        // we use the PRE-SYNC gate state here so the maintainer sees the
+        // current picture; if sync will run, the post-sync state is checked
+        // for real in the chain below.
+        skipVerify
+            ? {
+                label: 'open-verify gate',
+                severity: 'warn',
+                detail: '⚠ SKIPPED (--skip-verify)',
+                fix: 'Only use --skip-verify when you have manually verified.',
+            }
+            : syncWillRun
+                ? {
+                    label: 'open-verify gate',
+                    severity: 'pass',
+                    detail: 'will check post-sync (open must have verified at level "all" or "e2e")',
+                }
+                : preGate.kind === 'ok' && preGateLevelGap
+                    ? {
+                        label: 'open-verify gate',
+                        severity: 'warn',
+                        detail: preGateLevelGap,
+                        fix: 'In open repo: `sm verify` (defaults to `all`, runs e2e).',
+                    }
+                    : openVerifyGateAsCheck(preGate),
         {
             label: 'schema apply',
             severity: schemaWillApply ? 'warn' : 'pass',
@@ -203,7 +232,7 @@ export async function runShipFull(argv: string[]): Promise<number> {
     // ----------------------------------------------------------------------
 
     const phases: PhaseResult[] = [];
-    const TOTAL = 9; // visible phases (preflight counted separately)
+    const TOTAL = 8; // visible phases (preflight counted separately)
     let n = 0;
 
     // Phase 1: sync
@@ -218,26 +247,39 @@ export async function runShipFull(argv: string[]): Promise<number> {
         phases.push({ name: 'sync', ok: true, durationMs: 0, skipped: true, note: 'already in sync' });
     }
 
-    // Phase 2: verify ci
+    // Phase 2: open-verify gate. Recompute post-sync — the synced SHA may
+    // have moved. Insist on level 'all' or 'e2e' (this is ship-FULL —
+    // shouldn't ship to prod with only a 'ci' or 'quick' verify).
     n++;
-    bannerStep(n, TOTAL, 'verify ci');
-    const r2 = await runPhase('verify ci', () => runVerify(['ci']));
-    phases.push(r2);
-    if (!r2.ok) { summary(phases); return 1; }
-
-    // Phase 3: verify e2e
-    n++;
-    if (skipE2e) {
-        bannerSkip(n, TOTAL, 'verify e2e', '--skip-e2e');
-        phases.push({ name: 'verify e2e', ok: true, durationMs: 0, skipped: true, note: 'skipped' });
+    if (skipVerify) {
+        bannerSkip(n, TOTAL, 'open-verify gate', '--skip-verify');
+        phases.push({ name: 'open-verify gate', ok: true, durationMs: 0, skipped: true, note: 'skipped' });
     } else {
-        bannerStep(n, TOTAL, 'verify e2e');
-        const r3 = await runPhase('verify e2e', () => runVerify(['e2e']));
-        phases.push(r3);
-        if (!r3.ok) { summary(phases); return 1; }
+        bannerStep(n, TOTAL, 'open-verify gate');
+        const phStart = Date.now();
+        const gate = computeOpenVerifyGate(repo.root);
+        const check = openVerifyGateAsCheck(gate);
+        let ok = check.severity === 'pass';
+        let note = check.detail;
+        if (ok) {
+            const levelGap = checkOpenVerifyLevel(gate, ['all', 'e2e']);
+            if (levelGap) {
+                ok = false;
+                note = levelGap;
+                consola.fail(`open-verify level: ${levelGap}`);
+                consola.info('  → In open repo: `sm verify` (defaults to `all`, runs e2e).');
+            } else {
+                consola.success(`open-verify gate OK: ${check.detail}`);
+            }
+        } else {
+            consola.fail(`${check.label}: ${check.detail}`);
+            if (check.fix) consola.info(`  → ${check.fix}`);
+        }
+        phases.push({ name: 'open-verify gate', ok, durationMs: Date.now() - phStart, skipped: false, note });
+        if (!ok) { summary(phases); return 1; }
     }
 
-    // Phase 4: schema apply (if drift + not skipped)
+    // Phase 3: schema apply (if drift + not skipped)
     n++;
     if (skipSchema || schemaFilesChanged === 0) {
         const reason = skipSchema ? '--skip-schema' : 'no schema drift';
@@ -256,14 +298,14 @@ export async function runShipFull(argv: string[]): Promise<number> {
         if (!r4real.ok) { summary(phases); return 1; }
     }
 
-    // Phase 5: deploy functions
+    // Phase 4: deploy functions
     n++;
     bannerStep(n, TOTAL, 'deploy functions');
     const r5 = await runPhase('deploy functions', () => runDeploy(['functions', '--yes']));
     phases.push(r5);
     if (!r5.ok) { summary(phases); return 1; }
 
-    // Phase 6: post-functions probe
+    // Phase 5: post-functions probe
     n++;
     bannerStep(n, TOTAL, `probe ${PROBE_FUNCTIONS_URL}`);
     const p6start = Date.now();
@@ -284,7 +326,7 @@ export async function runShipFull(argv: string[]): Promise<number> {
     }
     consola.success(`Functions probe OK (${p6result.note})`);
 
-    // Phase 7: deploy frontend (push)
+    // Phase 6: deploy frontend (push)
     n++;
     bannerStep(n, TOTAL, 'deploy frontend (git push)');
     const r7 = await runPhase('deploy frontend', () => runDeploy(['frontend', '--yes']));
@@ -295,7 +337,7 @@ export async function runShipFull(argv: string[]): Promise<number> {
         return 1;
     }
 
-    // Phase 8: wait for Vercel + probe
+    // Phase 7: wait for Vercel + probe
     n++;
     bannerStep(n, TOTAL, `Vercel deploy wait + probe ${PROBE_FRONTEND_URL}`);
     consola.info('Polling Vercel (up to 5 min, every 15s)...');
@@ -323,7 +365,7 @@ export async function runShipFull(argv: string[]): Promise<number> {
         return 1;
     }
 
-    // Phase 9: summary
+    // Phase 8: summary
     n++;
     bannerStep(n, TOTAL, 'summary');
     consola.success('sm ship-full complete');

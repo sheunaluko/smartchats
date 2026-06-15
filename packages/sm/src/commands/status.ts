@@ -22,10 +22,12 @@ import {
     detectRepo,
     readGitState,
     readLastVerify,
+    // open-verify gate imported below — used for cloud "Last verify" replacement
     readFunctionsEnvSymlink,
     probeDockerContainer,
 } from '../lib/context.js';
 import { buildSnapshot, recommend, type Recommendation } from '../lib/recommend.js';
+import { computeOpenVerifyGate } from '../lib/open_verify_gate.js';
 import type { CategorizedChanges, ChangeCategory } from '../lib/changes.js';
 import { fetchAllRemotes, type RemoteBundle, type FetchResult } from '../lib/remote.js';
 import { readRemoteCache, writeRemoteCache, cacheAgeSeconds } from '../lib/remote-cache.js';
@@ -258,7 +260,30 @@ export async function runStatus(argv: string[]): Promise<number> {
 
     // --- Local state ---
     console.log(color('Local state', 'bold'));
-    if (lastVerify) {
+    if (repo.kind === 'cloud') {
+        // Cloud doesn't run its own verify (no bin/test-e2e). What matters is
+        // whether the synced code was blessed by open's verify.
+        const gate = computeOpenVerifyGate(repo.root);
+        const glyph =
+            gate.kind === 'ok' ? color('✓', 'green') :
+            gate.kind === 'no_verify' || gate.kind === 'no_sync' ? color('?', 'gray') :
+            color('✗', 'red');
+        const headline = (() => {
+            switch (gate.kind) {
+                case 'ok':
+                    return `Open verify + sync: ${gate.openVerify!.level} passed on ${gate.openSha!.slice(0, 7)} (${ageHuman(gate.openVerify!.timestamp)})`;
+                case 'no_sync':
+                    return `Open verify + sync: no .synced-from — run \`sm sync\``;
+                case 'no_verify':
+                    return `Open verify + sync: synced from ${gate.openSha!.slice(0, 7)} but no open verify cached`;
+                case 'verify_failed':
+                    return `Open verify + sync: open verify FAILED (${gate.openVerify!.level}) on ${gate.openVerify!.head.slice(0, 7)}`;
+                case 'sha_mismatch':
+                    return `Open verify + sync: synced from ${gate.openSha!.slice(0, 7)} but open verified ${gate.openVerify!.head.slice(0, 7)}`;
+            }
+        })();
+        console.log(`  ${glyph} ${headline}`);
+    } else if (lastVerify) {
         const tag = lastVerify.ok ? color('✓', 'green') : color('✗', 'red');
         console.log(`  ${tag} Last verify: ${lastVerify.level} on ${lastVerify.head.slice(0, 7)} (${ageHuman(lastVerify.timestamp)})`);
     } else {
