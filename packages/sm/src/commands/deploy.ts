@@ -151,6 +151,85 @@ function checkLastVerifyFresh(repoKind: 'open' | 'cloud', currentHead: string): 
     };
 }
 
+/**
+ * Cloud functions deploy doesn't need its OWN verify to have passed — the
+ * verify that matters happened in open, before the sync. This check:
+ *
+ *   1. Reads .synced-from to find the open SHA that was rsynced in.
+ *   2. Reads ~/.smartchats/sm/last-verify-open.json.
+ *   3. Confirms the open verify passed against the synced SHA.
+ *
+ * Blocks the deploy with an actionable message at the first failing step.
+ * Pass detail surfaces what's known so the maintainer can sanity-check.
+ *
+ * Used by `sm deploy functions` (cloud-only). Verify in cloud is currently
+ * limited — `bin/test-e2e` doesn't exist there — so requiring a fresh
+ * cloud verify would force a workaround (level=ci, etc.). Open is the
+ * canonical place verify happens; cloud just needs to know it did.
+ */
+function checkOpenVerifyForSyncedCode(cloudRoot: string): PreflightCheck {
+    // .synced-from is written by bin/sync-from-open with the open SHA at sync time.
+    let openSha = '';
+    let syncedAt = '';
+    let subject = '';
+    try {
+        const raw = fs.readFileSync(path.join(cloudRoot, '.synced-from'), 'utf8');
+        openSha = raw.match(/^open_sha:\s*(.+)$/m)?.[1]?.trim() ?? '';
+        syncedAt = raw.match(/^synced_at:\s*(.+)$/m)?.[1]?.trim() ?? '';
+        subject  = raw.match(/^open_subject:\s*(.+)$/m)?.[1]?.trim() ?? '';
+    } catch {
+        return {
+            label: 'sync state',
+            severity: 'block',
+            detail: 'no .synced-from in cloud repo',
+            fix: 'Run `sm sync` first — synced code is the deploy unit.',
+        };
+    }
+
+    if (!openSha) {
+        return {
+            label: 'sync state',
+            severity: 'block',
+            detail: '.synced-from missing open_sha field',
+            fix: 'Re-run `sm sync` to regenerate .synced-from.',
+        };
+    }
+
+    const openVerify = readLastVerify('open');
+    if (!openVerify) {
+        return {
+            label: 'open verify',
+            severity: 'block',
+            detail: 'no open verify ever cached (cloud reads ~/.smartchats/sm/last-verify-open.json)',
+            fix: 'In open repo: `sm verify`',
+        };
+    }
+    if (!openVerify.ok) {
+        return {
+            label: 'open verify',
+            severity: 'block',
+            detail: `open's last verify (${openVerify.level}) FAILED on ${openVerify.head.slice(0, 7)}`,
+            fix: 'In open repo: fix the failures and re-run `sm verify`.',
+        };
+    }
+    if (openVerify.head !== openSha) {
+        return {
+            label: 'open verify SHA',
+            severity: 'block',
+            detail: `synced from open ${openSha.slice(0, 7)} but open verify is on ${openVerify.head.slice(0, 7)}`,
+            fix: 'Either re-sync (`sm sync`) so cloud has the verified code, or re-run `sm verify` in open against the current state.',
+        };
+    }
+
+    const syncedAtDisplay = syncedAt || '(unknown)';
+    const subjectDisplay = subject ? ` — "${subject.slice(0, 50)}${subject.length > 50 ? '…' : ''}"` : '';
+    return {
+        label: 'open verify + sync',
+        severity: 'pass',
+        detail: `open ${openVerify.level} passed on ${openSha.slice(0, 7)}${subjectDisplay} (synced ${syncedAtDisplay})`,
+    };
+}
+
 function checkFunctionsEnvDeployable(cloudRoot: string): PreflightCheck {
     const env = readFunctionsEnvSymlink(cloudRoot);
     if (env.symlinkTarget === '.env.cloud') {
@@ -178,11 +257,13 @@ async function deployFunctions(cloudRoot: string, flags: ReturnType<typeof parse
         consola.error(`bin/deploy-functions not found at ${script}`);
         return 1;
     }
-    const git = readGitState(cloudRoot);
     const checks: PreflightCheck[] = [
         checkOnMain(cloudRoot),
         checkCleanTree(cloudRoot),
-        checkLastVerifyFresh('cloud', git.head),
+        // Cloud functions deploy gates on OPEN's verify state, not cloud's:
+        // open is where verify runs (cloud has no bin/test-e2e); sync brought
+        // the verified code over; deploy just ships it.
+        checkOpenVerifyForSyncedCode(cloudRoot),
         checkFunctionsEnvDeployable(cloudRoot),
     ];
     const descriptor = getExplain('deploy', 'functions')!;
@@ -201,6 +282,10 @@ async function deployFrontend(cloudRoot: string, flags: ReturnType<typeof parseC
     const checks: PreflightCheck[] = [
         checkOnMain(cloudRoot),
         checkCleanTree(cloudRoot),
+        // Same provenance gate as deploy functions — open is where verify
+        // happens, sync brought the verified code over, this push ships it
+        // to Vercel.
+        checkOpenVerifyForSyncedCode(cloudRoot),
         checkAheadOfOrigin(cloudRoot),
     ];
     const descriptor = getExplain('deploy', 'frontend')!;
