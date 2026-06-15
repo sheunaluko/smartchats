@@ -44,13 +44,20 @@ against it.
 
 Composition:
   1. sm vm up <name>               (idempotent; uses curl|install path)
-  2. ssh in, smartchats start      (skip if already healthy)
-  3. Tart only: open ssh -L 3000:localhost:3000 tunnel
-  4. Print URL, return 0
+  2. Wipe ~/.smartchats/{data,run,logs,sessions} inside the VM
+                                   (default; --keep-state to preserve)
+  3. ssh in, smartchats start      (skip if already healthy)
+  4. Tart only: open ssh -L 3000:localhost:3000 tunnel
+  5. Print URL, return 0
 
 Options:
-  --fresh   Destroy the VM before starting (clean reinstall test).
-  --no-keys Skip API key injection (stack runs without providers).
+  --keep-state  Preserve any prior surreal data / sessions / logs in the
+                VM. Default is "wipe, fresh-user feel" so re-runs mirror
+                a stock first-boot experience. Use this when you want
+                to test "day-N usage" behaviour.
+  --fresh       Destroy AND reclone the VM image (heaviest reset; ~3-5
+                min). --keep-state has no effect when --fresh is set.
+  --no-keys     Skip API key injection.
   -h, --help
 
 Stop the stack via \`sm vm down <name>\` — that also tears down the SSH
@@ -60,16 +67,20 @@ tunnel for Tart.
 export const testReleaseE2eHelp = `sm test-release-e2e <linux|mac> [options]
 
 Same prep as \`sm test-release\` (boot VM, install released binary, start
-stack), then runs the full Playwright simi e2e suite against the
-VM-served stack via \`bin/test-e2e --skip-deploy\`.
+stack — wiping prior state by default), then runs the full Playwright
+simi e2e suite against the VM-served stack via
+\`bin/test-e2e --skip-deploy\`.
 
 VM stays up after the run so you can inspect failures with
 \`sm vm into <name>\`. Tear down with \`sm vm down <name>\`.
 
 Options:
-  --fresh   Destroy the VM before starting (most thorough smoke).
-  --no-keys Skip API key injection.
-  --        Forward remaining args to bin/test-e2e (e.g. --headed).
+  --keep-state  Preserve prior surreal data / sessions / logs in the VM.
+                Default is "wipe, fresh-user feel."
+  --fresh       Destroy AND reclone the VM image.
+  --no-keys     Skip API key injection.
+  --            Forward remaining args to bin/test-e2e (e.g. --headed,
+                --grep <wf>).
   -h, --help
 `;
 
@@ -124,14 +135,28 @@ function parsePlatform(arg: string | undefined): Platform | null {
     return null;
 }
 
+/**
+ * The full set of paths inside ~/.smartchats that accumulate state
+ * across runs — surreal data + run state + per-process logs + saved
+ * sessions. Wiping all four gives a stock-fresh-boot feel.
+ */
+const SMARTCHATS_STATE_PATHS = '~/.smartchats/data ~/.smartchats/run ~/.smartchats/logs ~/.smartchats/sessions';
+
 /** Lima VM has portForwards in its YAML — localhost:3000 just works after up. */
-async function startLimaStack(name: string): Promise<number> {
-    if (localhostHealthy()) {
-        consola.info(`[lima] stack already healthy at http://localhost:3000`);
+async function startLimaStack(name: string, opts: { keepState: boolean }): Promise<number> {
+    // Wipe before checking health — if there's prior state, the running
+    // stack is using it; we want to stop it AND wipe.
+    if (!opts.keepState) {
+        consola.info(`[lima] wiping prior state (--keep-state to preserve)`);
+        await spawnInherit('limactl', [
+            'shell', '--workdir', '/work', name, 'bash', '-lc',
+            `smartchats stop 2>/dev/null || true; rm -rf ${SMARTCHATS_STATE_PATHS}`,
+        ]);
+    } else if (localhostHealthy()) {
+        consola.info(`[lima] stack already healthy at http://localhost:3000 (--keep-state)`);
         return 0;
     }
     consola.start(`[lima] starting smartchats inside ${name}`);
-    // limactl shell with --workdir avoids cd noise; bash -lc gives login PATH.
     const exit = await spawnInherit('limactl', [
         'shell', '--workdir', '/work', name,
         'bash', '-lc', 'smartchats start --no-prompt',
@@ -149,7 +174,7 @@ async function startLimaStack(name: string): Promise<number> {
  * localhost:3000. We detach the tunnel so it survives this command's
  * exit; PID is recorded so `sm vm down mac` can clean up.
  */
-async function startTartStack(name: string): Promise<number> {
+async function startTartStack(name: string, opts: { keepState: boolean }): Promise<number> {
     const vmKeysDir = path.join(os.homedir(), '.smartchats', 'vm-keys');
     const privateKey = path.join(vmKeysDir, 'id_smartchats');
     if (!fs.existsSync(privateKey)) {
@@ -161,20 +186,31 @@ async function startTartStack(name: string): Promise<number> {
     try { ip = execFileSync('tart', ['ip', name], { encoding: 'utf8' }).trim(); } catch { /* */ }
     if (!ip) { consola.error(`[tart] could not resolve IP for ${name}; is it running?`); return 1; }
 
+    const sshBase = [
+        '-i', privateKey,
+        '-o', 'StrictHostKeyChecking=no',
+        '-o', 'UserKnownHostsFile=/dev/null',
+        '-o', 'LogLevel=ERROR',
+        `admin@${ip}`,
+    ];
+
+    if (!opts.keepState) {
+        consola.info(`[tart] wiping prior state (--keep-state to preserve)`);
+        await spawnInherit('ssh', [
+            ...sshBase, 'bash', '-l', '-c',
+            `smartchats stop 2>/dev/null || true; rm -rf ${SMARTCHATS_STATE_PATHS}`,
+        ]);
+    } else if (localhostHealthy()) {
+        consola.info('[tart] localhost:3000 already responding — checking if tunnel still alive');
+    }
+
     // Start the stack inside the VM via ssh (login shell for PATH).
     if (!localhostHealthy()) {
         consola.start(`[tart] starting smartchats inside ${name}`);
         const startExit = await spawnInherit('ssh', [
-            '-i', privateKey,
-            '-o', 'StrictHostKeyChecking=no',
-            '-o', 'UserKnownHostsFile=/dev/null',
-            '-o', 'LogLevel=ERROR',
-            `admin@${ip}`,
-            'bash', '-l', '-c', 'smartchats start --no-prompt',
+            ...sshBase, 'bash', '-l', '-c', 'smartchats start --no-prompt',
         ]);
         if (startExit !== 0) return startExit;
-    } else {
-        consola.info('[tart] localhost:3000 already responding — checking if tunnel still alive');
     }
 
     // Open the tunnel (idempotent — check the saved PID first).
@@ -233,7 +269,10 @@ export function killVmTunnel(name: string): void {
 // Command runners
 // ──────────────────────────────────────────────────────────────────────────
 
-async function ensureVmAndStack(platform: Platform, opts: { fresh: boolean; noKeys: boolean }): Promise<number> {
+async function ensureVmAndStack(
+    platform: Platform,
+    opts: { fresh: boolean; noKeys: boolean; keepState: boolean },
+): Promise<number> {
     // 1. VM up.
     const upArgs = ['up', platform];
     if (opts.fresh) upArgs.push('--fresh');
@@ -242,8 +281,11 @@ async function ensureVmAndStack(platform: Platform, opts: { fresh: boolean; noKe
     if (upExit !== 0) return upExit;
 
     // 2. Stack up inside the VM (platform-specific networking).
-    if (platform === 'linux') return startLimaStack(platform);
-    if (platform === 'mac') return startTartStack(platform);
+    //    --fresh implies clean state already (whole VM reclone), so the
+    //    keep-state flag is moot in that case.
+    const keepState = opts.fresh ? true : opts.keepState;
+    if (platform === 'linux') return startLimaStack(platform, { keepState });
+    if (platform === 'mac') return startTartStack(platform, { keepState });
     return 1;
 }
 
@@ -256,8 +298,9 @@ export async function runTestRelease(argv: string[]): Promise<number> {
     }
     const fresh = argv.includes('--fresh');
     const noKeys = argv.includes('--no-keys');
+    const keepState = argv.includes('--keep-state');
 
-    const exit = await ensureVmAndStack(platform, { fresh, noKeys });
+    const exit = await ensureVmAndStack(platform, { fresh, noKeys, keepState });
     if (exit !== 0) return exit;
 
     console.log('');
@@ -277,6 +320,7 @@ export async function runTestReleaseE2e(argv: string[]): Promise<number> {
     }
     const fresh = argv.includes('--fresh');
     const noKeys = argv.includes('--no-keys');
+    const keepState = argv.includes('--keep-state');
 
     // Forward args after `--` to bin/test-e2e. Preserve the `--`
     // separator so test-e2e's own arg parser knows where its flags end
@@ -300,7 +344,7 @@ export async function runTestReleaseE2e(argv: string[]): Promise<number> {
     const e2eScript = path.join(openRoot, 'bin/test-e2e');
     if (!which('curl')) { consola.error('curl is required for health probes; install via brew install curl.'); return 1; }
 
-    const prep = await ensureVmAndStack(platform, { fresh, noKeys });
+    const prep = await ensureVmAndStack(platform, { fresh, noKeys, keepState });
     if (prep !== 0) return prep;
 
     consola.start(`Running bin/test-e2e --skip-deploy against ${platform} VM`);
