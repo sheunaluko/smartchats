@@ -183,3 +183,12 @@ export type {
     ErrorSignatureRow,
     ErrorsResult as ErrorsDbResult,
 } from './analysis_db/errors.js';
+
+export {
+    queryUsersActivity,
+    formatUsersActivity,
+} from './analysis_db/users.js';
+export type {
+    UserActivityRow,
+    UsersActivityResult,
+} from './analysis_db/users.js';
