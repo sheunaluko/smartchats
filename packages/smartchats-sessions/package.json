@@ -26,7 +26,8 @@
     "analyze:summary": "tsx scripts/session_summary.ts",
     "triage:errors": "tsx scripts/session_triage_errors.ts",
     "triage:mark": "tsx scripts/triage_mark.ts",
-    "audit:cost": "tsx scripts/audit_cost.ts"
+    "audit:cost": "tsx scripts/audit_cost.ts",
+    "audit:slow-calls": "tsx scripts/audit_slow_calls.ts"
   },
   "dependencies": {
     "smartchats-database": "*",

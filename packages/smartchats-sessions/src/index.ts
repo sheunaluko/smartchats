@@ -143,3 +143,13 @@ export type {
     CostByUserRow,
     CostResult,
 } from './analysis_db/cost.js';
+
+export {
+    querySlowFunctionCalls,
+    formatSlowCalls,
+} from './analysis_db/slow_calls.js';
+export type {
+    SlowCallsArgs,
+    SlowCallRow,
+    SlowCallsResult,
+} from './analysis_db/slow_calls.js';
