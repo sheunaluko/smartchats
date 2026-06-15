@@ -1,0 +1,37 @@
+# Tart config — fresh macOS Sonoma for stock-Mac smoke testing.
+#
+# Use via `sm vm up mac`. Apple Silicon hosts only. First boot is slow
+# (Tart pulls a ~3 GiB macOS image once); subsequent boots are ~20s.
+#
+# This file is parsed by sm vm.ts. Tart itself uses CLI flags rather
+# than a YAML schema, so this is sm's own metadata format.
+
+driver: tart
+image: ghcr.io/cirruslabs/macos-sonoma-base:latest
+
+# Tart doesn't enforce these caps — Tart inherits host resources by
+# default. These hints are used by sm vm to set --cpu / --memory on
+# `tart create`.
+cpus: 4
+memory_gib: 6
+disk_gib: 60
+
+# Tart's --net-softnet allows port forwarding via tart ip + an ssh
+# tunnel. sm vm sets up forwards for these guest ports → matching host
+# ports on first connect.
+port_forwards:
+  - 3000  # smartchats web
+  - 8000  # surreal admin
+
+# Repo mount — Tart supports `tart run --dir name:path`. /work is the
+# in-VM mount point. Read-only by default to protect host source.
+mounts:
+  - host: "~/dev/smartchats"
+    guest: "/Users/admin/work"
+    writable: false
+
+# SSH credentials for the prebuilt image. Cirrus's stock image uses
+# admin/admin. Override if you switch to a custom image.
+ssh:
+  user: admin
+  password: admin

@@ -25,6 +25,7 @@ import { runRollback, rollbackHelp } from './commands/rollback.js';
 import { runRelease, runPushPublic, releaseHelp, pushPublicHelp } from './commands/release.js';
 import { runTriage, triageHelp } from './commands/triage.js';
 import { runCommit, commitHelp } from './commands/commit.js';
+import { runVm, vmHelp } from './commands/vm.js';
 
 const KNOWN = new Set([
     // Phase 1
@@ -32,7 +33,7 @@ const KNOWN = new Set([
     // Phase 2
     'sync', 'deploy', 'ship', 'ship-full', 'rollback', 'release', 'push-public', 'triage',
     // Phase 3
-    'commit',
+    'commit', 'vm',
     // help
     'help', '--help', '-h',
 ]);
@@ -69,6 +70,7 @@ Open actions:
 Both:
   triage [local|cloud]   End-to-end error session triage
   commit                 Diff preview + prompt + bin/checkpoint wrapper
+  vm <subcmd>            Local VM lifecycle (Lima Linux + Tart macOS)
 
 Common flags on destructive verbs:
   --yes / -y     Skip preflight prompt (CI / scripting)
@@ -112,6 +114,7 @@ async function main(): Promise<void> {
             'ship-full': shipFullHelp, rollback: rollbackHelp, release: releaseHelp,
             'push-public': pushPublicHelp, triage: triageHelp,
             commit: commitHelp,
+            vm: vmHelp,
         };
         const text = helps[sub];
         if (text) console.log(text); else console.log(topHelp());
@@ -141,6 +144,7 @@ async function main(): Promise<void> {
         case 'push-public': exit = await runPushPublic(argv.slice(1)); break;
         case 'triage':      exit = await runTriage(argv.slice(1)); break;
         case 'commit':      exit = await runCommit(argv.slice(1)); break;
+        case 'vm':          exit = await runVm(argv.slice(1)); break;
     }
     process.exit(exit);
 }

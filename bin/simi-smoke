@@ -1,0 +1,107 @@
+#!/usr/bin/env bash
+# simi-smoke — curated subset of simi workflows for post-install smoke.
+#
+# Drives a fresh smartchats install: launches the stack, polls health,
+# runs ~5 high-coverage workflows, and reports pass/fail. Used by:
+#   - sm vm test <name>          (against a Lima/Tart VM)
+#   - the future release-smoke.yml in CI (against GHA macOS/ubuntu runners)
+#
+# Designed to take ~2-3 minutes once the stack is up.
+
+set -uo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SCRIPT_NAME="$(basename "$0")"
+
+# ── Args ──────────────────────────────────────────────────────────────
+VM_NAME=""
+WORKFLOWS="basic_chat_flow,complete_onboarding,workspace_update_flow,model_switch_flow,session_save_load_flow"
+TIMEOUT_MS=180000   # 3 min per workflow
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --vm)        VM_NAME="$2"; shift 2 ;;
+        --workflows) WORKFLOWS="$2"; shift 2 ;;
+        --timeout)   TIMEOUT_MS="$2"; shift 2 ;;
+        -h|--help)
+            sed -n '2,/^$/p' "$0" | sed 's/^# \?//'
+            exit 0
+            ;;
+        *)  echo "unknown arg: $1" >&2; exit 1 ;;
+    esac
+done
+
+# ── Helpers ───────────────────────────────────────────────────────────
+ok()   { printf '\033[32m✓\033[0m %s\n' "$*"; }
+warn() { printf '\033[33m⚠\033[0m %s\n' "$*" >&2; }
+fail() { printf '\033[31m✗\033[0m %s\n' "$*" >&2; }
+info() { printf '\033[2m· %s\033[0m\n' "$*"; }
+
+# ── In-VM dispatch ────────────────────────────────────────────────────
+# When --vm is given, this script re-invokes itself inside the VM (where
+# smartchats is actually installed). When run without --vm, it runs the
+# smoke directly against the local stack.
+
+if [[ -n "$VM_NAME" ]]; then
+    info "running smoke inside VM: $VM_NAME"
+    # Lima
+    if limactl list --format '{{.Name}}' 2>/dev/null | grep -q "^${VM_NAME}\$"; then
+        # Copy this script to a temp location in /work (host-mounted) so the
+        # VM can run it. The script is self-contained — no external deps
+        # beyond what's installed inside the VM.
+        info "lima detected — dispatching via limactl shell"
+        limactl shell "$VM_NAME" bash "/work/bin/${SCRIPT_NAME}" --workflows "$WORKFLOWS" --timeout "$TIMEOUT_MS"
+        exit $?
+    fi
+    # Tart — need SSH. Defer for now; print actionable error.
+    fail "VM driver detection: $VM_NAME not found in limactl. Tart support TBD."
+    fail "Workaround: sm vm into $VM_NAME, then run bin/simi-smoke directly inside."
+    exit 1
+fi
+
+# ── In-VM execution (or local) ────────────────────────────────────────
+info "checking smartchats install..."
+if ! command -v smartchats >/dev/null 2>&1; then
+    fail "smartchats not on PATH. Provision the VM first: sm vm up <name>"
+    exit 2
+fi
+
+VERSION="$(smartchats --version 2>/dev/null || echo '?')"
+info "smartchats version: $VERSION"
+
+# Start the stack with --test flag — exits 0 if doctor probes pass.
+info "smartchats launch --test (boot + doctor)..."
+if ! smartchats launch --test; then
+    fail "smartchats launch --test failed"
+    exit 3
+fi
+ok "stack up + doctor green"
+
+# Run the curated workflow subset. Simi workflows expose via
+# window.__smartchats__.simi but here we need to drive them via the CLI
+# entry point — smartchats provides a `simi run` subcommand for headless
+# execution (added with the Simi infrastructure).
+IFS=',' read -ra WORKFLOW_LIST <<< "$WORKFLOWS"
+PASS=0
+FAIL=0
+declare -a FAILED=()
+
+for wf in "${WORKFLOW_LIST[@]}"; do
+    info "running: $wf"
+    if smartchats simi run "$wf" --timeout-ms "$TIMEOUT_MS"; then
+        ok "$wf"
+        PASS=$((PASS + 1))
+    else
+        fail "$wf"
+        FAIL=$((FAIL + 1))
+        FAILED+=("$wf")
+    fi
+done
+
+echo ""
+if [[ $FAIL -eq 0 ]]; then
+    ok "simi-smoke: $PASS/$((PASS + FAIL)) passed on smartchats $VERSION"
+    exit 0
+fi
+fail "simi-smoke: $FAIL workflow(s) failed: ${FAILED[*]}"
+exit 1

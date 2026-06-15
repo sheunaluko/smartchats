@@ -1,0 +1,69 @@
+# Lima config — fresh Ubuntu 24.04 for smartchats smoke testing.
+#
+# Use via `sm vm up linux`. The sm wrapper auto-injects API keys from
+# ~/.smartchats/keys.env into the VM's environment before first boot.
+#
+# Tuning notes:
+#   - 4 cpus / 4 GiB is enough for the agent + Surreal + Express stack.
+#     Bump if you start running e2e suites inside.
+#   - The repo is mounted read-only at /work — preserves host source from
+#     accidental writes. If you want writes (e.g., editing inside the VM),
+#     change `writable: false` to true.
+#   - Port forwards are 3000 (web) + 8000 (surreal). Add more guestSocket
+#     entries if you need them.
+
+vmType: "vz"          # Apple Virtualization Framework (~30s boot vs qemu ~2min)
+arch: "aarch64"       # match host; change to x86_64 if running on Intel Mac
+
+images:
+  - location: "https://cloud-images.ubuntu.com/releases/24.04/release/ubuntu-24.04-server-cloudimg-arm64.img"
+    arch: "aarch64"
+  - location: "https://cloud-images.ubuntu.com/releases/24.04/release/ubuntu-24.04-server-cloudimg-amd64.img"
+    arch: "x86_64"
+
+cpus: 4
+memory: "4GiB"
+disk: "30GiB"
+
+mounts:
+  - location: "~/dev/smartchats"
+    mountPoint: "/work"
+    writable: false
+
+portForwards:
+  - guestPort: 3000
+    hostPort: 3000
+  - guestPort: 8000
+    hostPort: 8000
+
+# Run-once provision script. Receives env vars from `limactl start --set` —
+# sm vm injects keys via that mechanism so they don't end up in YAML or
+# in the VM disk image.
+provision:
+  - mode: system
+    script: |
+      #!/bin/bash
+      set -eux
+      apt-get update -q
+      apt-get install -y -q curl ca-certificates
+
+      # smartchats install — replicates what a real user does after
+      # curl|bash. install.sh downloads bun-compiled standalone binaries
+      # + surreal from GitHub releases, so we don't need node/bun/surreal
+      # installed separately. --non-interactive skips the setup prompt;
+      # provision.sh runs setup with injected keys afterward.
+      # Exactly what a real user does: curl|bash from the canonical URL.
+      # Tests the full chain: smartchats.ai hosting + CDN + script logic
+      # + GitHub-releases tarball download + extraction.
+      curl -fsSL https://smartchats.ai/install | bash -s -- --non-interactive --prefix /opt/smartchats
+
+      mkdir -p /etc/smartchats
+      chmod 755 /etc/smartchats
+      echo "smartchats binary install complete; awaiting key injection."
+
+containerd:
+  system: false
+  user: false
+
+ssh:
+  loadDotSSHPubKeys: true
