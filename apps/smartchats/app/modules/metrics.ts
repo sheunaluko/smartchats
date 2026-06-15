@@ -731,6 +731,9 @@ export function createMetricsModule() {
                     log(response)
 
                     try {
+                        // Bust the metrics_context cache so the next read sees
+                        // the new value.
+                        getStartupLoaders()?.metrics_context.reset()
                         return response.rows
                     } catch (error: any) {
                         return `Error saving metric: ${JSON.stringify(error)}`
@@ -845,6 +848,7 @@ export function createMetricsModule() {
                     });
 
                     log(`Batch save complete: ${saved} saved, ${failed} failed, ${skipped} skipped`);
+                    if (saved > 0) getStartupLoaders()?.metrics_context.reset()
                     return { saved, failed, skipped, errors };
                 },
                 return_type: 'object'
@@ -1191,6 +1195,7 @@ export function createMetricsModule() {
                         category: category || 'general',
                     }))
 
+                    getStartupLoaders()?.metrics_context.reset()
                     return { ok: true, metric_name, unit: resolvedUnit, metric_type: resolvedType, category: category || 'general', prepared: true }
                 },
                 return_type: 'object'
@@ -1227,7 +1232,11 @@ export function createMetricsModule() {
                     log(`update_metric: ${id}`)
                     const response = await getBackend().data.query(spec) as any
                     const rows = response.rows
-                    return rows.length > 0 ? { updated: true, id } : { updated: false, error: 'Metric not found' }
+                    if (rows.length > 0) {
+                        getStartupLoaders()?.metrics_context.reset()
+                        return { updated: true, id }
+                    }
+                    return { updated: false, error: 'Metric not found' }
                 },
                 return_type: 'object'
             },
@@ -1250,7 +1259,11 @@ export function createMetricsModule() {
                     log(`delete_metric: ${id}`)
                     const response = await getBackend().data.query(queries.deleteMetric(id)) as any
                     const rows = response.rows
-                    return rows.length > 0 ? { deleted: true, id, before: rows[0] } : { deleted: false, error: 'Metric not found' }
+                    if (rows.length > 0) {
+                        getStartupLoaders()?.metrics_context.reset()
+                        return { deleted: true, id, before: rows[0] }
+                    }
+                    return { deleted: false, error: 'Metric not found' }
                 },
                 return_type: 'object'
             },

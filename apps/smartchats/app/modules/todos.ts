@@ -384,9 +384,14 @@ export function createTodosModule() {
                             return { saved: false, error: `DB error: ${stmt.result}` }
                         }
                         const rows = response.rows
-                        return rows.length > 0
-                            ? { saved: true, id: rows[0]?.id != null ? String(rows[0].id) : null, title: title.trim(), priority: priority || 'medium', due_date: dueTs, recurrence: recurrence || null }
-                            : { saved: false, error: 'No result from DB' }
+                        if (rows.length > 0) {
+                            // Bust the todos_context loader so the next
+                            // get_todos_context (and any UI that reads via the
+                            // same path) sees the new row.
+                            getStartupLoaders()?.todos_context.reset()
+                            return { saved: true, id: rows[0]?.id != null ? String(rows[0].id) : null, title: title.trim(), priority: priority || 'medium', due_date: dueTs, recurrence: recurrence || null }
+                        }
+                        return { saved: false, error: 'No result from DB' }
                     } catch (error: any) {
                         return { error: `Error saving todo: ${JSON.stringify(error)}` }
                     }
@@ -415,8 +420,12 @@ export function createTodosModule() {
                     if (!id) return { error: 'id is required' }
                     if (!action) return { error: 'action is required' }
 
-                    // Helper: refresh the todo viz in place after any mutation
+                    // Helper: invalidate the loader cache + refresh the todo
+                    // viz in place after any mutation. The loader reset is the
+                    // important part — without it the next get_todos_context
+                    // returns the memoized pre-mutation snapshot.
                     const refreshViz = async () => {
+                        getStartupLoaders()?.todos_context.reset()
                         try {
                             const fresh = await fetchTodosContext()
                             event({ type: 'visualization_update', vizType: 'todo_list', props: fresh, vizId: 'todos' })

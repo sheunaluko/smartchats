@@ -154,7 +154,13 @@ export function createLoggingModule() {
                     })) as any
                     const rows = response.rows
                     log(`Log saved`)
-                    return rows.length > 0 ? { saved: true, id: rows[0]?.id != null ? String(rows[0].id) : null, category: cat } : { saved: false, error: 'No result from DB' }
+                    if (rows.length > 0) {
+                        // A new category may have been introduced; bust the
+                        // log_categories cache so get_log_categories surfaces it.
+                        getStartupLoaders()?.log_categories.reset()
+                        return { saved: true, id: rows[0]?.id != null ? String(rows[0].id) : null, category: cat }
+                    }
+                    return { saved: false, error: 'No result from DB' }
                 },
                 return_type: 'object'
             },
@@ -224,7 +230,12 @@ export function createLoggingModule() {
 
                     const response = await getBackend().data.query(spec) as any
                     const rows = response.rows
-                    return rows.length > 0 ? { updated: true, id } : { updated: false, error: 'Log not found' }
+                    if (rows.length > 0) {
+                        // category may have changed; refresh the loader cache.
+                        getStartupLoaders()?.log_categories.reset()
+                        return { updated: true, id }
+                    }
+                    return { updated: false, error: 'Log not found' }
                 },
                 return_type: 'object'
             },
@@ -247,7 +258,11 @@ export function createLoggingModule() {
                     log(`delete_log: ${id}`)
                     const response = await getBackend().data.query(queries.deleteLog(id)) as any
                     const rows = response.rows
-                    return rows.length > 0 ? { deleted: true, id, before: rows[0] } : { deleted: false, error: 'Log not found' }
+                    if (rows.length > 0) {
+                        getStartupLoaders()?.log_categories.reset()
+                        return { deleted: true, id, before: rows[0] }
+                    }
+                    return { deleted: false, error: 'Log not found' }
                 },
                 return_type: 'object'
             },
@@ -460,6 +475,7 @@ export function createLoggingModule() {
                         description: description || '',
                     }))
 
+                    getStartupLoaders()?.log_categories.reset()
                     return { ok: true, category, description: description || '', prepared: true }
                 },
                 return_type: 'object'
