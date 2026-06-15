@@ -278,9 +278,11 @@ export async function runTestReleaseE2e(argv: string[]): Promise<number> {
     const fresh = argv.includes('--fresh');
     const noKeys = argv.includes('--no-keys');
 
-    // Forward args after `--` to bin/test-e2e.
+    // Forward args after `--` to bin/test-e2e. Preserve the `--`
+    // separator so test-e2e's own arg parser knows where its flags end
+    // and Playwright's begin (e.g. `-- --grep basic_chat_flow`).
     const dashDash = argv.indexOf('--');
-    const e2ePassthrough = dashDash >= 0 ? argv.slice(dashDash + 1) : [];
+    const e2ePassthrough = dashDash >= 0 ? ['--', ...argv.slice(dashDash + 1)] : [];
 
     // bin/test-e2e lives in the open repo. Use the same SMARTCHATS_PATH-
     // aware lookup as the vm subcommands so this works from cloud too.

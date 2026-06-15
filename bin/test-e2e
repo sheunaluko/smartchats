@@ -141,12 +141,15 @@ cleanup_deploy() {
 trap cleanup_deploy INT TERM EXIT
 
 # ── Poll for readiness ────────────────────────────────────────────────
+# In --skip-deploy mode the stack is external; we don't have a child PID
+# to monitor, and DEPLOY_LOG was never created. Just probe the health
+# endpoint until it responds (or timeout).
 TIMEOUT="${E2E_DEPLOY_TIMEOUT:-120}"
 header "Waiting for stack (timeout ${TIMEOUT}s)"
 START_TIME=$SECONDS
 READY=false
 while (( SECONDS - START_TIME < TIMEOUT )); do
-    if ! kill -0 "$DEPLOY_PID" 2>/dev/null; then
+    if ! $SKIP_DEPLOY && ! kill -0 "$DEPLOY_PID" 2>/dev/null; then
         err "bin/test-bun-deploy exited before becoming healthy."
         echo
         info "Last 40 lines of $DEPLOY_LOG:"
