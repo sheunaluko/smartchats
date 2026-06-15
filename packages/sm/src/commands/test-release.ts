@@ -282,10 +282,20 @@ export async function runTestReleaseE2e(argv: string[]): Promise<number> {
     const dashDash = argv.indexOf('--');
     const e2ePassthrough = dashDash >= 0 ? argv.slice(dashDash + 1) : [];
 
-    const repo = detectRepo();
-    if (!repo.root) { consola.error('Not inside a smartchats repo.'); return 1; }
-    const e2eScript = path.join(repo.root, 'bin/test-e2e');
-    if (!fs.existsSync(e2eScript)) { consola.error(`bin/test-e2e missing at ${e2eScript}`); return 1; }
+    // bin/test-e2e lives in the open repo. Use the same SMARTCHATS_PATH-
+    // aware lookup as the vm subcommands so this works from cloud too.
+    const openRoot = [
+        process.env.SMARTCHATS_PATH,
+        path.join(os.homedir(), 'dev', 'smartchats'),
+        detectRepo().root ?? undefined,
+    ]
+        .filter((p): p is string => !!p)
+        .find(p => fs.existsSync(path.join(p, 'bin/test-e2e')));
+    if (!openRoot) {
+        consola.error('bin/test-e2e not found in $SMARTCHATS_PATH, ~/dev/smartchats, or current repo.');
+        return 1;
+    }
+    const e2eScript = path.join(openRoot, 'bin/test-e2e');
     if (!which('curl')) { consola.error('curl is required for health probes; install via brew install curl.'); return 1; }
 
     const prep = await ensureVmAndStack(platform, { fresh, noKeys });

@@ -27,8 +27,13 @@ if [ ! -e /usr/local/bin/smartchats ]; then
     sudo ln -sf /opt/smartchats/bin/smartchats /usr/local/bin/smartchats
 fi
 
-version=$(smartchats --version 2>/dev/null || echo "(unknown)")
-echo "[provision] smartchats version: $version"
+# Note: deliberately not calling `smartchats --version` here. The deployed
+# 0.3.3 binary has a bug where bare --version falls through to launch and
+# prompts for Docker, polluting provision logs. Fix is committed (top of
+# cli.ts main() intercepts --version) but doesn't take effect until the
+# next release tag fires release.yml. Until then, the binary's presence
+# is sufficient confirmation of a successful install.
+echo "[provision] smartchats binary installed at /opt/smartchats/bin/smartchats"
 
 # Write keys to /opt/smartchats/.env — install.sh's PREFIX/.env is where
 # smartchats-server reads provider keys from at boot (same file the

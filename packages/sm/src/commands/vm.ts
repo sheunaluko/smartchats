@@ -628,10 +628,34 @@ async function tartDown(cfg: VMConfig): Promise<number> {
     return spawnInherit('tart', ['stop', cfg.name]);
 }
 
+/**
+ * VM configs live in the open repo at infra/vms/. Look it up regardless of
+ * cwd, so `sm vm <subcmd>` works from anywhere (including the cloud repo,
+ * which doesn't have infra/vms/ in its tree).
+ *
+ * Resolution order:
+ *   1. $SMARTCHATS_PATH      (existing sm convention, same as recommend.ts)
+ *   2. ~/dev/smartchats      (the standard local layout)
+ *   3. current repo root     (if happens to be open and has infra/vms/)
+ *
+ * Throws with an actionable error if none of those have infra/vms/.
+ */
 function detectRepoRoot(): string {
-    const repo = detectRepo();
-    if (!repo.root) throw new Error('not in a smartchats repo');
-    return repo.root;
+    const candidates = [
+        process.env.SMARTCHATS_PATH,
+        path.join(os.homedir(), 'dev', 'smartchats'),
+        detectRepo().root ?? undefined,
+    ].filter((p): p is string => !!p);
+
+    for (const root of candidates) {
+        if (fs.existsSync(path.join(root, 'infra/vms/lima/linux.yaml'))) return root;
+    }
+
+    throw new Error(
+        `Could not find infra/vms/ in any of:\n` +
+        candidates.map(c => `  ${c}`).join('\n') +
+        `\n\nSet $SMARTCHATS_PATH to your open-repo checkout, or run from inside it.`,
+    );
 }
 
 // ──────────────────────────────────────────────────────────────────────────
