@@ -24,7 +24,7 @@
 - Dev server: `npm run dev` (port 3000) — requires Node 24+
 - Type check: `npm run type-check`
 - Build: `npm run build` (prebuild via `scripts/prebuild.mjs` — cross-platform Node, replaces the old Bash-flavored npm scripts so Windows CI works. Subcommands: `site`, `assets`, `cleanup-onnx`, `all`)
-- E2E: `bin/test-e2e` from repo root — boots bin/test-bun-deploy, auto-bootstraps `.auth/test-profile/` via `setup-test-profile.spec.ts` if missing, runs the simi suite in parallel against the bun stack, tears down cleanly
+- E2E: `bin/test-e2e` from repo root — boots bin/test-bun-deploy, auto-bootstraps `.auth/test-profile/` via `setup-test-profile.spec.ts` if missing, runs the simi suite in parallel against the bun stack, tears down cleanly. bin/test-bun-deploy auto-detects stale builds (any source under `apps/smartchats` or `packages/*/src` newer than `apps/smartchats/out/app.html` triggers a rebuild); pass `--no-rebuild` to skip the check, `--rebuild` to force one.
 
 ## Key Patterns
 

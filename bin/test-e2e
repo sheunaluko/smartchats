@@ -20,17 +20,24 @@
 #
 # Usage:
 #   bin/test-e2e                            # full simi suite, default workers
+#                                           # (auto-rebuilds the bun deploy if
+#                                           # any app/package source is newer
+#                                           # than the build sentinel — no need
+#                                           # to remember --rebuild after editing)
 #   bin/test-e2e --pick                     # interactive workflow picker
 #   bin/test-e2e --workers 8                # bump parallel workers (PW_WORKERS)
 #   bin/test-e2e --headed                   # forces workers=1, visible browser
-#   bin/test-e2e --rebuild                  # force test-bun-deploy rebuild
+#   bin/test-e2e --rebuild                  # force test-bun-deploy rebuild even
+#                                           # if mtime check would say it's fresh
+#   bin/test-e2e --no-rebuild               # skip mtime check; reuse whatever
+#                                           # artifacts exist (rarely needed)
 #   bin/test-e2e --keep-data                # preserve test-bun-deploy data dir
 #   bin/test-e2e --rebuild-profile          # force re-bootstrap the test profile
 #   bin/test-e2e -- --grep agent_input      # arbitrary playwright passthrough
 #
 # Flag → destination:
 #   --pick, --headed, --workers N, -- ...   → smartchats-test e2e
-#   --rebuild, --keep-data                  → bin/test-bun-deploy
+#   --rebuild, --no-rebuild, --keep-data    → bin/test-bun-deploy
 #   --rebuild-profile                       → wipe + re-create the test profile
 #
 # Env:
@@ -50,6 +57,7 @@ REBUILD_PROFILE=false
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --rebuild)          DEPLOY_ARGS+=("$1"); shift ;;
+        --no-rebuild)       DEPLOY_ARGS+=("$1"); shift ;;
         --keep-data)        DEPLOY_ARGS+=("$1"); shift ;;
         --rebuild-profile)  REBUILD_PROFILE=true; shift ;;
         --pick)             E2E_ARGS+=("$1"); shift ;;

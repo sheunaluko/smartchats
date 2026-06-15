@@ -14,8 +14,17 @@
 # Browser only ever hits port 3000 (Express). Same-origin everything.
 #
 # Usage:
-#   bin/test-bun-deploy                Build (if needed) + run all three.
-#   bin/test-bun-deploy --rebuild      Force `bun run build` for apps/smartchats first.
+#   bin/test-bun-deploy                Auto-detect: rebuild if any source under
+#                                      apps/smartchats or packages/*/src is newer
+#                                      than the build sentinel (apps/smartchats/out/
+#                                      index.html); otherwise reuse the existing
+#                                      build.
+#   bin/test-bun-deploy --rebuild      Force `bun run build` even if artifacts
+#                                      look fresh.
+#   bin/test-bun-deploy --no-rebuild   Skip the mtime check; reuse whatever
+#                                      artifacts exist (escape hatch for
+#                                      intentionally running against a stale
+#                                      build). Fails if artifacts are missing.
 #   bin/test-bun-deploy --keep-data    Reuse the data dir from a prior run.
 #   bin/test-bun-deploy --port <n>     Next.js port (default 3000).
 #   bin/test-bun-deploy --data-dir <p> SurrealDB data dir (default ~/.smartchats/test-bun-deploy/data).
@@ -32,6 +41,7 @@ APP_PORT=3000
 SURREAL_PORT=8000
 DATA_DIR="${HOME}/.smartchats/test-bun-deploy/data"
 REBUILD=false
+NO_REBUILD=false
 KEEP_DATA=false
 SEED_FILE=""
 
@@ -39,6 +49,7 @@ SEED_FILE=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --rebuild)    REBUILD=true; shift ;;
+        --no-rebuild) NO_REBUILD=true; shift ;;
         --keep-data)  KEEP_DATA=true; shift ;;
         --port)       APP_PORT="$2"; shift 2 ;;
         --data-dir)   DATA_DIR="$2"; shift 2 ;;
@@ -50,6 +61,11 @@ while [[ $# -gt 0 ]]; do
         *)  err "Unknown option: $1"; exit 1 ;;
     esac
 done
+
+if $REBUILD && $NO_REBUILD; then
+    err "--rebuild and --no-rebuild are mutually exclusive."
+    exit 1
+fi
 
 if [[ -n "$SEED_FILE" && ! -f "$SEED_FILE" ]]; then
     err "Seed file not found: $SEED_FILE"
@@ -95,16 +111,60 @@ fi
 #
 # turbo handles dependency-ordering + caching, so the full root build is
 # fast on subsequent runs (only changed packages re-emit).
+#
+# Auto-rebuild trigger: any source file newer than the SPA sentinel
+# (apps/smartchats/out/app.html, regenerated every build). The previous
+# behavior was "always reuse, pass --rebuild to force" — which silently ran
+# tests against a stale binary whenever someone forgot the flag after
+# editing source. --no-rebuild is the escape hatch when you actually want
+# the stale build (e.g., comparing two binaries' behavior).
 SPA_DIR="$REPO_ROOT/apps/smartchats/out"
 DB_DIST="$REPO_ROOT/packages/smartchats-database/dist"
+BUILD_SENTINEL="$SPA_DIR/app.html"
 
-if $REBUILD || [[ ! -d "$SPA_DIR" ]] || [[ ! -d "$DB_DIST" ]]; then
-    header "Building workspace (turbo run build)"
+needs_rebuild=false
+rebuild_reason=""
+if $REBUILD; then
+    needs_rebuild=true
+    rebuild_reason="--rebuild flag"
+elif $NO_REBUILD; then
+    if [[ ! -d "$SPA_DIR" ]] || [[ ! -d "$DB_DIST" ]] || [[ ! -f "$BUILD_SENTINEL" ]]; then
+        err "--no-rebuild set but build artifacts are missing. Run without --no-rebuild first."
+        exit 1
+    fi
+elif [[ ! -d "$SPA_DIR" ]] || [[ ! -d "$DB_DIST" ]] || [[ ! -f "$BUILD_SENTINEL" ]]; then
+    needs_rebuild=true
+    rebuild_reason="artifacts missing"
+else
+    # Look for any TS/TSX/CSS source newer than the build sentinel. -path
+    # prune skips node_modules / dist / .turbo / .next so we don't get
+    # tripped up by build artifacts under packages/*. head -1 bails after
+    # the first hit — cheap.
+    newer_src=$(find "$REPO_ROOT/apps/smartchats/app" "$REPO_ROOT/apps/smartchats/src" \
+        -type f \( -name "*.ts" -o -name "*.tsx" -o -name "*.css" \) \
+        -newer "$BUILD_SENTINEL" -print 2>/dev/null | head -1)
+    if [[ -z "$newer_src" ]]; then
+        newer_src=$(find "$REPO_ROOT/packages" \
+            \( -path "*/node_modules" -o -path "*/dist" -o -path "*/.turbo" -o -path "*/.next" \) -prune \
+            -o -type f \( -name "*.ts" -o -name "*.tsx" \) -newer "$BUILD_SENTINEL" -print 2>/dev/null | head -1)
+    fi
+    if [[ -n "$newer_src" ]]; then
+        needs_rebuild=true
+        rebuild_reason="source newer than sentinel (${newer_src#$REPO_ROOT/})"
+    fi
+fi
+
+if $needs_rebuild; then
+    header "Building workspace (turbo run build) — $rebuild_reason"
     cd "$REPO_ROOT"
     PATH="$HOME/.bun/bin:$PATH" bun run build || { err "build failed"; exit 1; }
     ok "Workspace built"
 else
-    info "Reusing existing builds (pass --rebuild to force)"
+    if $NO_REBUILD; then
+        info "Reusing existing builds (--no-rebuild; skipped mtime check)"
+    else
+        info "Reusing existing builds (source matches artifact mtime)"
+    fi
 fi
 
 # ── Data dir ──────────────────────────────────────────────────────────
