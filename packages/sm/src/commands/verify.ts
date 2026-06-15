@@ -27,10 +27,20 @@ import * as fs from 'node:fs';
 import consola from 'consola';
 
 import { detectRepo, writeLastVerify, readGitState } from '../lib/context.js';
+import { computeOpenVerifyGate, openVerifyGateAsCheck } from '../lib/open_verify_gate.js';
 
 export const verifyHelp = `sm verify [level] [--explain] [-- <passthrough>]
 
-Levels:
+Behaviour depends on repo:
+
+  Open repo:    runs the named verify level locally (or 'all' by default).
+  Cloud repo:   checks the open-verify gate — confirms that open's last
+                verify passed at the same SHA that was synced into cloud.
+                Cloud has no bin/test-e2e, so the verify that matters
+                happens upstream in open. Level argument is accepted but
+                informational only (the gate is one operation).
+
+Open-repo levels:
   all           default — quick + unit + integration + e2e (full pre-ship gate)
   quick         lint + build only (~30s; fast pre-commit gate)
   lint          turbo run lint
@@ -46,11 +56,14 @@ Flags:
   --explain     print what this verb would do, then exit (no execution)
   --            forward remaining args to the underlying runner
 
-Examples:
+Examples (open):
   sm verify
   sm verify e2e
   sm verify all
   sm verify e2e -- --headed --workers 1
+
+Examples (cloud):
+  sm verify          # checks open-verify gate; updates last-verify-cloud
   sm verify --explain
 
 See: sm explain verify [level]
@@ -178,6 +191,42 @@ export async function runVerify(argv: string[]): Promise<number> {
         return 1;
     }
 
+    // ── Cloud-mode override ─────────────────────────────────────────────
+    // Cloud doesn't have bin/test-e2e and the code IS open's code (rsynced).
+    // `sm verify` in cloud just confirms that open verified the synced SHA.
+    // Level argument is accepted but informational only.
+    if (repo.kind === 'cloud') {
+        const root = repo.root;
+        if (positional[0]) {
+            consola.info(`cloud verify is the open-verify gate; level "${positional[0]}" is open-only and not applied here.`);
+        }
+        const start = Date.now();
+        consola.start('sm verify (cloud) — checking open-verify gate');
+        const gate = computeOpenVerifyGate(root);
+        const check = openVerifyGateAsCheck(gate);
+        const durationMs = Date.now() - start;
+        const git = readGitState(root);
+
+        const verifyLevel = `open-gate:${gate.openVerify?.level ?? 'none'}`;
+        writeLastVerify({
+            repo: 'cloud',
+            level: verifyLevel,
+            ok: check.severity !== 'block',
+            timestamp: new Date().toISOString(),
+            head: git.head,
+            durationMs,
+        });
+
+        if (check.severity === 'block') {
+            consola.fail(`${check.label}: ${check.detail}`);
+            if (check.fix) consola.info(`  → ${check.fix}`);
+            return 1;
+        }
+        consola.success(`open-verify gate: ${check.detail}`);
+        return 0;
+    }
+
+    // ── Open-repo path: existing per-level dispatch ─────────────────────
     consola.start(`sm verify ${level} (repo: ${repo.name})`);
     const result = await runLevel(level, repo.root, passthrough);
     const git = readGitState(repo.root);
