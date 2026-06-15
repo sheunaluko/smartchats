@@ -86,7 +86,13 @@ export function llmRoutes(config: ServerConfig): Router {
     r.post('/stream', async (req: Request, res: Response) => {
         const body = req.body ?? {};
         const { model, input, temperature, stop, text_format, session_id, warmup } = body;
-        const max_tokens = Math.min(body.max_tokens ?? 4096, 8192);
+        // Default bumped 4096 → 16384, cap 8192 → 32768 to give gpt-5-series
+        // reasoning models headroom for both reasoning_tokens AND structured
+        // output. At the API default `effort: "medium"`, nano consumed all 4096
+        // on reasoning alone and emitted response.incomplete with
+        // reason=max_output_tokens. See benchpress STATUS.txt § Tunable
+        // reasoning_effort axis.
+        const max_tokens = Math.min(body.max_tokens ?? 16384, 32768);
 
         if (warmup) return res.json({ success: true, warmup: true });
 
@@ -175,7 +181,13 @@ export function llmRoutes(config: ServerConfig): Router {
     r.post('/streamWithTTS', async (req: Request, res: Response) => {
         const body = req.body ?? {};
         const { model, input, temperature, stop, text_format, session_id, warmup } = body;
-        const max_tokens = Math.min(body.max_tokens ?? 4096, 8192);
+        // Default bumped 4096 → 16384, cap 8192 → 32768 to give gpt-5-series
+        // reasoning models headroom for both reasoning_tokens AND structured
+        // output. At the API default `effort: "medium"`, nano consumed all 4096
+        // on reasoning alone and emitted response.incomplete with
+        // reason=max_output_tokens. See benchpress STATUS.txt § Tunable
+        // reasoning_effort axis.
+        const max_tokens = Math.min(body.max_tokens ?? 16384, 32768);
 
         if (warmup) return res.json({ success: true, warmup: true });
 

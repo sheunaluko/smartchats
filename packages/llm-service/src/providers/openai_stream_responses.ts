@@ -52,8 +52,52 @@ export function handleOpenAIStreamRequestResponses(request: LLMStreamRequest): L
 
                     // Process events in background
                     ;(async () => {
+                        // Verbose per-event-type tracing — gated on env flag. Useful for
+                        // diagnosing API surface gaps (e.g. discovering response.incomplete
+                        // was being silently swallowed). Off by default to keep server
+                        // logs readable. Set LLM_SERVICE_PROBE=1 to enable.
+                        const VERBOSE = process.env.LLM_SERVICE_PROBE === '1'
+                        const probeCounts: Record<string, number> = {}
+                        const probeStart = Date.now()
+                        let settled = false
+                        const trace = (msg: string) => {
+                            if (!VERBOSE) return
+                            const dt = Date.now() - probeStart
+                            // eslint-disable-next-line no-console
+                            console.log(`[openai-stream probe ${dt.toString().padStart(5)}ms] ${msg}`)
+                        }
+                        trace(`stream start (model=${model})`)
                         try {
                             for await (const event of responseStream) {
+                                const t = (event as any).type || 'unknown'
+                                if (!probeCounts[t]) {
+                                    probeCounts[t] = 0
+                                    trace(`first event of type: ${t}`)
+                                }
+                                probeCounts[t]++
+
+                                // Always log terminal-state events that aren't 'completed'.
+                                // These carry actionable diagnostics (max_output_tokens, content
+                                // policy, etc.) and explain why the agent didn't get a response.
+                                if (event.type === 'response.incomplete'
+                                    || event.type === 'response.failed') {
+                                    const r: any = (event as any).response ?? event
+                                    const incompleteReason = r.incomplete_details?.reason
+                                    const errMessage = r.error?.message || r.error?.code
+                                    // eslint-disable-next-line no-console
+                                    console.warn(
+                                        `[llm-service] OpenAI stream ${event.type} `
+                                        + `model=${model} reason=${incompleteReason ?? 'n/a'} `
+                                        + `error=${errMessage ?? 'n/a'}`
+                                    )
+                                    settled = true
+                                    rejectAggregated(new Error(
+                                        `OpenAI Responses stream terminated with ${event.type}: `
+                                        + `reason=${incompleteReason ?? 'unknown'}, error=${errMessage ?? 'n/a'}`
+                                    ))
+                                    continue
+                                }
+
                                 if (event.type === 'response.output_text.delta') {
                                     const delta = event.delta || ''
                                     if (delta) {
@@ -74,6 +118,7 @@ export function handleOpenAIStreamRequestResponses(request: LLMStreamRequest): L
                                         ?? response.usage?.prompt_tokens_details?.cached_tokens
                                         ?? 0
 
+                                    settled = true
                                     resolveAggregated({
                                         output_text: fullText,
                                         usage: {
@@ -90,9 +135,21 @@ export function handleOpenAIStreamRequestResponses(request: LLMStreamRequest): L
                                 }
                             }
                         } catch (err) {
+                            trace(`stream THREW: ${(err as any)?.message || err}`)
                             error = err
+                            settled = true
                             rejectAggregated(err)
                         } finally {
+                            trace(`stream done — histogram: ${JSON.stringify(probeCounts)} settled=${settled}`)
+                            // Safety net: if the stream ended without emitting any
+                            // terminal-state event we recognize, reject so the agent
+                            // doesn't hang on `await aggregated`.
+                            if (!settled) {
+                                rejectAggregated(new Error(
+                                    `OpenAI Responses stream closed without a terminal event. `
+                                    + `Seen event types: ${Object.keys(probeCounts).join(', ') || 'none'}`
+                                ))
+                            }
                             done = true
                             if (waitResolve) {
                                 const resolve = waitResolve

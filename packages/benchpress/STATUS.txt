@@ -101,6 +101,37 @@ Investigation finding: SCM trailing state message is innocent of cache misses
 OPEN — KNOWN ISSUES (in rough priority order)
 ---------------------------------------------
 
+P1  Tunable reasoning_effort axis for the benchmark
+    Discovered on 2026-06-14 that gpt-5-nano consistently hits
+    max_output_tokens (4096 default) by burning ALL tokens on reasoning
+    at the OpenAI Responses API default `effort: "medium"`, leaving
+    zero for output — response.incomplete fires with reason=
+    max_output_tokens. Proven via per-event probe in
+    packages/llm-service/src/providers/openai_stream_responses.ts.
+
+    Same root cause likely affects gpt-5-mini and gpt-5.2 on harder
+    scenarios (q06 spent $0.21 / 30s on gpt-5.5 burning reasoning).
+
+    For the benchmark, reasoning_effort should be a first-class axis
+    (like --models and --scenarios) so we can compare:
+      * effort=minimal vs low vs medium vs high on the same scenario
+      * cost / latency / correctness curves per effort level
+      * which scenarios actually need medium+ reasoning to solve
+
+    Implementation sketch:
+      - run_bench.ts: add --reasoning-effort flag (single value or
+        per-model overrides). Threads through to the llm-service call.
+      - Per-call accounting: separate reasoning_tokens vs output_tokens
+        in run.json so the matrix CSV shows the split.
+      - Possibly a "reasoning sweep" mode that runs each scenario at
+        multiple effort levels in one go.
+
+    Workaround in place: bumped max_output_tokens default 4096 → 16384
+    in smartchats-local-server/src/routes/llm.ts so reasoning models
+    have headroom for both thinking and emitting structured output.
+    Doesn't replace the tunable-effort axis — just unblocks current
+    matrix runs.
+
 P0  Anthropic prompt cache is broken
     Per-call payload shows cache_creation_input_tokens = 16,988 — the
     cache_control marker is being set ~17K into the ~210K prompt instead
