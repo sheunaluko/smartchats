@@ -22,11 +22,16 @@ src/
 ├── export.ts                    getSessionEvents, findCandidateSessions, exportSessionToFile
 ├── summary.ts                   compute event_types histogram, token totals, llm invocations
 ├── cli/find_cli.ts              shared CLI orchestration for session_find (open + closed wrappers)
-└── analysis/                    pure analyzers + their renderers
-    ├── README.md                module conventions
-    ├── transcript.ts, errors.ts, performance.ts,
-    │   traces.ts, executions.ts, inspect.ts
-    └── triage_errors.ts         cross-session merge + handled-state filtering
+├── analysis/                    pure analyzers over an exported bundle
+│   ├── README.md                module conventions
+│   ├── transcript.ts, errors.ts, performance.ts,
+│   │   traces.ts, executions.ts, inspect.ts
+│   └── triage_errors.ts         cross-session merge + handled-state filtering
+└── analysis_db/                 DB-side analyzers over live insights_events
+    ├── README.md                queries the cloud / local DB directly; complement to analysis/
+    ├── cost.ts, slow_calls.ts, function_calls.ts, function_args.ts,
+    │   errors.ts, users.ts, context_growth.ts, issues.ts
+    └── monitor.ts               generic polling wrapper around any analyzer + alerts
 
 scripts/
 ├── save_session.ts              GET → bundle JSON on disk
@@ -35,7 +40,9 @@ scripts/
 ├── session_transcript.ts, session_errors.ts, session_performance.ts,
 │   session_traces.ts, session_tools.ts, session_inspect.ts
 ├── session_triage_errors.ts     cross-session error triage (file in / file out)
-└── triage_mark.ts               mark signatures fixed / wontfix / investigating
+├── triage_mark.ts               mark signatures fixed / wontfix / investigating
+├── audit_*.ts                   one CLI per analysis_db/ analyzer (cost / errors / users / etc.)
+└── monitor.ts                   live polling wrapper — npm run monitor -- <analyzer>
 ```
 
 ## Bundle format
@@ -140,6 +147,54 @@ npm run analyze:inspect      -- <bundle.json> --event=<id>
 ```
 
 Each analyzer is a pure function over a `SessionBundle` (`analyze*`) plus a renderer (`format*`). Use them programmatically via `import { analyzeErrors, formatErrors } from 'smartchats-sessions'`.
+
+### DB-side analysis (audit:* — against the live insights_events table)
+
+No bundle export required — these query the running DB directly. Use them for cross-session monitoring-shaped questions (cost / error rates / function usage / etc.). Defaults to local AIO; point at production via `SMARTCHATS_SESSION_URL/USER/PASSWORD` env vars.
+
+```bash
+npm run audit:cost            -- --by user --since 30d
+npm run audit:errors          -- --since 24h --severity error
+npm run audit:slow-calls      -- --threshold-ms 30000
+npm run audit:function-calls  -- --since 7d
+npm run audit:function-args   -- --name save_log --arg category=dreams
+npm run audit:users           -- --since 30d
+npm run audit:context-growth  -- --by jump --min-tokens 20000
+npm run audit:issues          -- --severity error
+```
+
+Each `audit:*` script wraps the corresponding `queryX` + `formatX` from `src/analysis_db/`. Use programmatically via `import { queryCostBySession, formatCost } from 'smartchats-sessions'`. See [`src/analysis_db/README.md`](src/analysis_db/README.md) for the contract + full module list.
+
+### Live monitor (audit:* with polling + diff + alerts)
+
+Generic wrapper around any DB analyzer. Polls on an interval, diffs rows across ticks, renders live-updating table.
+
+```bash
+npm run monitor -- function-calls --since 24h --interval 5s
+npm run monitor -- errors          --since 7d  --severity error
+npm run monitor -- issues          --kind tool_misbehavior --interval 10s --render append
+npm run monitor -- cost-by-user    --since 30d --interval 30s
+```
+
+Library API for programmatic use:
+
+```ts
+import { liveMonitor, queryErrors, formatErrorsDb } from 'smartchats-sessions';
+
+liveMonitor({
+  client, analyzer: queryErrors, format: formatErrorsDb,
+  args: { since: '7d' },
+  key: row => row.signature,
+  intervalMs: 10_000,
+  onNewRow: (row) => slackPost(`#alerts`, `New error signature: ${row.signature}`),
+  alerts: [{
+    when: (row, prev) => row.count - (prev?.count ?? 0) > 10,
+    do:   (row) => slackPost(`#alerts`, `Burst: ${row.signature} +${row.count - (prev?.count ?? 0)}`),
+  }],
+}).start();
+```
+
+Polling latency ~5s by default. Sub-second push (SurrealDB `LIVE SELECT`) is a future upgrade behind the same external API.
 
 ### Cross-session error triage (the autonomous-fix-loop driver)
 

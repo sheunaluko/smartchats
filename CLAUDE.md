@@ -19,6 +19,9 @@ Node 24+ (current Active LTS through April 2028 — bumped from `>=20` on 2026-0
 | Type-check + build everything | `bin/preflight` or `npx smartchats-test` |
 | Export a session for analysis | `bin/save_session smartchats` |
 | Triage errors across sessions | `cd packages/smartchats-sessions && npm run triage:errors` |
+| Audit cost / errors / users / etc. against the live DB | `cd packages/smartchats-sessions && npm run audit:<concern>` (cost / errors / slow-calls / function-calls / function-args / users / context-growth / issues) |
+| Watch any of the above live in a terminal | `cd packages/smartchats-sessions && npm run monitor -- <analyzer>` |
+| Add a new `issue` kind the agent can file | call `report_issue` in `apps/smartchats/app/modules/issues.ts` — `kind` is free-form, no enum to update |
 | Understand the agent runtime | `packages/cortex/` |
 | Understand the voice pipeline | `packages/tivi/` |
 | Understand the smartchats app | `apps/smartchats/CLAUDE.md` (auto-loads when entering subtree) |
@@ -148,6 +151,8 @@ npm run triage:mark -- <report-path> --status fixed --commit <sha>
 ```
 
 Triage state lives at `data/triage/handled.json`. See `packages/smartchats-sessions/README.md` § Cross-session error triage for full workflow.
+
+DB-side complement: `packages/smartchats-sessions/src/analysis_db/` exposes the same monitoring questions (cost / errors / function calls / user activity / context growth / structured `issue` events filed by the agent's `report_issue` tool) as `audit:*` scripts that query the live `insights_events` table — no bundle round-trip. `npm run monitor` wraps any of them in a polling loop for live terminal-watch. See [`packages/smartchats-sessions/src/analysis_db/README.md`](packages/smartchats-sessions/src/analysis_db/README.md) for the module list + Issue event convention.
 
 ## Auto-loaded per-directory CLAUDE.md
 

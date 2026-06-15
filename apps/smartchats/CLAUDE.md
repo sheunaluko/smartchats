@@ -324,6 +324,9 @@ SmartChats imports from ts_next_app via path aliases configured in `tsconfig.jso
 | `simi_workflow_complete` | `simi/runner.ts` | `workflow_id`, `total_ms`, `steps_passed`, `steps_failed` | — |
 | `voice_interaction_complete` | `useOrchestrator.ts` | `runner_mode`, `timestamps`, `durations`, `response_length`, `mode` | `latency`, `pipeline` |
 | `llm_cancel` | `useOrchestrator.ts` | `flow`, `transcript`, `was_running_function`, `cancel_ts`, `time_to_cancel_ms` | — |
+| `issue` | `modules/issues.ts` (agent `report_issue` tool) | `kind` (free-form), `source` (e.g. `agent.report_issue`), `severity` (`info` \| `warning` \| `error`), `summary`, `detail?`, `triggering_event_id?` | — |
+
+`issue` is the structured "a human should look at this" event. Schema lives in `smartchats-common/src/issues/types.ts`; emitted today by the `report_issue` agent tool (user-prompted or agent-initiated), readable via `audit:issues` / `monitor issues` in `smartchats-sessions/scripts/`. See `smartchats-sessions/src/analysis_db/README.md` § Issue event convention for the canonical schema + adding new emitters.
 
 ### Server-side TTFA breakdown — `llm_server_timing`
 

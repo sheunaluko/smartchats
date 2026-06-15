@@ -109,46 +109,40 @@ Mirroring [`../analysis/`](../analysis/README.md):
 
 ## Issue event convention
 
-The `issue` event type is the foundation for real-time monitoring and alerting without payload introspection. Detectors emit it from anywhere in the runtime; this layer's `issues.ts` analyzer reads them via a single indexed query.
+The `issue` event type is the foundation for monitoring and triage of "things a human should look at." Anything in the runtime can emit one through the existing insights pipeline; this layer's `issues.ts` analyzer reads them via a single indexed query against `event_type = 'issue'`.
+
+Schema (canonical — defined in `smartchats-common/src/issues/types.ts`):
 
 ```ts
 event_type: 'issue'
 payload: {
-  kind: string,                          // e.g. 'context_bloat', 'tool_error', 'cost_spike'
-  severity: 'info' | 'warn' | 'critical',
-  detector: string,                      // e.g. 'scm', 'cortex', 'module:metrics'
-  summary: string,                       // short human-readable
-  metadata?: Record<string, unknown>,    // detector-specific structured data
+  kind: string,                          // free-form. e.g. 'tool_misbehavior',
+                                         //   'weird_llm_response', 'context_bloat_tool_return'
+  source: string,                        // free-form emitter identity. e.g.
+                                         //   'agent.report_issue', 'scm.build'
+  severity: 'info' | 'warning' | 'error',// fixed enum
+  summary: string,                       // one-line human-readable
+  detail?: Record<string, unknown>,      // opaque per-kind metadata
+  triggering_event_id?: string,          // optional pointer to underlying event
 }
-tags: ['issue', '<kind>']
 ```
 
-**Permissive at write, opinionated at read.** `kind` is a string — NOT an enforced enum. A TypeScript union type in `smartchats-common` documents the *recommended* kinds for autocomplete + grep-ability:
+**Permissive at write, structured at read.** `kind` and `source` are both free-form strings — no enum, no coordination required to ship a new kind. `severity` IS a fixed enum (analyzer renders severity buckets consistently across kinds). No `status` field — issue events are point-in-time; handled-state lives in the triage layer (`data/triage/handled.json`) same as for the error analyzer.
 
-```ts
-// in smartchats-common/insights/issue_types.ts (proposed)
-export type KnownIssueKind =
-  | 'context_bloat_scm'         // system prompt grew unexpectedly (added modules, verbose system_msg)
-  | 'context_bloat_tool_return' // a tool's return payload got injected into conversation and was huge
-  | 'tool_error'                // function_error sub-event (sandbox timeout, runtime error)
-  | 'directive_violation'       // model didn't follow a documented contract
-  | 'silent_failure'            // turn started but never produced output
-  | 'cost_spike'                // cumulative cost / single-call cost crossed a threshold
-  | 'cache_miss_spike';         // cache_creation jumped without matching cache_read on subsequent calls
-// open-ended — string union pattern; detectors can emit unseen kinds.
-export type IssueKind = KnownIssueKind | (string & {});
-```
+### Current emitters
 
-**Context bloat is two distinct detectors, not one** (worth surfacing because we already learned this the hard way — the 127K bloat we found in production wasn't SCM-side; it was the `metrics_context` background-loader injecting an unbounded `SELECT *` as a tool return). The two detection hooks live at different points in the runtime:
+| Emitter | Source string | When |
+|---|---|---|
+| `report_issue` agent tool | `agent.report_issue` | Agent fires unprompted when it notices something off, OR on user request ("flag this turn"). See `apps/smartchats/app/modules/issues.ts`. |
 
-- **`context_bloat_scm`** — hooks `SCM.build()`. Measures `system_prompt` token count against a per-session baseline. Fires when the static prefix grows by > X% within a session (e.g., a new module was loaded mid-session, or module state ballooned).
-- **`context_bloat_tool_return`** — hooks `update_workspace` / `add_user_data_input` (the points where tool results and loader payloads get appended to the conversation). Measures the size of the injected payload. Fires when a single tool return exceeds X tokens.
+Detectors are deferred — the original v0 plan listed `context_bloat_scm` / `context_bloat_tool_return` / `slow_tool_call` / etc., but these can ship later as separate PRs that just call `emitIssue()`. The schema is ready; no further design needed to add them.
 
-Both emit the same `issue` event shape; the `kind` distinguishes them, and `metadata` carries the source-specific details (`module_id` for SCM, `function_name` + `args_summary` for tool returns).
+**Context bloat note** — when detectors do land, the bloat case is two distinct hooks, not one (we learned this the hard way — the 127K bloat in production wasn't SCM-side; it was the `metrics_context` background-loader injecting an unbounded `SELECT *` as a tool return):
 
-A new detector that emits `'kind: "embedding_dimension_drift"'` doesn't require a coordinated code change. Consumers (the `queryIssueEvents` analyzer) take `kind?: string | string[]` filters that work for any value, known or not.
+- **`context_bloat_scm`** — would hook `SCM.build()`. Measures static system_prompt growth.
+- **`context_bloat_tool_return`** — would hook `update_workspace` / `add_user_data_input`. Measures per-injection payload size.
 
-The recommended list grows over time as kinds prove their worth. Don't enforce closed enums at the DB layer; the schema is SCHEMALESS and the tooling stays adaptive.
+Until detectors land, `analysis_db/context_growth.ts` is the analytical surrogate: it computes per-llm_invocation `input_tokens` deltas after the fact rather than emitting an issue at the time.
 
 ## Adding a new module
 
@@ -171,25 +165,28 @@ Same pattern as [`../cli/find_cli.ts`](../cli/find_cli.ts):
 
 No SurrealDB-SDK access here — all queries dispatch through the `Client` interface from `smartchats-database`.
 
-## Real-time monitoring (LiveQuery)
+## Real-time monitoring — `monitor.ts`
 
-SurrealDB supports `LIVE SELECT` — streams matching rows as they're inserted. The right home for the streaming subscription is `monitor.ts`:
+Generic polling wrapper around any of the analyzers. Re-runs `queryX(client, args)` on an interval, diffs rows by caller-supplied key, renders + fires callbacks.
 
 ```ts
-export async function* streamIssues(
-  client: Client,
-  filter: BaseFilter & { severity?: 'info' | 'warn' | 'critical' },
-): AsyncIterable<IssueRow>;
+import { liveMonitor, queryFunctionCallHistogram } from 'smartchats-sessions';
+
+liveMonitor({
+  client, analyzer: queryFunctionCallHistogram,
+  args:    { since: '24h', limit: 25 },
+  format:  formatFunctionCallHistogram,
+  key:     row => row.function_name,
+  intervalMs: 5000,
+  render:  'live-table' | 'append' | 'silent',
+  onResult?, onNewRow?, onUpdate?,
+  alerts?: [{ when: (row, prev) => bool, do: (row, prev) => ... }],
+}).start();
 ```
 
-Combined with the `issue` event type, this enables a real alerting layer:
+CLI: `npm run monitor -- <analyzer> [opts]`. Ten registered analyzers (one per `query<X>`) plus the cost-by-{session,model,user} variants. Standard `BaseFilter` flags + per-analyzer extras (`--severity`, `--threshold-ms`, `--name`, etc.).
 
-```sql
-LIVE SELECT * FROM insights_events
-WHERE event_type = 'issue' AND payload.severity = 'critical'
-```
-
-Subscribe once, react in real time (Slack, dashboard, etc.). Near-zero polling cost. **Don't build this until the batch `queryIssueEvents` proves itself useful** — `LIVE SELECT` is the optimization, the query interface is the foundation.
+**Path A (this)**: ~5-10s polling latency. Fine for terminal-watch workloads. **Path B** (SurrealDB native `LIVE SELECT` push for sub-second latency) is a future upgrade — would slot under the same `liveMonitor()` external API. For now, polling buys the entire "watch production live" use case for ~210 lines of generic wrapper + no per-analyzer refactor.
 
 ## Composability with `sm`
 
@@ -207,23 +204,23 @@ packages/sm/src/commands/audit.ts
 
 Each `sm audit <subcmd>` is ~10 lines: parse args → call `queryX(client, args)` → call `formatX(result, opts)` → emit. The work stays in the analyzer modules; sm is just the unified CLI shell. Per-script CLIs in `scripts/` stay as direct/debug entry points.
 
-## Future modules (roadmap, not blocked on anything)
+## Modules shipped
 
-Suggested initial set, ordered by triage / monitoring value:
-
-| Module | Purpose | Status |
+| Module | Purpose | CLI |
 |---|---|---|
-| `_query_helpers.ts` | `BaseFilter` + `buildFilterClause` + time-shorthand parser | not started |
-| `_format.ts` | `renderTable / renderCsv / renderMarkdownTable` + `FormatOpts` | not started |
-| `cost.ts` | per-session / per-user / per-model token + $ rollups | not started |
-| `function_calls.ts` | histogram by name, per session / user / time window | not started |
-| `function_args.ts` | filter by name + args predicate (e.g. `save_log category=dreams`) | not started |
-| `slow_calls.ts` | function_end durations > threshold; flags abandoned `accumulate_text` | not started |
-| `errors.ts` | function_error sub-events + top-level error event histograms | not started |
-| `users.ts` | per-user activity / cost / error rate breakdowns | not started |
-| `context_growth.ts` | LLM prompt-size outliers — pre-`issue`-event surrogate | not started |
-| `issues.ts` | `queryIssueEvents` by kind / severity / time window | not started (requires `issue` event type spec'd in smartchats-common) |
-| `monitor.ts` | composite real-time orchestrator + LiveQuery streams | not started (final form; defer until issues.ts proves itself) |
+| `_query_helpers.ts` | `BaseFilter` + `buildFilterClause` + time-shorthand parser | — |
+| `_format.ts` | `renderTable / renderCsv / renderMarkdownTable` + `FormatOpts` | — |
+| `cost.ts` | per-(session, model) tuple + per-session / per-model / per-user rollups | `audit:cost` |
+| `slow_calls.ts` | function_end durations > threshold; flags abandoned `accumulate_text` | `audit:slow-calls` |
+| `function_calls.ts` | per-function-name histogram (count, distinct sessions/users, error rate, duration stats) | `audit:function-calls` |
+| `function_args.ts` | filter by name + args predicate (e.g. `save_log category=dreams`) | `audit:function-args` |
+| `errors.ts` | function_error sub-events + top-level error event histograms | `audit:errors` |
+| `users.ts` | per-user activity rollup (sessions, executions, cost, errors, function coverage) | `audit:users` |
+| `context_growth.ts` | LLM prompt-size outliers (absolute or within-session jump) | `audit:context-growth` |
+| `issues.ts` | per-kind issue histogram with severity bucket counts | `audit:issues` |
+| `monitor.ts` | generic polling wrapper around any analyzer + alert callbacks | `monitor` |
+
+Roadmap complete. Future work lands as new modules in this directory following the same `queryX` + `formatX` pattern.
 
 ## Worked examples from initial probes against production
 
