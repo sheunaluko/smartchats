@@ -146,8 +146,26 @@ function renderTree(entries: DirtyEntry[]): void {
 // LLM draft path
 // ──────────────────────────────────────────────────────────────────────────
 
-const MAX_DIFF_CHARS = 60_000;
-const MAX_UNTRACKED_INLINE_LINES = 200;
+/**
+ * Hard cap on raw diff bytes pasted into the prompt. Lowered from the
+ * original 60K because bulk-data accidents (a stray generated import
+ * file getting modified by a script) used to dominate the prompt and
+ * crowd out the real change. 20K still covers a meaningful refactor;
+ * larger changes get the `git diff --stat` overview without the body.
+ */
+const MAX_DIFF_CHARS = 20_000;
+
+/**
+ * Untracked files NEVER get their content dumped (the rule the
+ * maintainer set after watching history.txt — a generated import file
+ * with 100 nearly-identical SurrealQL CREATE statements — get sent
+ * verbatim). Instead, each untracked file is summarized in one line:
+ * path, line count, extension, first non-empty line as a preview.
+ *
+ * Number of preview chars we show from the first line.
+ */
+const UNTRACKED_PREVIEW_CHARS = 80;
+
 const CLAUDE_TIMEOUT_MS = 60_000;
 
 function gitOut(root: string, args: string[]): string {
@@ -159,43 +177,65 @@ function gitOut(root: string, args: string[]): string {
 }
 
 function gatherDraftContext(root: string, entries: DirtyEntry[]): {
+    diffStat: string;
     diff: string;
-    untrackedSection: string;
+    diffTruncated: boolean;
+    untrackedSummary: string;
     recentCommits: string;
 } {
-    // git diff HEAD captures both staged and unstaged tracked changes.
+    // `git diff --stat HEAD` is always cheap and always informative — gives
+    // the per-file line-delta overview the LLM can lean on even when the
+    // body is truncated.
+    const diffStat = gitOut(root, ['diff', '--stat', 'HEAD']).trim();
+
+    // git diff HEAD captures both staged and unstaged tracked changes. Capped
+    // so bulk-data accidents can't crowd out real changes (see MAX_DIFF_CHARS
+    // doc above).
     let diff = gitOut(root, ['diff', 'HEAD']);
-    if (diff.length > MAX_DIFF_CHARS) {
-        diff = diff.slice(0, MAX_DIFF_CHARS) + `\n…[diff truncated at ${MAX_DIFF_CHARS} chars]\n`;
+    const diffTruncated = diff.length > MAX_DIFF_CHARS;
+    if (diffTruncated) {
+        diff = diff.slice(0, MAX_DIFF_CHARS) + `\n…[diff body truncated at ${MAX_DIFF_CHARS} chars; see stat above for full picture]\n`;
     }
 
+    // Untracked files: one summary line each, never the body. Rule from the
+    // maintainer: files should never appear word-for-word in the prompt;
+    // only concise summaries of what changed.
     const untracked = entries.filter((e) => e.kind === 'untracked');
-    const parts: string[] = [];
+    const summaries: string[] = [];
     for (const u of untracked) {
         const abs = path.join(root, u.path);
         try {
             const stat = fs.statSync(abs);
             if (!stat.isFile()) {
-                parts.push(`+++ ${u.path}\n  (directory or special; skipped)\n`);
+                summaries.push(`  ${u.path}  (directory or special)`);
                 continue;
             }
             const text = fs.readFileSync(abs, 'utf8');
             const lines = text.split('\n');
-            if (lines.length > MAX_UNTRACKED_INLINE_LINES) {
-                parts.push(`+++ ${u.path}  (${lines.length} lines, content omitted)\n`);
-            } else {
-                parts.push(`+++ ${u.path}\n${text}\n`);
-            }
+            const lineCount = lines.length;
+            const ext = path.extname(u.path).replace(/^\./, '') || '(none)';
+            const firstNonEmpty = lines.find((l) => l.trim().length > 0) ?? '';
+            const preview = firstNonEmpty.length > UNTRACKED_PREVIEW_CHARS
+                ? firstNonEmpty.slice(0, UNTRACKED_PREVIEW_CHARS - 1) + '…'
+                : firstNonEmpty;
+            const sizeStr = formatSize(stat.size);
+            summaries.push(`  ${u.path}  (${lineCount} lines, ${sizeStr}, .${ext}) — ${JSON.stringify(preview)}`);
         } catch {
-            parts.push(`+++ ${u.path}  (unreadable)\n`);
+            summaries.push(`  ${u.path}  (unreadable)`);
         }
     }
-    const untrackedSection = parts.length ? parts.join('\n') : '(none)';
+    const untrackedSummary = summaries.length ? summaries.join('\n') : '  (none)';
 
     // Last 3 non-merge commits, full message, as style exemplars.
     const recentCommits = gitOut(root, ['log', '-3', '--no-merges', '--pretty=format:--- %h%n%B']).trim();
 
-    return { diff, untrackedSection, recentCommits };
+    return { diffStat, diff, diffTruncated, untrackedSummary, recentCommits };
+}
+
+function formatSize(bytes: number): string {
+    if (bytes < 1024) return `${bytes}B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
+    return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
 }
 
 function buildClaudePrompt(ctx: ReturnType<typeof gatherDraftContext>): string {
@@ -220,11 +260,15 @@ function buildClaudePrompt(ctx: ReturnType<typeof gatherDraftContext>): string {
         `RECENT COMMITS (as style exemplars):`,
         ctx.recentCommits || '(no recent commits)',
         ``,
-        `DIFF (git diff HEAD):`,
+        `CHANGE OVERVIEW (git diff --stat HEAD):`,
+        ctx.diffStat || '(no stat — nothing tracked changed)',
+        ``,
+        `CHANGE BODY (git diff HEAD${ctx.diffTruncated ? ', truncated' : ''}):`,
         ctx.diff || '(no tracked changes)',
         ``,
-        `UNTRACKED FILES (will be included via git add -A):`,
-        ctx.untrackedSection,
+        `UNTRACKED FILES (one-line summary each — paths only, never contents,`,
+        `since a file's raw text rarely says anything about the WHY of a commit):`,
+        ctx.untrackedSummary,
         ``,
         `Output ONLY the commit message itself. No backticks, no markdown code`,
         `fences, no preface like "Here is the commit message:". Just the raw text`,
