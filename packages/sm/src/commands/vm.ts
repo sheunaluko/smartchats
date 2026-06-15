@@ -23,6 +23,7 @@ import * as os from 'node:os';
 import consola from 'consola';
 
 import { detectRepo } from '../lib/context.js';
+import { runTestRelease, runTestReleaseE2e, killVmTunnel } from './test-release.js';
 
 // ──────────────────────────────────────────────────────────────────────────
 // Registry
@@ -71,10 +72,14 @@ Subcommands:
   up <name>                Boot (idempotent — reuses if already up). Injects
                            keys from ~/.smartchats/keys.env unless --no-keys.
   into <name>              Shell into the VM. Repo mounted at /work
-                           (Linux) or ~/work (macOS). Keys auto-loaded.
+                           (Linux) or /Volumes/My Shared Files/work (macOS).
   down <name>              Stop, keep the disk for next \`up\`.
-  test <name>              Compose: up + bin/simi-smoke against the stack.
-                           Reports pass/fail and platform info.
+  test-release <name>      up + install released binary inside + smartchats
+                           start. Leaves stack at http://localhost:3000.
+                           Drive a headed browser against it for manual QA.
+  test-release-e2e <name>  Same as test-release, then runs the Playwright
+                           simi suite against the VM-served stack via
+                           \`bin/test-e2e --skip-deploy\`.
 
 Options:
   --no-keys                Skip key injection (for clean snapshots).
@@ -88,7 +93,9 @@ ${Object.values(VM_REGISTRY).map(v => `  ${v.name.padEnd(8)} ${v.driver.padEnd(5
 Examples:
   sm vm up linux
   sm vm into linux
-  sm vm test linux
+  sm vm test-release linux        # released binary running; drive a browser
+  sm vm test-release-e2e linux    # released binary + run e2e simi suite
+  sm vm test-release-e2e mac      # same against macOS Tart VM
   sm vm down linux
 
 Host keys file: ~/.smartchats/keys.env (one KEY=value per line). See
@@ -616,6 +623,8 @@ async function tartDown(cfg: VMConfig): Promise<number> {
         consola.info(`[tart] ${cfg.name} doesn't exist; nothing to stop.`);
         return 0;
     }
+    // Tear down the SSH tunnel first (if test-release opened one).
+    killVmTunnel(cfg.name);
     return spawnInherit('tart', ['stop', cfg.name]);
 }
 
@@ -689,19 +698,10 @@ export async function runVm(argv: string[]): Promise<number> {
             if (cfg.driver === 'lima') return limaDown(cfg);
             if (cfg.driver === 'tart') return tartDown(cfg);
             return 1;
-        case 'test': {
-            // up + bin/simi-smoke
-            const upFn = cfg.driver === 'lima' ? limaUp : tartUp;
-            const upExit = await upFn(cfg, repoRoot, { fresh, injectKeys: !noKeys });
-            if (upExit !== 0) return upExit;
-            const smokePath = path.join(repoRoot, 'bin/simi-smoke');
-            if (!fs.existsSync(smokePath)) {
-                consola.error(`bin/simi-smoke not found at ${smokePath}`);
-                return 1;
-            }
-            consola.start(`[smoke] running bin/simi-smoke against ${cfg.name}`);
-            return spawnInherit(smokePath, ['--vm', cfg.name]);
-        }
+        case 'test-release':
+            return runTestRelease(argv.slice(1));
+        case 'test-release-e2e':
+            return runTestReleaseE2e(argv.slice(1));
         default:
             consola.error(`unknown subcommand: ${sub}`);
             console.log(vmHelp);

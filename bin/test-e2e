@@ -53,6 +53,7 @@ E2E_ARGS=()
 PW_WORKERS_VAL=""
 HEADED=false
 REBUILD_PROFILE=false
+SKIP_DEPLOY=false
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -60,6 +61,7 @@ while [[ $# -gt 0 ]]; do
         --no-rebuild)       DEPLOY_ARGS+=("$1"); shift ;;
         --keep-data)        DEPLOY_ARGS+=("$1"); shift ;;
         --rebuild-profile)  REBUILD_PROFILE=true; shift ;;
+        --skip-deploy)      SKIP_DEPLOY=true; shift ;;
         --pick)             E2E_ARGS+=("$1"); shift ;;
         --headed)           HEADED=true; shift ;;
         --workers)          PW_WORKERS_VAL="$2"; shift 2 ;;
@@ -72,39 +74,56 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# ── Pre-flight: port :3000 must be free ───────────────────────────────
+# ── Pre-flight: port :3000 ─────────────────────────────────────────────
+# In default mode, port 3000 must be FREE — bin/test-bun-deploy will bind
+# it. In --skip-deploy mode (used by sm test-release-e2e against a VM),
+# port 3000 must already be BOUND by the external stack we're testing.
 header "Pre-flight"
-if lsof -nP -iTCP:3000 -sTCP:LISTEN >/dev/null 2>&1; then
-    err "Port 3000 is already in use."
-    err "Something else is bound — likely a stale dev server or a previous bin/test-bun-deploy."
-    err "Investigate with:  lsof -nP -iTCP:3000 -sTCP:LISTEN"
-    err "Then kill the offender and retry."
-    exit 1
+if $SKIP_DEPLOY; then
+    if ! lsof -nP -iTCP:3000 -sTCP:LISTEN >/dev/null 2>&1; then
+        err "--skip-deploy set but nothing listening on port 3000."
+        err "Start the stack you want to test first (e.g. inside a VM with port forwarding)."
+        exit 1
+    fi
+    ok "Port 3000 bound by external stack (--skip-deploy)"
+else
+    if lsof -nP -iTCP:3000 -sTCP:LISTEN >/dev/null 2>&1; then
+        err "Port 3000 is already in use."
+        err "Something else is bound — likely a stale dev server or a previous bin/test-bun-deploy."
+        err "Investigate with:  lsof -nP -iTCP:3000 -sTCP:LISTEN"
+        err "Then kill the offender and retry. (Or use --skip-deploy if testing an external stack.)"
+        exit 1
+    fi
+    ok "Port 3000 free"
 fi
-ok "Port 3000 free"
 
-# ── Boot test-bun-deploy in the background ────────────────────────────
+# ── Boot test-bun-deploy in the background (unless --skip-deploy) ─────
+DEPLOY_PID=""
 LOG_DIR="${E2E_LOG_DIR:-$REPO_ROOT/data/logs}"
 mkdir -p "$LOG_DIR"
-DEPLOY_LOG="$LOG_DIR/test-e2e-deploy.log"
-: > "$DEPLOY_LOG"
 
-header "Booting bin/test-bun-deploy in background"
-info "Log: $DEPLOY_LOG"
-
-# Run test-bun-deploy detached enough that we can signal it, but still
-# under our process so EXIT trap reaches it. Its own trap propagates
-# cleanup to surreal + bun children.
-"$REPO_ROOT/bin/test-bun-deploy" "${DEPLOY_ARGS[@]+"${DEPLOY_ARGS[@]}"}" \
-    >"$DEPLOY_LOG" 2>&1 &
-DEPLOY_PID=$!
-info "Deploy PID: $DEPLOY_PID"
+if ! $SKIP_DEPLOY; then
+    DEPLOY_LOG="$LOG_DIR/test-e2e-deploy.log"
+    : > "$DEPLOY_LOG"
+    header "Booting bin/test-bun-deploy in background"
+    info "Log: $DEPLOY_LOG"
+    # Run test-bun-deploy detached enough that we can signal it, but still
+    # under our process so EXIT trap reaches it. Its own trap propagates
+    # cleanup to surreal + bun children.
+    "$REPO_ROOT/bin/test-bun-deploy" "${DEPLOY_ARGS[@]+"${DEPLOY_ARGS[@]}"}" \
+        >"$DEPLOY_LOG" 2>&1 &
+    DEPLOY_PID=$!
+    info "Deploy PID: $DEPLOY_PID"
+else
+    info "Skipping bin/test-bun-deploy — testing external stack (--skip-deploy)"
+fi
 
 # Cleanup is registered ONCE, fires on any exit path (success, fail, Ctrl-C).
 DEPLOY_KILLED=false
 cleanup_deploy() {
     $DEPLOY_KILLED && return
     DEPLOY_KILLED=true
+    [[ -z "$DEPLOY_PID" ]] && return     # --skip-deploy: nothing to kill
     if kill -0 "$DEPLOY_PID" 2>/dev/null; then
         info "Stopping bin/test-bun-deploy (PID $DEPLOY_PID)..."
         kill -TERM "$DEPLOY_PID" 2>/dev/null || true
