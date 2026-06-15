@@ -29,7 +29,8 @@
     "audit:cost": "tsx scripts/audit_cost.ts",
     "audit:slow-calls": "tsx scripts/audit_slow_calls.ts",
     "audit:function-calls": "tsx scripts/audit_function_calls.ts",
-    "audit:function-args": "tsx scripts/audit_function_args.ts"
+    "audit:function-args": "tsx scripts/audit_function_args.ts",
+    "audit:errors": "tsx scripts/audit_errors.ts"
   },
   "dependencies": {
     "smartchats-database": "*",

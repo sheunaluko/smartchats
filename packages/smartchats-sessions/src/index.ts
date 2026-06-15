@@ -173,3 +173,13 @@ export type {
     FunctionArgsCallRow,
     FunctionArgsResult,
 } from './analysis_db/function_args.js';
+
+export {
+    queryErrors,
+    formatErrors as formatErrorsDb,
+} from './analysis_db/errors.js';
+export type {
+    ErrorsArgs,
+    ErrorSignatureRow,
+    ErrorsResult as ErrorsDbResult,
+} from './analysis_db/errors.js';
