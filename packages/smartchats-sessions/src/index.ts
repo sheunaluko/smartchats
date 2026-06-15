@@ -153,3 +153,12 @@ export type {
     SlowCallRow,
     SlowCallsResult,
 } from './analysis_db/slow_calls.js';
+
+export {
+    queryFunctionCallHistogram,
+    formatFunctionCallHistogram,
+} from './analysis_db/function_calls.js';
+export type {
+    FunctionCallHistogramRow,
+    FunctionCallHistogramResult,
+} from './analysis_db/function_calls.js';
