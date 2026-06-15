@@ -26,6 +26,11 @@ export { is_browser } from './is_browser.js';
 // Insights (telemetry client + types).
 export * as insights from './insights/index.js';
 
+// Issues — structured "this is worth a human's attention" event payloads.
+// Flat re-export so callers can `import { IssuePayload, buildIssuePayload,
+// ISSUE_EVENT_TYPE } from 'smartchats-common'`.
+export * from './issues/index.js';
+
 // AppData store — pluggable storage abstraction (LocalStorage / SurrealDB).
 export * from './app_data_store.js';
 

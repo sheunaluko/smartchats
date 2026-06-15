@@ -47,6 +47,7 @@ import { createScopingModule } from "./modules/scoping"
 import { createSessionsModule } from "./modules/sessions"
 import { createAppLauncherModule } from "./modules/app_launcher"
 import { createOnboardingModule } from "./modules/onboarding"
+import { createIssuesModule } from "./modules/issues"
 
 import * as graph_utils from "./graph_utils"
 import { test_graph_utils, clear_graph_utils_test } from "./test_graph_utils"
@@ -117,6 +118,7 @@ export function get_agent(modelName: string = "gpt-5-mini", insightsClient?: any
     scm.add_module(createAppearanceModule())
     scm.add_module(createSessionsModule())
     scm.add_module(createOnboardingModule())
+    scm.add_module(createIssuesModule())
 
     // App platform — uses late-bound rebuild ref since Cortex doesn't exist yet
     const appLauncherRebuildRef = { current: () => {} }

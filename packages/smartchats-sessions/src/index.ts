@@ -202,3 +202,13 @@ export type {
     ContextGrowthRow,
     ContextGrowthResult,
 } from './analysis_db/context_growth.js';
+
+export {
+    queryIssues,
+    formatIssues,
+} from './analysis_db/issues.js';
+export type {
+    IssuesArgs,
+    IssueKindRow,
+    IssuesResult,
+} from './analysis_db/issues.js';
