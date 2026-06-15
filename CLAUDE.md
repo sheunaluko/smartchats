@@ -68,7 +68,7 @@ sm ship-full             # comprehensive: + verify e2e + schema apply + post-dep
 sm rollback <target>     # functions (guided) | frontend (vercel rollback)
 
 # Open-only
-sm release vX.Y.Z        # bump + tag (--push-tags fires release.yml)
+sm release               # auto: patch bump from smartchats-cli/package.json (--minor / --major / explicit vX.Y.Z to override; --push-tags fires release.yml)
 sm push-public           # git push origin main (publishes to public repo)
 ```
 

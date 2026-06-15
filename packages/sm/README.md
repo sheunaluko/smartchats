@@ -41,7 +41,7 @@ front door that knows when to call which.
 | `ship` | cloud | Standard chain: sync + verify ci + deploy functions + push frontend (~5 min) |
 | `ship-full` | cloud | Comprehensive chain: + verify e2e + schema apply (if drift) + post-deploy probes (~25 min) |
 | `rollback <target>` | cloud | `functions` (guided SHA-based redeploy) or `frontend` (vercel rollback) |
-| `release vX.Y.Z` | open | Bump `smartchats-cli` version + tag; `--push-tags` fires `release.yml` |
+| `release [vX.Y.Z]` | open | Bump `smartchats-cli` + tag. Auto-detects next version (patch bump from `package.json`); `--minor` / `--major` / explicit `vX.Y.Z` to override. `--push-tags` fires `release.yml`. |
 | `push-public` | open | Routine `git push origin main` (publishes to public repo) |
 
 ## Examples
@@ -71,7 +71,8 @@ sm ship-full                      # heavy — adds e2e + schema apply + post-dep
 sm ship-full --skip-e2e           # only when e2e infra is broken, not when code is suspect
 
 # Open release
-sm release v0.3.3 --push-tags     # bump + tag + push (fires release.yml workflow)
+sm release --push-tags            # auto-detect next patch version + bump + tag + push
+sm release v0.3.3 --push-tags     # explicit version override + push (fires release.yml workflow)
 ```
 
 ## The `explain` feature (maintainer memory)

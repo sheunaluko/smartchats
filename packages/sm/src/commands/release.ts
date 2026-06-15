@@ -21,19 +21,30 @@ import { detectRepo, readGitState } from '../lib/context.js';
 import { preflight, parseCommonFlags, type PreflightCheck } from '../lib/preflight.js';
 import { getExplain } from '../lib/descriptors.js';
 
-export const releaseHelp = `sm release <version> [--npm] [--push-tags] [--yes] [--explain]  (open repo only)
+export const releaseHelp = `sm release [version] [--patch|--minor|--major] [--npm] [--push-tags] [--yes] [--explain]  (open repo only)
 
 Wraps bin/release. Validates version, bumps smartchats-cli, commits, tags.
 
+Version selection:
+  Defaults to a PATCH bump from packages/smartchats-cli/package.json's
+  current version. So if package.json is at 0.3.2, \`sm release\` cuts v0.3.3.
+  Override with --minor / --major for those bumps, or pass an explicit
+  vX.Y.Z as a positional arg.
+
 Flags:
+  --patch       (default) bump the patch component (0.3.2 → 0.3.3)
+  --minor       bump minor, reset patch (0.3.2 → 0.4.0)
+  --major       bump major, reset minor+patch (0.3.2 → 1.0.0)
   --npm         publish smartchats-ai to npm now (default: let CI do it)
   --push-tags   git push --follow-tags afterward (fires release.yml workflow)
   --yes         skip preflight prompt
   --explain     print descriptor + checks then exit
 
 Examples:
-  sm release v0.3.3
-  sm release v0.3.3 --push-tags
+  sm release                       # auto: patch bump from package.json
+  sm release --minor               # auto: minor bump
+  sm release v0.5.0                # explicit version (overrides auto)
+  sm release --push-tags           # auto + push
 `;
 
 export const pushPublicHelp = `sm push-public  (open repo only)
@@ -61,10 +72,44 @@ function spawnInherit(cmd: string, args: string[], cwd: string): Promise<number>
 // sm release
 // ---------------------------------------------------------------------------
 
+/**
+ * Read `packages/smartchats-cli/package.json` and return its current
+ * version string (without a leading `v`). Throws if the file or field
+ * is missing — that would be a real repo problem, not something we
+ * should paper over.
+ */
+function readCliVersion(repoRoot: string): string {
+    const pkgPath = path.join(repoRoot, 'packages/smartchats-cli/package.json');
+    const raw = fs.readFileSync(pkgPath, 'utf8');
+    const pkg = JSON.parse(raw) as { version?: string };
+    if (!pkg.version || typeof pkg.version !== 'string') {
+        throw new Error(`packages/smartchats-cli/package.json missing 'version' field`);
+    }
+    return pkg.version;
+}
+
+/**
+ * Compute the next version given a current X.Y.Z and a bump kind.
+ * Returns the new version WITH a leading `v` (matches the tag format).
+ * Pre-release suffixes on the current version (e.g. `0.3.2-beta.1`) are
+ * stripped before bumping — releasing from a beta means moving to the
+ * next stable.
+ */
+function computeNextVersion(current: string, bump: 'patch' | 'minor' | 'major'): string {
+    const m = current.match(/^(\d+)\.(\d+)\.(\d+)/);
+    if (!m) throw new Error(`Unparseable version in smartchats-cli/package.json: ${current}`);
+    let [, majS, minS, patS] = m;
+    let maj = Number(majS), min = Number(minS), pat = Number(patS);
+    if (bump === 'patch') pat += 1;
+    else if (bump === 'minor') { min += 1; pat = 0; }
+    else if (bump === 'major') { maj += 1; min = 0; pat = 0; }
+    return `v${maj}.${min}.${pat}`;
+}
+
 export async function runRelease(argv: string[]): Promise<number> {
-    if (argv.length === 0 || argv.includes('-h') || argv.includes('--help')) {
+    if (argv.includes('-h') || argv.includes('--help')) {
         console.log(releaseHelp);
-        return argv.length === 0 ? 1 : 0;
+        return 0;
     }
     const repo = detectRepo();
     if (repo.kind !== 'open' || !repo.root) {
@@ -72,16 +117,47 @@ export async function runRelease(argv: string[]): Promise<number> {
         return 1;
     }
     const flags = parseCommonFlags(argv);
-    const version = flags.positional.find(p => !p.startsWith('--'));
-    if (!version) {
-        consola.error('Usage: sm release <version>  (e.g. sm release v0.3.3)');
+
+    // Bump-type flags. Default is patch. Mutually exclusive.
+    const bumpFlags = [
+        argv.includes('--major') ? 'major' : null,
+        argv.includes('--minor') ? 'minor' : null,
+        argv.includes('--patch') ? 'patch' : null,
+    ].filter(Boolean) as ('major' | 'minor' | 'patch')[];
+    if (bumpFlags.length > 1) {
+        consola.error(`--major / --minor / --patch are mutually exclusive (got: ${bumpFlags.join(', ')})`);
         return 1;
+    }
+    const bumpKind: 'major' | 'minor' | 'patch' = bumpFlags[0] ?? 'patch';
+
+    // Explicit positional version (e.g. `v0.5.0`) overrides the auto path.
+    const explicitVersion = flags.positional.find(p => !p.startsWith('--'));
+
+    let version: string;
+    let versionSource: string;
+    if (explicitVersion) {
+        version = explicitVersion;
+        versionSource = `explicit (${explicitVersion})`;
+    } else {
+        try {
+            const current = readCliVersion(repo.root);
+            version = computeNextVersion(current, bumpKind);
+            versionSource = `auto: ${bumpKind} bump from package.json (${current} → ${version.replace(/^v/, '')})`;
+        } catch (err) {
+            consola.error((err as Error).message);
+            return 1;
+        }
     }
     const npmPublish = argv.includes('--npm');
     const pushTags = argv.includes('--push-tags');
 
     const git = readGitState(repo.root);
     const checks: PreflightCheck[] = [
+        {
+            label: 'version',
+            severity: 'pass',
+            detail: `${version}  (${versionSource})`,
+        },
         {
             label: 'on main branch',
             severity: git.branch === 'main' ? 'pass' : 'warn',
