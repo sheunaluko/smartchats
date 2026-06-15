@@ -31,7 +31,8 @@ import { detectRepo, writeLastVerify, readGitState } from '../lib/context.js';
 export const verifyHelp = `sm verify [level] [--explain] [-- <passthrough>]
 
 Levels:
-  quick         lint + build (default; ~30s; pre-commit gate)
+  all           default — quick + unit + integration + e2e (full pre-ship gate)
+  quick         lint + build only (~30s; fast pre-commit gate)
   lint          turbo run lint
   build         turbo run build (type-check via emit)
   unit          vitest in packages with test:unit
@@ -39,7 +40,6 @@ Levels:
   e2e           bin/test-e2e — full Playwright simi suite on native binaries
   install       scripts/test-install.sh — tarball + Docker rehearsal (open repo)
   stripe        bin/test-stripe — sandbox lifecycle (cloud repo, prerequisites)
-  all           everything applicable in this repo
   ci            curated CI set: quick + unit + integration
 
 Flags:
@@ -162,7 +162,9 @@ export async function runVerify(argv: string[]): Promise<number> {
     const passthrough = dashDash >= 0 ? argv.slice(dashDash + 1) : [];
     const positional = (dashDash >= 0 ? argv.slice(0, dashDash) : argv)
         .filter(a => !a.startsWith('--'));
-    const level = positional[0] ?? 'quick';
+    // Default is `all` (quick + unit + integration + e2e) — full pre-ship
+    // verification. Pre-commit fast-gate is `sm verify quick`.
+    const level = positional[0] ?? 'all';
 
     if (explain) {
         // Delegated to the explain command via main router; print short notice.

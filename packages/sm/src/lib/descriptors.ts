@@ -127,18 +127,18 @@ function describeVerify(level?: string): Explain {
 
     const levelToggle: ExplainToggle = {
         label: 'level',
-        current: level ?? 'quick (default)',
-        impact: levelImpact(level ?? 'quick'),
+        current: level ?? 'all (default)',
+        impact: levelImpact(level ?? 'all'),
         alternatives: [
-            { value: 'quick', impact: 'lint + build (L0 + L1). Sub-30s. Safe pre-commit gate.' },
+            { value: 'all', impact: 'L0 → L4 applicable to this repo: quick + unit + integration + e2e. Full pre-ship gate; what `sm verify` runs by default.' },
+            { value: 'quick', impact: 'lint + build (L0 + L1). Sub-30s. Fast pre-commit gate.' },
             { value: 'lint', impact: 'L0: turbo run lint. Skipped if no package defines a lint script.' },
             { value: 'build', impact: 'L1: turbo run build = tsc emit. Acts as workspace type-check.' },
             { value: 'unit', impact: 'L2: vitest in every package with a test:unit script.' },
             { value: 'integration', impact: 'L3: spawns surreal --memory on a free port; runs verify_surreal_rpc_path.ts (CBOR vs JSON-RPC divergence check). Closes the STATUS.txt ★ item once promoted.' },
             { value: 'e2e', impact: 'L4: wraps bin/test-e2e. Boots bin/test-bun-deploy (Bun-compiled + native surreal), polls :3000/local-api/health, runs Playwright simi suite, tears down.' },
             { value: 'install', impact: 'L5 (planned): scripts/test-install.sh — builds tarball, serves over HTTP, docker build Dockerfile.aio against local URL.' },
-            { value: 'stripe', impact: '(cloud only, planned) bin/test-stripe — 3 Stripe flows in sandbox. Needs Functions emulator + stripe listen tunnel + sk_test_.' },
-            { value: 'all', impact: 'Every level applicable to this repo.' },
+            { value: 'stripe', impact: '(cloud only) bin/test-stripe — 3 Stripe flows in sandbox. Opt-in; needs Functions emulator + stripe listen tunnel + sk_test_.' },
             { value: 'ci', impact: 'Curated subset CI runs on every push: quick + unit + integration. e2e is opt-in.' },
         ],
     };
@@ -172,8 +172,8 @@ function describeVerify(level?: string): Explain {
         repos: ['open', 'cloud'],
         toggles: [levelToggle],
         context,
-        steps: stepsForVerify(level ?? 'quick'),
-        sideEffects: sideEffectsForVerify(level ?? 'quick'),
+        steps: stepsForVerify(level ?? 'all'),
+        sideEffects: sideEffectsForVerify(level ?? 'all'),
         gotchas: [
             '`quick` runs lint + build only; never use it alone before a deploy.',
             'L4 e2e needs port 3000 free — stop any running dev stack first.',

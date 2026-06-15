@@ -55,7 +55,7 @@ sm explain               # flat list with one-line summaries
 sm explain <verb>        # verbose state-aware description (toggles, current context, gotchas)
 
 # Common verbs
-sm verify [level]        # quick | unit | integration | e2e | install | stripe | all | ci
+sm verify [level]        # default: all (quick + unit + integration + e2e). Levels: quick | unit | integration | e2e | install | stripe | ci
 sm dev                   # bin/devserve (correct target for current repo)
 sm doctor                # environment health check
 sm triage [local|cloud]  # error session triage

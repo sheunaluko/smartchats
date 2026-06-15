@@ -53,10 +53,11 @@ sm explain ship-full              # comprehensive ship — what does it actually
 sm explain deploy schema          # this one's irreversible; show me everything
 
 # Verify (level controls scope)
-sm verify                         # quick (~30s) — pre-commit gate
+sm verify                         # all — full pre-ship gate (quick + unit + integration + e2e, ~12 min)
+sm verify quick                   # lint + build only (~30s) — fast pre-commit gate
 sm verify ci                      # quick + unit + integration (~2 min) — CI default
 sm verify e2e                     # full bun stack + Playwright simi suite (~10 min)
-sm verify all                     # everything applicable in this repo
+sm verify stripe                  # cloud-repo Stripe lifecycle (opt-in; needs prereq terminals)
 
 # Cloud deploys (all preflight + confirm)
 sm sync                           # rsync from open
