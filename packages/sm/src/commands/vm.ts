@@ -124,6 +124,101 @@ function checkDriver(driver: Driver): { ok: true } | { ok: false; install: strin
 // ──────────────────────────────────────────────────────────────────────────
 
 const KEYS_FILE = path.join(os.homedir(), '.smartchats', 'keys.env');
+
+// ──────────────────────────────────────────────────────────────────────────
+// Tart SSH key bootstrap
+// ──────────────────────────────────────────────────────────────────────────
+//
+// Tart uses ssh for both provisioning and `into`. The base image authenticates
+// admin/admin by password, which means our first hop into a fresh VM needs to
+// push a password. We avoid the sshpass dependency entirely:
+//
+//   1. On first run, generate a dedicated keypair at ~/.smartchats/vm-keys/
+//   2. Bootstrap into the VM ONCE via macOS's built-in `expect` to push the
+//      public key into ~admin/.ssh/authorized_keys.
+//   3. Every operation after that uses `ssh -i <key>` and never sees a
+//      password. The bootstrap is detected via a BatchMode probe — if the
+//      key already works, we skip the expect step entirely.
+
+const VM_KEYS_DIR = path.join(os.homedir(), '.smartchats', 'vm-keys');
+const VM_PRIVATE_KEY = path.join(VM_KEYS_DIR, 'id_smartchats');
+const VM_PUBLIC_KEY = path.join(VM_KEYS_DIR, 'id_smartchats.pub');
+
+function ensureVmKeypair(): void {
+    if (fs.existsSync(VM_PRIVATE_KEY) && fs.existsSync(VM_PUBLIC_KEY)) return;
+    fs.mkdirSync(VM_KEYS_DIR, { recursive: true });
+    fs.chmodSync(VM_KEYS_DIR, 0o700);
+    consola.info(`[vm-keys] generating ed25519 keypair at ${VM_PRIVATE_KEY}`);
+    execFileSync('ssh-keygen', [
+        '-t', 'ed25519',
+        '-f', VM_PRIVATE_KEY,
+        '-N', '',                    // no passphrase
+        '-C', 'sm-vm-bootstrap',
+        '-q',
+    ]);
+    fs.chmodSync(VM_PRIVATE_KEY, 0o600);
+}
+
+function canSshWithKey(ip: string, user: string, port = 22): boolean {
+    try {
+        execFileSync('ssh', [
+            '-i', VM_PRIVATE_KEY,
+            '-p', String(port),
+            '-o', 'StrictHostKeyChecking=no',
+            '-o', 'UserKnownHostsFile=/dev/null',
+            '-o', 'BatchMode=yes',           // no password prompts
+            '-o', 'ConnectTimeout=5',
+            '-o', 'LogLevel=ERROR',
+            `${user}@${ip}`, 'true',
+        ], { stdio: 'pipe', timeout: 10_000 });
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+async function bootstrapVmKey(ip: string, user: string, password: string): Promise<number> {
+    ensureVmKeypair();
+    const pubkey = fs.readFileSync(VM_PUBLIC_KEY, 'utf8').trim();
+    // The remote command: ensure ~/.ssh exists, append our key idempotently.
+    const remoteCmd = [
+        'mkdir -p ~/.ssh',
+        'chmod 700 ~/.ssh',
+        'touch ~/.ssh/authorized_keys',
+        'chmod 600 ~/.ssh/authorized_keys',
+        `grep -qxF '${pubkey}' ~/.ssh/authorized_keys || echo '${pubkey}' >> ~/.ssh/authorized_keys`,
+    ].join(' && ');
+
+    // Use expect to drive the one-time password prompt. macOS ships expect
+    // at /usr/bin/expect; no install required.
+    const expectScript = `
+set timeout 30
+spawn ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o PreferredAuthentications=password -o PubkeyAuthentication=no ${user}@${ip} "${remoteCmd.replace(/"/g, '\\"').replace(/\$/g, '\\$')}"
+expect {
+    -re "(?i)password:" { send "${password}\\r"; exp_continue }
+    eof
+}
+catch wait result
+exit [lindex \\$result 3]
+`;
+    return new Promise(resolve => {
+        const child = spawn('expect', ['-c', expectScript], { stdio: ['pipe', 'inherit', 'inherit'] });
+        child.on('exit', code => resolve(code ?? 1));
+        child.on('error', err => { consola.error(`expect failed: ${err.message}`); resolve(127); });
+    });
+}
+
+/** ssh args common to all our connections (after bootstrap). */
+function sshArgs(user: string, ip: string, command?: string): string[] {
+    const base = [
+        '-i', VM_PRIVATE_KEY,
+        '-o', 'StrictHostKeyChecking=no',
+        '-o', 'UserKnownHostsFile=/dev/null',
+        '-o', 'LogLevel=ERROR',
+        `${user}@${ip}`,
+    ];
+    return command ? [...base, command] : base;
+}
 const ALLOWED_KEY_NAMES = new Set([
     'OPENAI_API_KEY',
     'ANTHROPIC_API_KEY',
@@ -325,6 +420,29 @@ function readTartConfig(ymlPath: string): TartConfig {
     if (portBlock) {
         out.port_forwards = [...portBlock.matchAll(/-\s*(\d+)/g)].map(m => Number(m[1]));
     }
+    // Mounts: list-of-objects block. Each item has host:/path, guest:/path,
+    // writable:bool. Quick line-by-line parse — good enough for the limited
+    // shape we use; if this grows we should pull in a real YAML parser.
+    const mountBlock = raw.match(/^mounts:\s*\n([\s\S]+?)(?=^\S|\Z)/m)?.[1];
+    if (mountBlock) {
+        const mounts: TartConfig['mounts'] = [];
+        let current: { host?: string; guest?: string; writable?: boolean } = {};
+        for (const line of mountBlock.split('\n')) {
+            if (/^\s*-\s+host:\s*(.+)$/.test(line)) {
+                if (current.host && current.guest) mounts.push(current as any);
+                current = {};
+                current.host = line.match(/^\s*-\s+host:\s*"?([^"]+?)"?\s*$/)?.[1];
+            } else if (/^\s+host:/.test(line)) {
+                current.host = line.match(/^\s+host:\s*"?([^"]+?)"?\s*$/)?.[1];
+            } else if (/^\s+guest:/.test(line)) {
+                current.guest = line.match(/^\s+guest:\s*"?([^"]+?)"?\s*$/)?.[1];
+            } else if (/^\s+writable:/.test(line)) {
+                current.writable = /true/.test(line);
+            }
+        }
+        if (current.host && current.guest) mounts.push(current as any);
+        if (mounts.length) out.mounts = mounts;
+    }
     return out;
 }
 
@@ -354,8 +472,20 @@ async function tartUp(cfg: VMConfig, repoRoot: string, opts: { fresh: boolean; i
         consola.info(`[tart] already running: ${cfg.name}`);
     } else {
         consola.start(`[tart] starting: ${cfg.name}`);
+        // Pass --dir flags for each mount in the config. Tart mounts shared
+        // folders at /Volumes/My Shared Files/<name> inside the macOS guest;
+        // the in-YAML `guest` field is documentary — the actual guest path
+        // is determined by Tart.
+        const dirArgs: string[] = [];
+        for (const m of tcfg.mounts ?? []) {
+            const hostExpanded = m.host.replace(/^~/, os.homedir());
+            // Tart's --dir syntax: name:path[:ro]
+            const tag = (m.guest.split('/').pop() ?? 'work').toLowerCase();
+            const opt = m.writable === false ? ':ro' : '';
+            dirArgs.push('--dir', `${tag}:${hostExpanded}${opt}`);
+        }
         // Run as a background child so we can SSH in after it boots.
-        const child = spawn('tart', ['run', '--no-graphics', cfg.name], {
+        const child = spawn('tart', ['run', '--no-graphics', ...dirArgs, cfg.name], {
             detached: true,
             stdio: 'ignore',
         });
@@ -408,16 +538,32 @@ async function tartProvision(
     }
     const ip = await pollTartIp(cfg.name, 30_000);
     if (!ip) return 1;
-    // Provision script lives at the guest mount point.
-    const provisionGuest = `/Users/admin/work/${cfg.provisionPath}`;
+
+    // Make sure key auth is set up — bootstrap if first time on this VM.
+    ensureVmKeypair();
+    if (!canSshWithKey(ip, tcfg.ssh.user)) {
+        consola.info(`[tart] bootstrapping ssh key on ${cfg.name} (one-time)`);
+        const bootstrap = await bootstrapVmKey(ip, tcfg.ssh.user, tcfg.ssh.password);
+        if (bootstrap !== 0) { consola.fail('[tart] key bootstrap failed'); return bootstrap; }
+        // Verify the bootstrap took.
+        if (!canSshWithKey(ip, tcfg.ssh.user)) {
+            consola.fail('[tart] key bootstrap completed but probe still failed; investigate manually.');
+            return 1;
+        }
+        consola.success('[tart] ssh key installed; password auth no longer needed');
+    }
+
+    // Tart mounts at /Volumes/My Shared Files/<tag>. The tag matches what
+    // we set in dirArgs above. Resolve which tag holds the repo by
+    // taking the last segment of the config's guest path.
+    const mount = tcfg.mounts?.[0];
+    const mountTag = mount ? (mount.guest.split('/').pop() ?? 'work').toLowerCase() : 'work';
+    const mountedRoot = `/Volumes/My\\ Shared\\ Files/${mountTag}`;
+    const provisionGuest = `${mountedRoot}/${cfg.provisionPath}`;
     const envPrefix = Object.entries(keys).map(([k, v]) => `${k}=${shellQuote(v)}`).join(' ');
     const remoteCmd = `${envPrefix} bash ${provisionGuest}`;
     consola.start('[tart] running provision script over ssh');
-    return spawnInherit('sshpass', [
-        '-p', tcfg.ssh.password,
-        'ssh', '-o', 'StrictHostKeyChecking=no', '-o', 'UserKnownHostsFile=/dev/null',
-        `${tcfg.ssh.user}@${ip}`, remoteCmd,
-    ]);
+    return spawnInherit('ssh', sshArgs(tcfg.ssh.user, ip, remoteCmd));
 }
 
 function shellQuote(s: string): string {
@@ -434,11 +580,11 @@ async function tartInto(cfg: VMConfig): Promise<number> {
     if (!tcfg.ssh) { consola.error('[tart] no ssh creds in config'); return 1; }
     const ip = await pollTartIp(cfg.name, 5_000);
     if (!ip) { consola.error('[tart] could not resolve IP'); return 1; }
-    return spawnInherit('sshpass', [
-        '-p', tcfg.ssh.password,
-        'ssh', '-o', 'StrictHostKeyChecking=no', '-o', 'UserKnownHostsFile=/dev/null',
-        `${tcfg.ssh.user}@${ip}`,
-    ]);
+    if (!canSshWithKey(ip, tcfg.ssh.user)) {
+        consola.warn(`[tart] no key auth — run \`sm vm up ${cfg.name}\` once to bootstrap.`);
+        return 1;
+    }
+    return spawnInherit('ssh', sshArgs(tcfg.ssh.user, ip));
 }
 
 async function tartDown(cfg: VMConfig): Promise<number> {
