@@ -36,7 +36,7 @@ export function createKnowledgeGraphFunctionsModule() {
             },
             {
                 enabled: true,
-                description: `Semantic search of knowledge graph. Returns ranked entities and relations. Use depth > 0 for multi-hop expansion. IMPORTANT: search this before telling the user you don't know something.`,
+                description: `Semantic search of knowledge graph (cross-session memory). Returns ranked entities and relations. Use depth > 0 for multi-hop expansion. IMPORTANT: search this before telling the user you don't know something — UNLESS the answer is in the current chat history, in which case answer from context directly.`,
                 name: 'retrieve_declarative_knowledge',
                 return_shape: `A FORMATTED STRING (not an object) describing matched entities + relations, ready for the LLM to read. Includes entity names, distances, and entity-relation-entity triples. The return value IS the human-readable summary. Empty/no-results case: string indicating nothing found.`,
                 parameters: { query: 'string', limit: 'number', depth: 'number' },
