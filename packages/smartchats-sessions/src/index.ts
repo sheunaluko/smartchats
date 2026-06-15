@@ -192,3 +192,13 @@ export type {
     UserActivityRow,
     UsersActivityResult,
 } from './analysis_db/users.js';
+
+export {
+    queryContextGrowth,
+    formatContextGrowth,
+} from './analysis_db/context_growth.js';
+export type {
+    ContextGrowthArgs,
+    ContextGrowthRow,
+    ContextGrowthResult,
+} from './analysis_db/context_growth.js';
