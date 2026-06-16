@@ -84,6 +84,26 @@ export interface UseTiviOptions {
   powerThreshold?: number;
 
   /**
+   * Pre-roll buffer in milliseconds.
+   *
+   * In 'responsive'/'guarded' mode recognition only starts once a volume/VAD
+   * trigger fires — so the leading edge of the first word (which happens just
+   * before the trigger) is normally lost, because WebSpeech only transcribes
+   * audio captured after start(). With preroll, the microphone is routed through
+   * a DelayNode before being handed to the recognizer, so when recognition
+   * starts it still receives the `prerollMs` of audio that preceded the trigger,
+   * recovering the clipped onset.
+   *
+   * Trade-off: adds `prerollMs` of latency to transcription while active.
+   * Requires SpeechRecognition.start(audioTrack) (Chrome 135+); on browsers
+   * without it, recognition transparently falls back to the bare microphone
+   * (i.e. prior behaviour, no preroll).
+   *
+   * 0 disables preroll. Default: 500
+   */
+  prerollMs?: number;
+
+  /**
    * Whether VAD can interrupt TTS when speech is detected.
    * When false, TTS always plays to completion regardless of mode.
    * Default: true

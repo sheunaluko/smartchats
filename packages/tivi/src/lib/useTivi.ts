@@ -31,6 +31,7 @@ export function useTivi(options: UseTiviOptions): UseTiviReturn {
     verbose = false,
     mode = 'responsive',
     powerThreshold = 0.01,
+    prerollMs = 500,
     enableInterruption = true,
     ttsCallFn: externalTtsCallFn,
     ttsStreamCallFn,
@@ -83,6 +84,12 @@ export function useTivi(options: UseTiviOptions): UseTiviReturn {
   const recognitionActiveRef = useRef(false);
   const isMountedRef = useRef(true);
   const pauseRecognitionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  // Preroll graph nodes (mic → source → delay → dest); the dest's track is fed
+  // to the recognizer so it hears audio from before the start trigger. Built
+  // once per startListening(), torn down in stopListening()/unmount.
+  const prerollSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  const prerollDelayRef = useRef<DelayNode | null>(null);
+  const prerollDestRef = useRef<MediaStreamAudioDestinationNode | null>(null);
   const modeRef = useRef(mode);
   const isSpeakingRef = useRef(false);
   const isListeningRef = useRef(false);
@@ -132,6 +139,26 @@ export function useTivi(options: UseTiviOptions): UseTiviReturn {
   useEffect(() => {
     onSpeechRecognitionErrorRef.current = onSpeechRecognitionError;
   }, [onSpeechRecognitionError]);
+
+  // Tear down the preroll audio graph and clear the recognizer's track. Safe to
+  // call when nothing is set up. Must run before the VAD closes the shared
+  // AudioContext (vad.stop()), which would otherwise invalidate these nodes.
+  const teardownPreroll = useCallback(() => {
+    recognitionRef.current?.setPrerollTrack(null);
+    if (prerollSourceRef.current) {
+      try { prerollSourceRef.current.disconnect(); } catch {}
+      prerollSourceRef.current = null;
+    }
+    if (prerollDelayRef.current) {
+      try { prerollDelayRef.current.disconnect(); } catch {}
+      prerollDelayRef.current = null;
+    }
+    if (prerollDestRef.current) {
+      try { prerollDestRef.current.stream.getTracks().forEach((t) => t.stop()); } catch {}
+      try { prerollDestRef.current.disconnect(); } catch {}
+      prerollDestRef.current = null;
+    }
+  }, []);
 
   // TTS queue lifecycle — always create (browser TTS via speakFn when no ttsCallFn)
   useEffect(() => {
@@ -206,6 +233,7 @@ export function useTivi(options: UseTiviOptions): UseTiviReturn {
     return () => {
       // Cleanup on unmount
       isMountedRef.current = false;
+      teardownPreroll();
       vadRef.current?.stop();
       recognitionRef.current?.stop();
       recognitionActiveRef.current = false;
@@ -468,6 +496,33 @@ export function useTivi(options: UseTiviOptions): UseTiviReturn {
       // Start power monitoring using VAD's analyser
       startPowerMonitoring(analyserNode);
 
+      // Build the preroll graph: route the mic through a DelayNode so the
+      // recognizer (started on a volume/VAD trigger) still receives the audio
+      // that preceded the trigger — recovering the clipped first word. The
+      // power monitor above keeps reading the live (undelayed) analyser, so
+      // trigger timing is unaffected; only the recognizer's feed is delayed.
+      // Requires SpeechRecognition.start(audioTrack) (Chrome 135+); the manager
+      // falls back to the bare mic otherwise. prerollMs <= 0 disables it.
+      if (prerollMs > 0) {
+        try {
+          const source = audioContext.createMediaStreamSource(stream);
+          const delay = audioContext.createDelay(Math.max(1, prerollMs / 1000 + 0.1));
+          delay.delayTime.value = prerollMs / 1000;
+          const dest = audioContext.createMediaStreamDestination();
+          source.connect(delay);
+          delay.connect(dest);
+          prerollSourceRef.current = source;
+          prerollDelayRef.current = delay;
+          prerollDestRef.current = dest;
+          const track = dest.stream.getAudioTracks()[0] ?? null;
+          recognitionRef.current?.setPrerollTrack(track);
+          log(`Preroll enabled: ${prerollMs}ms delayed track feeding recognizer`);
+        } catch (err) {
+          log(`Preroll setup failed, using bare mic: ${err instanceof Error ? err.message : String(err)}`);
+          teardownPreroll();
+        }
+      }
+
       // Mode-specific initialization
       if (mode === 'guarded') {
         // Guarded mode: VAD runs continuously, triggers recognition
@@ -496,7 +551,7 @@ export function useTivi(options: UseTiviOptions): UseTiviReturn {
       setError(errorMsg);
       onError?.(err instanceof Error ? err : new Error(errorMsg));
     }
-  }, [onError, onInterrupt, language, verbose, positiveSpeechThreshold, negativeSpeechThreshold, minSpeechStartMs, mode, startPowerMonitoring]);
+  }, [onError, onInterrupt, language, verbose, positiveSpeechThreshold, negativeSpeechThreshold, minSpeechStartMs, mode, prerollMs, startPowerMonitoring, teardownPreroll]);
 
   const stopListening = useCallback(() => {
     log('Stopping listening...');
@@ -509,6 +564,9 @@ export function useTivi(options: UseTiviOptions): UseTiviReturn {
       animationFrameRef.current = null;
     }
     analyserRef.current = null;
+
+    // Tear down preroll graph BEFORE the VAD closes the shared AudioContext.
+    teardownPreroll();
 
     // Stop and clean up VAD
     vadRef.current?.stop();
@@ -526,7 +584,7 @@ export function useTivi(options: UseTiviOptions): UseTiviReturn {
     }
 
     setIsListening(false);
-  }, []);
+  }, [teardownPreroll]);
 
   const speak = useCallback(async (text: string, rate: number = 1.0) => {
     // Always delegate to queue — queue handles both browser TTS and AudioBuffer paths

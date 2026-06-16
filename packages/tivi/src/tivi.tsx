@@ -93,6 +93,7 @@ export const Tivi: React.FC<TiviProps> = ({
     verbose: tiviSettings.verbose,
     mode: tiviSettings.mode,
     powerThreshold: tiviSettings.powerThreshold,
+    prerollMs: tiviSettings.prerollMs,
     enableInterruption: tiviSettings.enableInterruption,
   };
 
@@ -145,6 +146,7 @@ export const Tivi: React.FC<TiviProps> = ({
     verbose: vadParams.verbose,
     mode: vadParams.mode,
     powerThreshold: vadParams.powerThreshold,
+    prerollMs: vadParams.prerollMs,
     enableInterruption: vadParams.enableInterruption,
     language: language ?? tiviSettings.language,
     onTranscription: handleTranscription,
