@@ -167,7 +167,10 @@ There are **no unit tests** for tools in `packages/cortex/`. The convention is e
 ## Common patterns observed in existing modules
 
 - **Backend calls**: `await getBackend().tools.<name>({...})` / `getBackend().data.query(...)` — never call Firebase or HTTP directly from a tool.
-- **Telemetry**: `ops.util.event({ type, data })` for any state change the UI or session analyzer should see.
+- **Telemetry — two distinct buses**:
+  - `ops.util.addInsightEvent('<type>', { ...payload })` — writes directly to `insights_events`. Use for **session-analyzer / monitoring** signals (e.g. `voice_memo_saved`, `issue`, custom audit events). Silently no-ops if `insights` isn't configured.
+  - `ops.util.event({ type, ... })` — fires on cortex's EventEmitter, picked up by `useOrchestrator.handleEvent`. Use for **UI state updates** the orchestrator + store need to react to (workspace_update, visualization_update, etc.). These ONLY land in insights if `handleEvent` has an explicit `case <type>:` that forwards via `insightsClient.addEvent(...)` OR a `store.handle<X>(evt)` action (the store is auto-instrumented).
+  - **Anti-pattern**: using `ops.util.event` for telemetry that no orchestrator case handles → silent drop. Caught for `report_issue` (commit `bbbded8`) and `voice_memo_saved`.
 - **Billing**: when a backend call returns a `billing` object, dispatch `new CustomEvent('smartchats:billing_update', { detail: billing })` on `window` (see `web_search.ts:19–23`).
 - **Validation**: do it inline in the handler; return `{ error: '...' }` rather than throwing if the LLM is likely to recover.
 - **UI side-effects**: read/write `window.__smartchats_<feature>__` bridges (see `appearance.ts:64` for the design-pack pattern).

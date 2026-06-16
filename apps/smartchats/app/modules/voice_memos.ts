@@ -155,9 +155,15 @@ export function createVoiceMemosModule() {
                     const memo_id = rows.length > 0 && rows[0]?.id != null ? String(rows[0].id) : null;
 
                     feedback.success();
-                    ops.util.event?.({
-                        type: 'voice_memo_saved',
-                        data: { memo_id, duration_seconds, transcript_length: transcript.length },
+                    // addInsightEvent writes directly to insights_events. The
+                    // previous ops.util.event path was the orchestrator bus,
+                    // which silently no-ops for any type useOrchestrator's
+                    // handleEvent switch doesn't have an explicit case for —
+                    // and there's no case for voice_memo_saved.
+                    ops.util.addInsightEvent?.('voice_memo_saved', {
+                        memo_id,
+                        duration_seconds,
+                        transcript_length: transcript.length,
                     });
                     log(`Memo saved (${duration_seconds.toFixed(1)}s, id=${memo_id})`);
 
