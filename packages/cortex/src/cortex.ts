@@ -1027,7 +1027,19 @@ The response will be validated against this structure.
     private build_function_util(logOverride?: any): Record<string, any> {
 	return {
 	    log: logOverride || this.log,
+	    // `event` is the orchestrator/UI event bus — fires through
+	    // cortex's EventEmitter, gets dispatched by useOrchestrator's
+	    // handleEvent switch. Use this for things the UI needs to react
+	    // to (workspace_update, knowledge_graph_update, etc.).
 	    event: this.emit_event.bind(this),
+	    // `addInsightEvent` writes a row directly to insights_events via
+	    // the InsightsClient — same path cortex uses internally for
+	    // llm_invocation / execution telemetry. Use this for things the
+	    // monitoring layer needs to see (issues, custom audit events).
+	    // Silently no-ops when insights isn't configured (e.g., tests).
+	    addInsightEvent: (event_type: string, payload: Record<string, any>) => {
+		try { this.insights?.addEvent?.(event_type, payload); } catch { /* never throw from telemetry */ }
+	    },
 	    user_output: this.user_output,
 	    get_user_data: async () => {
 		return await this.function_input_ch.read();

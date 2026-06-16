@@ -122,12 +122,15 @@ export function createIssuesModule() {
 
                     log(`report_issue: kind=${payload.kind} severity=${payload.severity}`);
 
-                    // Emit through the insights pipeline. Session, trace, user
-                    // get auto-stamped by the client.
-                    ops.util.event?.({
-                        type: ISSUE_EVENT_TYPE,
-                        ...payload,
-                    });
+                    // addInsightEvent writes directly to insights_events via
+                    // the InsightsClient — same path cortex's internal
+                    // telemetry uses for llm_invocation / execution. Do NOT
+                    // use ops.util.event here: that's the orchestrator/UI
+                    // event bus, and unless useOrchestrator.handleEvent has
+                    // an explicit case + addEvent forward for the type,
+                    // nothing lands in insights. This is exactly the silent-
+                    // drop bug the first version of this module had.
+                    ops.util.addInsightEvent?.(ISSUE_EVENT_TYPE, payload);
 
                     return {
                         reported: true,
