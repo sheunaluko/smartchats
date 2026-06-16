@@ -23,7 +23,7 @@ import * as os from 'node:os';
 import consola from 'consola';
 
 import { detectRepo } from '../lib/context.js';
-import { runTestRelease, runTestReleaseE2e, killVmTunnel } from './test-release.js';
+import { runTestRelease, runTestReleaseE2e, runRestoreState, killVmTunnel } from './test-release.js';
 
 // ──────────────────────────────────────────────────────────────────────────
 // Registry
@@ -80,6 +80,10 @@ Subcommands:
   test-release-e2e <name>  Same as test-release, then runs the Playwright
                            simi suite against the VM-served stack via
                            \`bin/test-e2e --skip-deploy\`.
+  restore-state <name>     Untar a host-side archive of ~/.smartchats
+                           back into the VM. Default: latest archive in
+                           ~/.smartchats-vm-state/<name>/. Pass an
+                           explicit filename to pick an older one.
 
 Options:
   --no-keys                Skip key injection (for clean snapshots).
@@ -726,6 +730,8 @@ export async function runVm(argv: string[]): Promise<number> {
             return runTestRelease(argv.slice(1));
         case 'test-release-e2e':
             return runTestReleaseE2e(argv.slice(1));
+        case 'restore-state':
+            return runRestoreState(argv.slice(1));
         default:
             consola.error(`unknown subcommand: ${sub}`);
             console.log(vmHelp);

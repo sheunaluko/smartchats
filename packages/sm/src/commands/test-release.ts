@@ -142,12 +142,197 @@ function parsePlatform(arg: string | undefined): Platform | null {
  */
 const SMARTCHATS_STATE_PATHS = '~/.smartchats/data ~/.smartchats/run ~/.smartchats/logs ~/.smartchats/sessions';
 
+/**
+ * Host-side archive location for state snapshots.
+ *
+ *   ~/.smartchats-vm-state/
+ *     <name>/
+ *       2026-06-15T20-30-00.tgz       (snapshot before a wipe)
+ *       2026-06-15T20-25-00.tgz
+ *       latest -> 2026-06-15T20-30-00.tgz   (always points at newest)
+ *
+ * State stays inside the VM disk during normal operation (surreal +
+ * rocksdb prefer native fs over virtfs for write safety + perf). On
+ * wipe, we tar the VM's ~/.smartchats and stream the .tgz to host,
+ * THEN rm -rf inside the VM. Recoverable via `sm vm restore-state`.
+ */
+const VM_STATE_HOST_ROOT = path.join(os.homedir(), '.smartchats-vm-state');
+
+function vmStateDir(name: string): string {
+    const dir = path.join(VM_STATE_HOST_ROOT, name);
+    fs.mkdirSync(dir, { recursive: true });
+    return dir;
+}
+
+function tartSshBase(privateKey: string, user: string, ip: string): string[] {
+    return [
+        '-i', privateKey,
+        '-o', 'StrictHostKeyChecking=no',
+        '-o', 'UserKnownHostsFile=/dev/null',
+        '-o', 'LogLevel=ERROR',
+        `${user}@${ip}`,
+    ];
+}
+
+/**
+ * tar ~/.smartchats inside the VM, stream to host as a timestamped .tgz.
+ * Returns the archive path, or null if the VM had no state to back up.
+ */
+async function backupVmState(
+    driver: 'lima' | 'tart',
+    name: string,
+    sshBaseForTart?: string[],
+): Promise<string | null> {
+    const stamp = new Date().toISOString().replace(/[:]/g, '-').replace(/\..+$/, '');
+    const archivePath = path.join(vmStateDir(name), `${stamp}.tgz`);
+    const writeStream = fs.createWriteStream(archivePath);
+
+    const proc = driver === 'lima'
+        ? spawn(
+            'limactl',
+            ['shell', '--workdir', '/', name, 'bash', '-lc',
+             '[ -d ~/.smartchats ] && tar -czf - -C ~ .smartchats || true'],
+            { stdio: ['ignore', 'pipe', 'inherit'] },
+          )
+        : spawn(
+            'ssh',
+            [...(sshBaseForTart ?? []), 'bash', '-l', '-c',
+             '[ -d ~/.smartchats ] && tar -czf - -C ~ .smartchats || true'],
+            { stdio: ['ignore', 'pipe', 'inherit'] },
+          );
+
+    proc.stdout!.pipe(writeStream);
+
+    return new Promise((resolve) => {
+        proc.on('exit', () => {
+            writeStream.end(() => {
+                // Empty result → no state present, drop the archive.
+                try {
+                    const size = fs.statSync(archivePath).size;
+                    if (size < 1024) {
+                        fs.unlinkSync(archivePath);
+                        resolve(null);
+                        return;
+                    }
+                    // Update the `latest` symlink for easy restore.
+                    const latest = path.join(vmStateDir(name), 'latest');
+                    try { fs.unlinkSync(latest); } catch { /* not present */ }
+                    try { fs.symlinkSync(path.basename(archivePath), latest); } catch { /* non-fatal */ }
+                    resolve(archivePath);
+                } catch {
+                    resolve(null);
+                }
+            });
+        });
+        proc.on('error', () => resolve(null));
+    });
+}
+
+/** Untar a host archive into the VM at ~. Stops the stack first. */
+async function restoreVmState(
+    driver: 'lima' | 'tart',
+    name: string,
+    archive: string,
+    sshBaseForTart?: string[],
+): Promise<number> {
+    if (!fs.existsSync(archive)) {
+        consola.error(`archive not found: ${archive}`);
+        return 1;
+    }
+    const stopCmd = 'smartchats stop 2>/dev/null || true; rm -rf ~/.smartchats';
+    const restoreCmd = 'tar -xzf - -C ~';
+
+    // 1. Stop + clear (current state would conflict with the untar).
+    if (driver === 'lima') {
+        await spawnInherit('limactl', [
+            'shell', '--workdir', '/', name, 'bash', '-lc', stopCmd,
+        ]);
+    } else {
+        await spawnInherit('ssh', [...(sshBaseForTart ?? []), 'bash', '-l', '-c', stopCmd]);
+    }
+
+    // 2. Stream archive INTO bash -c "tar -xzf - -C ~".
+    consola.start(`restoring ${path.basename(archive)} → ${name}`);
+    const readStream = fs.createReadStream(archive);
+    const args = driver === 'lima'
+        ? ['shell', '--workdir', '/', name, 'bash', '-lc', restoreCmd]
+        : [...(sshBaseForTart ?? []), 'bash', '-l', '-c', restoreCmd];
+    const proc = spawn(driver === 'lima' ? 'limactl' : 'ssh', args, {
+        stdio: ['pipe', 'inherit', 'inherit'],
+    });
+    readStream.pipe(proc.stdin!);
+
+    return new Promise((resolve) => {
+        proc.on('exit', (code) => resolve(code ?? 1));
+        proc.on('error', () => resolve(127));
+    });
+}
+
+/** Public restore handler. Used by `sm vm restore-state`. */
+export async function runRestoreState(argv: string[]): Promise<number> {
+    const name = argv.find(a => !a.startsWith('--'));
+    if (!name) {
+        consola.error('Usage: sm vm restore-state <linux|mac> [archive]');
+        return 1;
+    }
+    const dir = vmStateDir(name);
+    const archives = fs.readdirSync(dir)
+        .filter(f => f.endsWith('.tgz'))
+        .sort()
+        .reverse();
+    if (archives.length === 0) {
+        consola.error(`No archives at ${dir}. Run \`sm vm test-release ${name}\` once to create one.`);
+        return 1;
+    }
+
+    // Second positional is the archive selector (optional).
+    const positionals = argv.filter(a => !a.startsWith('--'));
+    const selector = positionals[1];
+    let archive: string;
+    if (!selector) {
+        archive = path.join(dir, archives[0]!);   // latest
+        consola.info(`Using latest archive: ${path.basename(archive)}`);
+    } else if (fs.existsSync(selector)) {
+        archive = selector;
+    } else if (fs.existsSync(path.join(dir, selector))) {
+        archive = path.join(dir, selector);
+    } else {
+        consola.error(`archive not found: ${selector}`);
+        consola.info(`Available archives in ${dir}:`);
+        for (const a of archives.slice(0, 10)) console.log(`  ${a}`);
+        return 1;
+    }
+
+    // Resolve driver from VM name.
+    const driver: 'lima' | 'tart' = name === 'mac' ? 'tart' : 'lima';
+    let sshBase: string[] | undefined;
+    if (driver === 'tart') {
+        const privateKey = path.join(os.homedir(), '.smartchats', 'vm-keys', 'id_smartchats');
+        let ip = '';
+        try { ip = execFileSync('tart', ['ip', name], { encoding: 'utf8' }).trim(); } catch { /* */ }
+        if (!ip) { consola.error(`[tart] could not resolve IP for ${name}; is it running?`); return 1; }
+        sshBase = tartSshBase(privateKey, 'admin', ip);
+    }
+
+    const exit = await restoreVmState(driver, name, archive, sshBase);
+    if (exit === 0) {
+        consola.success(`Restored ${path.basename(archive)}. Run \`sm vm test-release ${name} --keep-state\` to bring the stack back up with this state.`);
+    }
+    return exit;
+}
+
 /** Lima VM has portForwards in its YAML — localhost:3000 just works after up. */
 async function startLimaStack(name: string, opts: { keepState: boolean }): Promise<number> {
     // Wipe before checking health — if there's prior state, the running
-    // stack is using it; we want to stop it AND wipe.
+    // stack is using it; we want to stop it AND wipe. Auto-backup first
+    // so the wipe is recoverable via `sm vm restore-state`.
     if (!opts.keepState) {
-        consola.info(`[lima] wiping prior state (--keep-state to preserve)`);
+        consola.info(`[lima] backing up state → ~/.smartchats-vm-state/${name}/`);
+        const archive = await backupVmState('lima', name);
+        if (archive) {
+            consola.info(`[lima] saved ${path.basename(archive)} (${humanSize(archive)})`);
+        }
+        consola.info(`[lima] wiping prior state (--keep-state to skip; restore with sm vm restore-state)`);
         await spawnInherit('limactl', [
             'shell', '--workdir', '/work', name, 'bash', '-lc',
             `smartchats stop 2>/dev/null || true; rm -rf ${SMARTCHATS_STATE_PATHS}`,
@@ -195,7 +380,12 @@ async function startTartStack(name: string, opts: { keepState: boolean }): Promi
     ];
 
     if (!opts.keepState) {
-        consola.info(`[tart] wiping prior state (--keep-state to preserve)`);
+        consola.info(`[tart] backing up state → ~/.smartchats-vm-state/${name}/`);
+        const archive = await backupVmState('tart', name, sshBase);
+        if (archive) {
+            consola.info(`[tart] saved ${path.basename(archive)} (${humanSize(archive)})`);
+        }
+        consola.info(`[tart] wiping prior state (--keep-state to skip; restore with sm vm restore-state)`);
         await spawnInherit('ssh', [
             ...sshBase, 'bash', '-l', '-c',
             `smartchats stop 2>/dev/null || true; rm -rf ${SMARTCHATS_STATE_PATHS}`,
@@ -243,6 +433,15 @@ async function startTartStack(name: string, opts: { keepState: boolean }): Promi
     if (!ready) { consola.fail('[tart] tunnel not healthy after 20s'); return 1; }
     consola.success(`[tart] stack reachable at http://localhost:3000 (tunnel → ${ip})`);
     return 0;
+}
+
+function humanSize(filePath: string): string {
+    try {
+        const bytes = fs.statSync(filePath).size;
+        if (bytes < 1024) return `${bytes}B`;
+        if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)}K`;
+        return `${(bytes / 1024 / 1024).toFixed(1)}M`;
+    } catch { return '?'; }
 }
 
 function processAlive(pid: number): boolean {
