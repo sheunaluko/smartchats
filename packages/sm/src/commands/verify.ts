@@ -109,7 +109,13 @@ async function runLevel(level: string, repoRoot: string, passthrough: string[]):
                 exit = 1;
                 break;
             }
-            exit = await spawnInherit(testE2e, passthrough, repoRoot);
+            // Preserve the `--` separator so bin/test-e2e's arg parser
+            // knows where its flags end and Playwright's begin
+            // (e.g. `sm verify e2e -- --grep <workflow>`). Without this,
+            // `--grep` looks like a top-level test-e2e flag and gets
+            // rejected with "Unknown option: --grep".
+            const e2eArgs = passthrough.length > 0 ? ['--', ...passthrough] : [];
+            exit = await spawnInherit(testE2e, e2eArgs, repoRoot);
             break;
         }
 
