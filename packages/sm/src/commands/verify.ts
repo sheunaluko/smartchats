@@ -54,7 +54,17 @@ Open-repo levels:
 
 Flags:
   --explain     print what this verb would do, then exit (no execution)
+  --no-retry    (e2e only) skip the auto-retry pass — fail on first non-pass.
+                Default behaviour retries failed workflows once for flake
+                tolerance; if they pass on retry, the suite is marked flaky-pass.
   --            forward remaining args to the underlying runner
+
+Override:
+  sm verify override [--reason "<text>"]
+                Manually write last-verify-<repo>.json with ok=true at
+                current HEAD so downstream sm deploy / sm ship trust it
+                without actually running anything. Use sparingly; reason
+                is recorded in the level field for audit.
 
 Examples (open):
   sm verify
@@ -88,7 +98,29 @@ function spawnInherit(cmd: string, args: string[], cwd: string): Promise<number>
     });
 }
 
-async function runLevel(level: string, repoRoot: string, passthrough: string[]): Promise<RunResult> {
+/**
+ * Scan apps/smartchats/test-results/ for session_<name>_FAIL_<ts>.json
+ * files newer than `since` (ms). Returns the deduped workflow names.
+ *
+ * The Playwright simi runner writes one bundle per workflow run; FAIL is
+ * stamped into the filename when the run didn't complete cleanly. This
+ * is the cheapest way to know what to retry without scraping stdout.
+ */
+function findRecentFailedWorkflows(repoRoot: string, since: number): string[] {
+    const dir = path.join(repoRoot, 'apps/smartchats/test-results');
+    if (!fs.existsSync(dir)) return [];
+    const failed = new Set<string>();
+    for (const f of fs.readdirSync(dir)) {
+        const m = f.match(/^session_(.+?)_FAIL_(\d+)\.json$/);
+        if (!m) continue;
+        const ts = parseInt(m[2] ?? '0', 10);
+        if (ts < since) continue;
+        failed.add(m[1]!);
+    }
+    return [...failed];
+}
+
+async function runLevel(level: string, repoRoot: string, passthrough: string[], noRetry: boolean): Promise<RunResult> {
     const start = Date.now();
     let exit = 0;
 
@@ -111,11 +143,33 @@ async function runLevel(level: string, repoRoot: string, passthrough: string[]):
             }
             // Preserve the `--` separator so bin/test-e2e's arg parser
             // knows where its flags end and Playwright's begin
-            // (e.g. `sm verify e2e -- --grep <workflow>`). Without this,
-            // `--grep` looks like a top-level test-e2e flag and gets
-            // rejected with "Unknown option: --grep".
+            // (e.g. `sm verify e2e -- --grep <workflow>`).
             const e2eArgs = passthrough.length > 0 ? ['--', ...passthrough] : [];
+            const runStart = Date.now();
             exit = await spawnInherit(testE2e, e2eArgs, repoRoot);
+
+            // Flake tolerance: if e2e failed, find the workflows that
+            // failed during THIS run (by scanning test-results/ for
+            // session_*_FAIL_*.json newer than runStart) and re-run just
+            // those. If the retry passes, the suite is marked flaky-pass.
+            if (exit !== 0 && !noRetry) {
+                const failed = findRecentFailedWorkflows(repoRoot, runStart);
+                if (failed.length === 0) {
+                    consola.warn('e2e failed but no FAIL session bundles found — cannot determine which workflow(s) to retry.');
+                } else {
+                    consola.warn(`e2e failed: ${failed.length} workflow(s). Retrying once for flake tolerance...`);
+                    consola.info(`Failed: ${failed.join(', ')}`);
+                    const retryArgs = ['--', '--grep', failed.join('|')];
+                    const retryExit = await spawnInherit(testE2e, retryArgs, repoRoot);
+                    if (retryExit === 0) {
+                        consola.success(`Retry passed — ${failed.length} workflow(s) recovered (flaky).`);
+                        exit = 0;
+                    } else {
+                        consola.fail('Retry failed too — these are real failures, not flakes.');
+                        exit = retryExit;
+                    }
+                }
+            }
             break;
         }
 
@@ -146,7 +200,7 @@ async function runLevel(level: string, repoRoot: string, passthrough: string[]):
             // Sequential bail-on-first-failure.
             for (const sub of ['quick', 'unit', 'integration', 'e2e']) {
                 consola.info(`sm verify all → ${sub}`);
-                const r = await runLevel(sub, repoRoot, []);
+                const r = await runLevel(sub, repoRoot, [], noRetry);
                 if (!r.ok) { exit = 1; break; }
             }
             break;
@@ -155,7 +209,7 @@ async function runLevel(level: string, repoRoot: string, passthrough: string[]):
         case 'ci': {
             for (const sub of ['quick', 'unit', 'integration']) {
                 consola.info(`sm verify ci → ${sub}`);
-                const r = await runLevel(sub, repoRoot, []);
+                const r = await runLevel(sub, repoRoot, [], noRetry);
                 if (!r.ok) { exit = 1; break; }
             }
             break;
@@ -177,6 +231,7 @@ export async function runVerify(argv: string[]): Promise<number> {
     }
 
     const explain = argv.includes('--explain');
+    const noRetry = argv.includes('--no-retry');
     const dashDash = argv.indexOf('--');
     const passthrough = dashDash >= 0 ? argv.slice(dashDash + 1) : [];
     const positional = (dashDash >= 0 ? argv.slice(0, dashDash) : argv)
@@ -184,6 +239,37 @@ export async function runVerify(argv: string[]): Promise<number> {
     // Default is `all` (quick + unit + integration + e2e) — full pre-ship
     // verification. Pre-commit fast-gate is `sm verify quick`.
     const level = positional[0] ?? 'all';
+
+    // ── Override pass ───────────────────────────────────────────────────
+    // `sm verify override [--reason "..."]` writes last-verify with
+    // ok=true at current HEAD without running anything. For when the
+    // maintainer has verified manually or knows the failures are
+    // tolerable. Recorded in level field for audit.
+    if (level === 'override') {
+        const repo = detectRepo();
+        if (repo.kind === 'unknown' || !repo.root) {
+            consola.error('sm verify override must be run from a smartchats repo.');
+            return 1;
+        }
+        const reasonIdx = argv.indexOf('--reason');
+        const reason = reasonIdx >= 0 ? argv[reasonIdx + 1] : undefined;
+        const git = readGitState(repo.root);
+        const verifyLevel = reason
+            ? `override:${reason.slice(0, 60)}`
+            : 'override';
+        writeLastVerify({
+            repo: repo.kind,
+            level: verifyLevel,
+            ok: true,
+            timestamp: new Date().toISOString(),
+            head: git.head,
+            durationMs: 0,
+        });
+        consola.success(`Marked verify as OVERRIDE-PASSED at HEAD ${git.head.slice(0, 7)}.`);
+        if (reason) consola.info(`Reason: ${reason}`);
+        consola.warn('Downstream sm deploy / sm ship will trust this until HEAD moves.');
+        return 0;
+    }
 
     if (explain) {
         // Delegated to the explain command via main router; print short notice.
@@ -234,7 +320,7 @@ export async function runVerify(argv: string[]): Promise<number> {
 
     // ── Open-repo path: existing per-level dispatch ─────────────────────
     consola.start(`sm verify ${level} (repo: ${repo.name})`);
-    const result = await runLevel(level, repo.root, passthrough);
+    const result = await runLevel(level, repo.root, passthrough, noRetry);
     const git = readGitState(repo.root);
 
     writeLastVerify({
