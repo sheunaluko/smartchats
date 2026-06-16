@@ -1,1 +1,2 @@
-git add -A ; git commit -m "checkpoint: $1" 
+#!/usr/bin/env bash
+git add -A ; git commit -m "checkpoint: $1"
