@@ -74,6 +74,34 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# ── Archive prior test-results before they're wiped ──────────────────
+# Playwright's global_setup wipes test-results/ before each run, which
+# kills the ability to look at "the last 3 runs." Archive whatever's in
+# there to data/logs/e2e-runs/<timestamp>/ first. data/logs/ is already
+# in .gitignore so nothing leaks into version control.
+TEST_RESULTS_DIR="$REPO_ROOT/apps/smartchats/test-results"
+E2E_RUNS_DIR="$REPO_ROOT/data/logs/e2e-runs"
+if [[ -d "$TEST_RESULTS_DIR" ]] && [[ -n "$(ls -A "$TEST_RESULTS_DIR" 2>/dev/null)" ]]; then
+    ARCHIVE_STAMP="$(date +%Y%m%dT%H%M%S)"
+    ARCHIVE_DIR="$E2E_RUNS_DIR/$ARCHIVE_STAMP"
+    mkdir -p "$ARCHIVE_DIR"
+    # Move (not copy) — Playwright would wipe these anyway, but it's
+    # faster + clearer about ownership. The cp -R fallback handles the
+    # rare case where test-results is on a different filesystem.
+    if mv "$TEST_RESULTS_DIR"/* "$ARCHIVE_DIR/" 2>/dev/null; then
+        info "Archived prior test-results → $ARCHIVE_DIR"
+    else
+        cp -R "$TEST_RESULTS_DIR"/. "$ARCHIVE_DIR/" 2>/dev/null || true
+        info "Copied prior test-results → $ARCHIVE_DIR"
+    fi
+    # Trim history: keep the most recent 20 archives.
+    if [[ -d "$E2E_RUNS_DIR" ]]; then
+        ls -1t "$E2E_RUNS_DIR" 2>/dev/null | tail -n +21 | while read -r old; do
+            rm -rf "$E2E_RUNS_DIR/$old"
+        done
+    fi
+fi
+
 # ── Pre-flight: port :3000 ─────────────────────────────────────────────
 # In default mode, port 3000 must be FREE — bin/test-bun-deploy will bind
 # it. In --skip-deploy mode (used by sm test-release-e2e against a VM),
