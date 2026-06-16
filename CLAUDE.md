@@ -12,7 +12,6 @@ Node 24+ (current Active LTS through April 2028 — bumped from `>=20` on 2026-0
 
 | You're trying to… | Start here |
 |---|---|
-| Know what to run / what's deployed / what changed | `sm` — maintainer CLI, unified verb grammar across open + cloud (`status` / `verify` / `dev` / `sync` / `deploy` / `ship` / `ship-full` / `explain` / …); see `packages/sm/README.md` |
 | Run the app stack locally | `smartchats launch` (CLI, canonical) or `bin/aio` / `bin/devserve` (legacy aliases) |
 | Verify a running stack | `smartchats doctor` |
 | Smoke-test the full launch flow | `smartchats launch --test` |
@@ -43,44 +42,6 @@ bin/devserve               # hot-reload dev — smartchats-local-server + next d
 ```
 
 No external services required for a basic boot — local-mode only. The CLI walks up from cwd to find `Dockerfile.aio`; override with `SMARTCHATS_HOME` if running from outside a clone.
-
-## Maintainer CLI — `sm`
-
-Unified verb grammar across the open + cloud repos. Hides the "which `bin/` script do I run?" question behind one front door. End-user CLI (`smartchats`) is separate and untouched.
-
-```bash
-sm                       # status + recommended next verbs (default; bare invocation)
-sm -h                    # categorized verb list
-sm explain               # flat list with one-line summaries
-sm explain <verb>        # verbose state-aware description (toggles, current context, gotchas)
-
-# Common verbs
-sm verify [level]        # default: all (quick + unit + integration + e2e). Levels: quick | unit | integration | e2e | install | stripe | ci
-sm dev                   # bin/devserve (correct target for current repo)
-sm doctor                # environment health check
-sm triage [local|cloud]  # error session triage
-
-# Cloud-only
-sm sync                  # rsync from open
-sm deploy <target>       # functions | frontend | schema | all
-sm ship                  # routine: sync + verify ci + deploy functions + push (~5 min)
-sm ship-full             # comprehensive: + verify e2e + schema apply + post-deploy probes (~25 min)
-sm rollback <target>     # functions (guided) | frontend (vercel rollback)
-
-# Open-only
-sm release               # auto: patch bump from smartchats-cli/package.json (--minor / --major / explicit vX.Y.Z to override; --push-tags fires release.yml)
-sm push-public           # git push origin main (publishes to public repo)
-```
-
-Every destructive verb runs a **preflight** that prints what it will do (descriptor) + runs typed checks (clean tree, on main, last verify fresh, `.env` symlink correct, env vars set), then prompts Y/n. `--yes` skips for CI. `--explain` prints + exits without running.
-
-`sm status` includes a **Live state** block fetched from Vercel + Firebase + npm + git ls-remote in parallel, cached 60s on disk. The chain `local cloud HEAD → cloud origin → Vercel deployment → Functions` shows whether your push reached origin and whether Vercel picked it up. `sm status --refresh` busts cache; `--no-remote` skips entirely.
-
-`sm status` also generates **diff-aware recommendations**: detects what's changed since the last verify/deploy and suggests the right verb (e.g. "you touched `functions/` — run `sm deploy functions`"). The apex rule recommends `sm ship` when multiple targets have drift + tree is clean + on main.
-
-Existing `bin/aio`, `bin/devserve`, `bin/deploy-functions`, `bin/test-e2e`, `bin/release`, etc. stay in place as implementation details — `sm` shells out to them. Use `sm` when you want discoverability + state awareness; drop to `bin/` when you want to invoke a script directly.
-
-Full reference: `packages/sm/README.md`.
 
 ## Architecture
 
