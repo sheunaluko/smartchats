@@ -34,6 +34,7 @@
     "audit:users": "tsx scripts/audit_users.ts",
     "audit:context-growth": "tsx scripts/audit_context_growth.ts",
     "audit:issues": "tsx scripts/audit_issues.ts",
+    "audit:tts-timing": "tsx scripts/audit_tts_timing.ts",
     "monitor": "tsx scripts/monitor.ts"
   },
   "dependencies": {

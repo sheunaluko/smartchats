@@ -213,6 +213,19 @@ export type {
     IssuesResult,
 } from './analysis_db/issues.js';
 
+export {
+    queryTtsTiming,
+    queryTtsTimingByChunkIndex,
+    formatTtsTiming,
+} from './analysis_db/tts_timing.js';
+export type {
+    TtsTimingArgs,
+    TtsTimingRow,
+    TtsTimingResult,
+    TtsTimingByChunkRow,
+    TtsTimingByChunkResult,
+} from './analysis_db/tts_timing.js';
+
 export { liveMonitor } from './analysis_db/monitor.js';
 export type {
     MonitorAnalyzerResult,

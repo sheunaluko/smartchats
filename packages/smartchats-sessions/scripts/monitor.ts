@@ -45,6 +45,7 @@ import {
     queryUsersActivity, formatUsersActivity,
     queryContextGrowth, formatContextGrowth,
     queryIssues, formatIssues,
+    queryTtsTiming, queryTtsTimingByChunkIndex, formatTtsTiming,
     queryCostBySession, queryCostByModel, queryCostByUser, formatCost,
     type ArgPredicate,
     type OutputFormat,
@@ -137,6 +138,26 @@ const REGISTRY: Record<string, AnalyzerEntry> = {
                 client, analyzer: queryIssues, format: (r) => formatIssues(r as any),
                 args, intervalMs, render,
                 key: (row: any) => String(row.kind),
+            }),
+    },
+
+    'tts-timing': {
+        description: 'Per-session TTS playback timing — snap rate, mid-stream gaps, lookahead adequacy.',
+        spawn: (client, args, intervalMs, render) =>
+            liveMonitor({
+                client, analyzer: queryTtsTiming, format: (r) => formatTtsTiming(r as any),
+                args, intervalMs, render,
+                key: (row: any) => String(row.session_id),
+            }),
+    },
+
+    'tts-timing-by-chunk': {
+        description: 'Per-chunk-index TTS lateness pattern (where in the stream snaps land).',
+        spawn: (client, args, intervalMs, render) =>
+            liveMonitor({
+                client, analyzer: queryTtsTimingByChunkIndex, format: (r) => formatTtsTiming(r as any),
+                args, intervalMs, render,
+                key: (row: any) => String(row.chunk_index),
             }),
     },
 
