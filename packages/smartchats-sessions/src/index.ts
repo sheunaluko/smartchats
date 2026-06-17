@@ -216,6 +216,7 @@ export type {
 export {
     queryTtsTiming,
     queryTtsTimingByChunkIndex,
+    queryTtsTimingWorstUtterances,
     formatTtsTiming,
 } from './analysis_db/tts_timing.js';
 export type {
@@ -224,6 +225,9 @@ export type {
     TtsTimingResult,
     TtsTimingByChunkRow,
     TtsTimingByChunkResult,
+    WorstUtteranceArgs,
+    WorstUtteranceRow,
+    WorstUtteranceResult,
 } from './analysis_db/tts_timing.js';
 
 export { liveMonitor } from './analysis_db/monitor.js';
