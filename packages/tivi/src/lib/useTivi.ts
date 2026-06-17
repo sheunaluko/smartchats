@@ -31,7 +31,7 @@ export function useTivi(options: UseTiviOptions): UseTiviReturn {
     verbose = false,
     mode = 'responsive',
     powerThreshold = 0.01,
-    prerollMs = 500,
+    prerollMs = 0,
     enableInterruption = true,
     ttsCallFn: externalTtsCallFn,
     ttsStreamCallFn,

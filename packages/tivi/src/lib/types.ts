@@ -99,7 +99,8 @@ export interface UseTiviOptions {
    * without it, recognition transparently falls back to the bare microphone
    * (i.e. prior behaviour, no preroll).
    *
-   * 0 disables preroll. Default: 500
+   * 0 disables preroll. Default: 0 (off) — enable per device (via the voice
+   * settings slider) when first-word clipping is noticeable.
    */
   prerollMs?: number;
 

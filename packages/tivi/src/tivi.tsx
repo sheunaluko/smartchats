@@ -536,6 +536,27 @@ export const Tivi: React.FC<TiviProps> = ({
                   </Box>
                 )}
 
+                {/* Pre-roll buffer (trigger-gated modes — responsive + guarded).
+                    Recovers the first word that's otherwise clipped when
+                    recognition starts on a trigger. 0 = off. Adds this many ms
+                    of transcription latency while active. */}
+                {vadParams.mode !== 'continuous' && (
+                  <Box>
+                    <Typography variant="body2" gutterBottom>
+                      Pre-roll: {vadParams.prerollMs} ms{vadParams.prerollMs === 0 ? ' (off)' : ''}
+                    </Typography>
+                    <Slider
+                      value={vadParams.prerollMs}
+                      onChange={(_, value) => updateVadParam('prerollMs', value as number)}
+                      min={0}
+                      max={1000}
+                      step={50}
+                      valueLabelDisplay="auto"
+                      disabled={voice.isListening}
+                    />
+                  </Box>
+                )}
+
                 {/* Positive Speech Threshold */}
                 <Box>
                   <Typography variant="body2" gutterBottom>

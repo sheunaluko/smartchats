@@ -41,7 +41,7 @@ export const TIVI_DEFAULTS: Readonly<TiviSettings> = {
   negativeSpeechThreshold: 0.35,
   minSpeechStartMs: 150,
   powerThreshold: 0.01,
-  prerollMs: 500,
+  prerollMs: 0,
   mode: 'responsive',
   enableInterruption: true,
   playbackRate: 1.5,
