@@ -25,13 +25,20 @@ import { writeFileSync } from 'node:fs';
 import { createClient } from 'smartchats-database';
 import {
     queryIssues,
+    queryIssueDetails,
     formatIssues,
+    formatIssueDetails,
     type OutputFormat,
 } from '../src/index.js';
 
 const USAGE = `Usage: audit_issues [options]
   --kind <k>               Restrict to one kind.
   --severity <s>           info | warning | error
+  --detail                 One row per issue with full summary + detail JSON
+                           (replaces the per-kind histogram aggregation).
+  --full-summary           Histogram mode: do not truncate sample_summary
+                           (default truncates at 60 chars, but auto-untruncates
+                           when ≤5 rows).
   --since, --until         Time window (default --since '30d').
   --app, --user, --session Dimensional filters.
   --limit <n>              Default 50.
@@ -43,6 +50,8 @@ const USAGE = `Usage: audit_issues [options]
 interface CliArgs {
     kind?: string;
     severity?: 'info' | 'warning' | 'error';
+    detail: boolean;
+    fullSummary: boolean;
     since: string;
     until?: string;
     app?: string;
@@ -60,6 +69,8 @@ interface CliArgs {
 
 function parseArgs(argv: string[]): CliArgs | null {
     const a: CliArgs = {
+        detail: false,
+        fullSummary: false,
         since: '30d',
         limit: 50,
         format: 'text',
@@ -75,6 +86,8 @@ function parseArgs(argv: string[]): CliArgs | null {
         const next = () => argv[++i]!;
         switch (arg) {
             case '--kind':       a.kind = next(); break;
+            case '--detail':     a.detail = true; break;
+            case '--full-summary': a.fullSummary = true; break;
             case '--severity': {
                 const v = next();
                 if (v !== 'info' && v !== 'warning' && v !== 'error') {
@@ -126,7 +139,7 @@ try {
     process.exit(2);
 }
 
-const result = await queryIssues(client, {
+const queryArgs = {
     kind: args.kind,
     severity: args.severity,
     since: args.since,
@@ -135,13 +148,20 @@ const result = await queryIssues(client, {
     userId: args.user,
     sessionId: args.session,
     limit: args.limit,
-});
+};
 
-const text = formatIssues(result, { format: args.format });
+const text = args.detail
+    ? formatIssueDetails(await queryIssueDetails(client, queryArgs), { format: args.format })
+    : formatIssues(await queryIssues(client, queryArgs), {
+        format: args.format,
+        // Explicit --full-summary disables truncation; otherwise formatter
+        // auto-untruncates when row count is small.
+        ...(args.fullSummary ? { truncate: 100_000 } : {}),
+    });
 
 if (args.out) {
     writeFileSync(args.out, text + '\n');
-    console.error(`wrote ${result.rows.length} row(s) → ${args.out}`);
+    console.error(`wrote output → ${args.out}`);
 } else {
     process.stdout.write(text + '\n');
 }

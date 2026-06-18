@@ -205,12 +205,16 @@ export type {
 
 export {
     queryIssues,
+    queryIssueDetails,
     formatIssues,
+    formatIssueDetails,
 } from './analysis_db/issues.js';
 export type {
     IssuesArgs,
     IssueKindRow,
     IssuesResult,
+    IssueDetailRow,
+    IssueDetailsResult,
 } from './analysis_db/issues.js';
 
 export {
