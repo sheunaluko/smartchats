@@ -347,6 +347,23 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = React.memo(({
             </div>
           )}
 
+          {/* Pre-roll buffer - trigger-gated modes (responsive + guarded).
+              Recovers the clipped first word; 0 = off; adds that many ms of
+              transcription latency while active. */}
+          {tiviParams.mode !== 'continuous' && (
+            <div className="mt-3">
+              <Slider
+                value={tiviParams.prerollMs}
+                min={0}
+                max={1000}
+                step={50}
+                onChange={(value) => onTiviParamsChange({ prerollMs: value })}
+                disabled={isListening}
+                label={`Pre-roll: ${tiviParams.prerollMs}ms${tiviParams.prerollMs === 0 ? ' (off)' : ''}`}
+              />
+            </div>
+          )}
+
           {/* Positive Speech Threshold */}
           <div className="mt-3">
             <Slider

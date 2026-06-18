@@ -93,6 +93,7 @@ export const Tivi: React.FC<TiviProps> = ({
     verbose: tiviSettings.verbose,
     mode: tiviSettings.mode,
     powerThreshold: tiviSettings.powerThreshold,
+    prerollMs: tiviSettings.prerollMs,
     enableInterruption: tiviSettings.enableInterruption,
   };
 
@@ -145,6 +146,7 @@ export const Tivi: React.FC<TiviProps> = ({
     verbose: vadParams.verbose,
     mode: vadParams.mode,
     powerThreshold: vadParams.powerThreshold,
+    prerollMs: vadParams.prerollMs,
     enableInterruption: vadParams.enableInterruption,
     language: language ?? tiviSettings.language,
     onTranscription: handleTranscription,
@@ -528,6 +530,27 @@ export const Tivi: React.FC<TiviProps> = ({
                       min={0.001}
                       max={0.1}
                       step={0.001}
+                      valueLabelDisplay="auto"
+                      disabled={voice.isListening}
+                    />
+                  </Box>
+                )}
+
+                {/* Pre-roll buffer (trigger-gated modes — responsive + guarded).
+                    Recovers the first word that's otherwise clipped when
+                    recognition starts on a trigger. 0 = off. Adds this many ms
+                    of transcription latency while active. */}
+                {vadParams.mode !== 'continuous' && (
+                  <Box>
+                    <Typography variant="body2" gutterBottom>
+                      Pre-roll: {vadParams.prerollMs} ms{vadParams.prerollMs === 0 ? ' (off)' : ''}
+                    </Typography>
+                    <Slider
+                      value={vadParams.prerollMs}
+                      onChange={(_, value) => updateVadParam('prerollMs', value as number)}
+                      min={0}
+                      max={1000}
+                      step={50}
                       valueLabelDisplay="auto"
                       disabled={voice.isListening}
                     />

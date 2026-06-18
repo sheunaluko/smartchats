@@ -24,6 +24,18 @@ export class SpeechRecognitionManager {
   private isActive: boolean = false;
   private config: SpeechRecognitionConfig;
 
+  // Preroll: an optional MediaStreamTrack (typically a DelayNode-fed
+  // MediaStreamAudioDestinationNode track) handed to start(audioTrack) so the
+  // recognizer hears the audio that preceded the start trigger. Owned here so
+  // every start path (power trigger, VAD, continuous restart, language change)
+  // uses it uniformly. start(audioTrack) is Chrome 135+; on engines without it
+  // we transparently fall back to the bare microphone.
+  private prerollTrack: MediaStreamTrack | null = null;
+  private prerollDisabled: boolean = false;   // set after a failed track-start; sticks for the session
+  private usingAudioTrack: boolean = false;    // whether the live session was started on the track
+  private audioTrackConfirmed: boolean = false; // track has produced a result → known-good
+  private stopped: boolean = false;             // set by stop(); blocks the deferred auto-restart
+
   constructor(config: SpeechRecognitionConfig) {
     this.config = config;
     this.initialize();
@@ -55,6 +67,9 @@ export class SpeechRecognitionManager {
   }
 
   private handleResult(event: any): void {
+    // Any result proves the preroll track is being recognized correctly.
+    if (this.usingAudioTrack) this.audioTrackConfirmed = true;
+
     for (let i = event.resultIndex; i < event.results.length; i++) {
       const result = event.results[i];
       const transcript = result[0].transcript;
@@ -65,6 +80,28 @@ export class SpeechRecognitionManager {
   }
 
   private handleError(event: any): void {
+    // A preroll-track start the engine can't honour typically surfaces as
+    // 'audio-capture'. If that happens on a track that has never produced a
+    // result, disable preroll for the session and retry on the bare microphone
+    // so recognition still works (degrading to pre-preroll behaviour) instead
+    // of being silently swallowed by the expected-error path below.
+    if (event.error === 'audio-capture' && this.usingAudioTrack && !this.audioTrackConfirmed) {
+      if (this.config.verbose) {
+        console.debug('[SpeechRecognition] audio-capture on preroll track — disabling preroll, retrying on mic');
+      }
+      this.prerollDisabled = true;
+      this.usingAudioTrack = false;
+      this.isActive = false;
+      // Defer so the current session finishes tearing down before we restart.
+      // Bail if stop() ran in the meantime (user stopped / unmounted) or another
+      // path already restarted — otherwise we'd resurrect recognition after stop.
+      setTimeout(() => {
+        if (this.stopped || this.isActive) return;
+        try { this.start(); } catch { /* next trigger will restart */ }
+      }, 0);
+      return;
+    }
+
     // Expected errors that should be handled silently
     const expectedErrors = ['no-speech', 'audio-capture', 'aborted'];
 
@@ -95,8 +132,46 @@ export class SpeechRecognitionManager {
     // No auto-restart - let VAD control when to start
   }
 
+  /**
+   * Set (or clear with null) the preroll MediaStreamTrack used by subsequent
+   * start() calls. Resets the per-session fallback/confirmation state.
+   */
+  setPrerollTrack(track: MediaStreamTrack | null): void {
+    this.prerollTrack = track;
+    this.prerollDisabled = false;
+    this.audioTrackConfirmed = false;
+  }
+
   start(): void {
     if (this.isActive) return;
+    this.stopped = false;
+
+    // Use the preroll track if we have a live one and haven't disabled it after
+    // a prior failure. Older engines ignore the extra argument (→ bare mic), so
+    // passing it is safe; ones that throw are caught and retried bare below.
+    const track =
+      this.prerollTrack && !this.prerollDisabled && this.prerollTrack.readyState === 'live'
+        ? this.prerollTrack
+        : null;
+
+    if (track) {
+      this.usingAudioTrack = true;
+      try {
+        this.recognition.start(track);
+        return;
+      } catch (error: any) {
+        if (error?.name === 'InvalidStateError') return; // already started
+        // Track overload rejected synchronously — disable preroll and fall
+        // through to a bare-mic start so recognition still works.
+        this.prerollDisabled = true;
+        this.usingAudioTrack = false;
+        if (this.config.verbose) {
+          console.debug('[SpeechRecognition] start(audioTrack) threw, falling back to mic', error);
+        }
+      }
+    } else {
+      this.usingAudioTrack = false;
+    }
 
     try {
       this.recognition.start();
@@ -109,6 +184,9 @@ export class SpeechRecognitionManager {
   }
 
   stop(): void {
+    // Mark stopped so any deferred preroll-fallback retry becomes a no-op,
+    // even if recognition wasn't active at the moment of the call.
+    this.stopped = true;
     if (this.recognition && this.isActive) {
       this.recognition.stop();
     }
