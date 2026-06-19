@@ -17,11 +17,12 @@ import { writeFileSync } from 'node:fs';
 import { createClient } from 'smartchats-database';
 import {
     queryTtsTiming, queryTtsTimingByChunkIndex, queryTtsTimingWorstUtterances,
+    queryTtsTimingChunk01Attribution,
     formatTtsTiming, type OutputFormat,
 } from '../src/index.js';
 
 const USAGE = `Usage: audit_tts_timing [options]
-  --by <dim>               session (default) | chunk-index | worst-utterance
+  --by <dim>               session (default) | chunk-index | worst-utterance | chunk01-attribution
   --anomalies              session mode: filter to anomaly-exceeding sessions only
   --top <n>                worst-utterance mode: how many to surface (default 1)
   --window-seconds <n>     worst-utterance mode: ± seconds of context to fetch (default 15)
@@ -34,7 +35,7 @@ const USAGE = `Usage: audit_tts_timing [options]
   -h, --help`;
 
 interface CliArgs {
-    by: 'session' | 'chunk-index' | 'worst-utterance';
+    by: 'session' | 'chunk-index' | 'worst-utterance' | 'chunk01-attribution';
     anomalies: boolean;
     top: number;
     windowSeconds: number;
@@ -78,8 +79,8 @@ function parseArgs(argv: string[]): CliArgs | null {
         switch (arg) {
             case '--by': {
                 const v = next();
-                if (v !== 'session' && v !== 'chunk-index' && v !== 'worst-utterance') {
-                    console.error(`--by must be session | chunk-index | worst-utterance, got: ${v}`);
+                if (v !== 'session' && v !== 'chunk-index' && v !== 'worst-utterance' && v !== 'chunk01-attribution') {
+                    console.error(`--by must be session | chunk-index | worst-utterance | chunk01-attribution, got: ${v}`);
                     return null;
                 }
                 a.by = v;
@@ -88,6 +89,10 @@ function parseArgs(argv: string[]): CliArgs | null {
             case '--worst-utterance':
                 // Shorthand for --by worst-utterance
                 a.by = 'worst-utterance';
+                break;
+            case '--chunk01-attribution':
+                // Shorthand for --by chunk01-attribution
+                a.by = 'chunk01-attribution';
                 break;
             case '--top':
                 a.top = Math.max(1, parseInt(next(), 10) || 1);
@@ -156,7 +161,9 @@ const result =
                 top: args.top,
                 windowSeconds: args.windowSeconds,
             })
-            : await queryTtsTiming(client, { ...baseArgs, anomalies: args.anomalies });
+            : args.by === 'chunk01-attribution'
+                ? await queryTtsTimingChunk01Attribution(client, baseArgs)
+                : await queryTtsTiming(client, { ...baseArgs, anomalies: args.anomalies });
 
 const text = formatTtsTiming(result, { format: args.format });
 

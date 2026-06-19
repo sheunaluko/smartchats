@@ -153,6 +153,63 @@ export interface WorstUtteranceResult {
     window_seconds: number;
 }
 
+/**
+ * Chunk-0→1 gap attribution: was the stutter upstream of writeLine
+ * (OpenAI / openaiTtsStream loop) or downstream (network / proxy /
+ * client read loop)?
+ *
+ * Pairs each utterance's client-side chunk[1].arrival_ms - chunk[0].arrival_ms
+ * delta against the server-side tts_batch_yield events for the matching
+ * sentence=0 TTS call (batch 1 ts minus batch 0 ts, where ts is
+ * ms_since_request from openaiTtsStream's local clock).
+ *
+ * Residual = client_delta − server_ts_delta.
+ *   Residual ≈ 0   → gap is upstream of writeLine (OpenAI side)
+ *   Residual >> 0  → gap has a downstream component (network / read loop)
+ *
+ * Requires tts_server_timing events to be emitted — see AUDIO_TIMING.md
+ * in the cloud repo. Only useful for path=external_stream utterances
+ * (the combined LLM+TTS path); standalone TTS is skipped.
+ */
+export interface Chunk01AttributionRow {
+    session_id: string;
+    utterance_id: string | null;
+    timestamp: string;
+    client_delta_ms: number;
+    server_ts_delta_ms: number;
+    server_wall_delta_ms: number;
+    residual_ms: number;
+    openai_delta_bytes: number;
+    bps_during_gap: number | null;
+    chunk1_snapped: boolean;
+    stream_duration_ms: number;
+}
+
+export interface Chunk01AttributionArgs extends BaseFilter {
+    /** Hard cap on rows surfaced. Default 50. */
+    // (uses BaseFilter.limit)
+    _placeholder?: never;
+}
+
+export interface Chunk01AttributionResult {
+    kind: 'tts_timing_chunk01_attribution';
+    rows: Chunk01AttributionRow[];
+    total_utterances_considered: number;
+    total_utterances_matched: number;
+    /** Pearson correlation between client_delta_ms and server_ts_delta_ms. 1.0 = perfect upstream match. */
+    correlation: number | null;
+    aggregate: {
+        client_delta_median: number;
+        client_delta_p95: number;
+        server_ts_delta_median: number;
+        server_ts_delta_p95: number;
+        residual_median: number;
+        residual_mean: number;
+        residual_p95: number;
+        residual_max_abs: number;
+    };
+}
+
 // Subset of the payload shape we read (defined inline so the analyzer
 // stays decoupled from tivi's TtsChunkSample type). Both `first_chunk` and
 // each `chunks[]` entry share the same fields.
@@ -582,11 +639,205 @@ function previewPayload(eventType: string, payload: unknown): string {
 }
 
 // ──────────────────────────────────────────────────────────────────────────
-// Formatter (handles all three result kinds)
+// Chunk-0→1 gap attribution: upstream of writeLine, or downstream?
+//
+// Two queries (playback + server timing), match in code by time window
+// per session. For each utterance with ≥2 chunks and path=external_stream,
+// finds the matching sentence=0 TTS call's tts_request_start + the two
+// batch_yield events for batches 0 and 1.
+//
+// Matching heuristic: nearest tts_request_start (sentence=0) within the
+// utterance's stream-duration window. Imperfect when utterances are
+// back-to-back; expect a small fraction of mis-paired rows with
+// negative residuals. Aggregate stats (median, correlation) are robust
+// against those outliers.
+// ──────────────────────────────────────────────────────────────────────────
+
+interface ServerTimingHit {
+    timestamp: string;
+    timestampMs: number;
+    sessionId: string;
+    sentence: number;
+    phase: string;
+    ts: number;
+    batch: number | undefined;
+    bytes: number | undefined;
+    openaiBytesTotal: number | undefined;
+}
+
+function pearsonCorrelation(xs: number[], ys: number[]): number | null {
+    if (xs.length < 3 || xs.length !== ys.length) return null;
+    const n = xs.length;
+    const mx = xs.reduce((a, b) => a + b, 0) / n;
+    const my = ys.reduce((a, b) => a + b, 0) / n;
+    let num = 0, dx2 = 0, dy2 = 0;
+    for (let i = 0; i < n; i++) {
+        const dx = xs[i]! - mx;
+        const dy = ys[i]! - my;
+        num += dx * dy;
+        dx2 += dx * dx;
+        dy2 += dy * dy;
+    }
+    const denom = Math.sqrt(dx2 * dy2);
+    if (denom === 0) return null;
+    return num / denom;
+}
+
+export async function queryTtsTimingChunk01Attribution(
+    client: Client,
+    args: Chunk01AttributionArgs,
+): Promise<Chunk01AttributionResult> {
+    const f = buildFilterClause(args);
+
+    // Query 1 — playback timing events (one per utterance).
+    const pbSql = `
+        SELECT event_id, session_id, user_id, timestamp, payload
+        FROM insights_events
+        WHERE ${combineWhere(f.where, `event_type = 'tts_playback_timing'`)}
+    `;
+    const pbRaw = (await client.runQuery({ query: pbSql, variables: f.vars })) as unknown[];
+    const pbRows = Array.isArray(pbRaw[0]) ? (pbRaw[0] as Array<Record<string, unknown>>) : [];
+
+    // Query 2 — sentence=0 server timing (request_start + batch_yield only).
+    const stSql = `
+        SELECT session_id, timestamp, payload
+        FROM insights_events
+        WHERE ${combineWhere(f.where, `event_type = 'tts_server_timing'
+            AND payload.sentence = 0
+            AND (payload.phase = 'tts_batch_yield' OR payload.phase = 'tts_request_start')`)}
+    `;
+    const stRaw = (await client.runQuery({ query: stSql, variables: f.vars })) as unknown[];
+    const stRows = Array.isArray(stRaw[0]) ? (stRaw[0] as Array<Record<string, unknown>>) : [];
+
+    // Index server timing events by session_id for fast per-utterance lookup.
+    const bySession = new Map<string, ServerTimingHit[]>();
+    for (const r of stRows) {
+        const sid = String(r.session_id ?? '');
+        const ts = String(r.timestamp ?? '');
+        const tsMs = new Date(ts).getTime();
+        const p = (r.payload ?? {}) as Record<string, unknown>;
+        const hit: ServerTimingHit = {
+            timestamp: ts,
+            timestampMs: tsMs,
+            sessionId: sid,
+            sentence: typeof p.sentence === 'number' ? p.sentence : -1,
+            phase: typeof p.phase === 'string' ? p.phase : '',
+            ts: typeof p.ts === 'number' ? p.ts : 0,
+            batch: typeof p.batch === 'number' ? p.batch : undefined,
+            bytes: typeof p.bytes === 'number' ? p.bytes : undefined,
+            openaiBytesTotal: typeof p.openai_bytes_total === 'number' ? p.openai_bytes_total : undefined,
+        };
+        let arr = bySession.get(sid);
+        if (!arr) { arr = []; bySession.set(sid, arr); }
+        arr.push(hit);
+    }
+    for (const arr of bySession.values()) arr.sort((a, b) => a.timestampMs - b.timestampMs);
+
+    const rows: Chunk01AttributionRow[] = [];
+    let considered = 0;
+
+    for (const pb of pbRows) {
+        const sid = String(pb.session_id ?? '');
+        const payload = (pb.payload ?? {}) as Record<string, unknown>;
+        const path = String(payload.path ?? '');
+        if (path !== 'external_stream') continue;
+        const chunks = Array.isArray(payload.chunks) ? (payload.chunks as ChunkSample[]) : [];
+        if (chunks.length < 2) continue;
+        considered += 1;
+
+        const c0 = chunks[0]!;
+        const c1 = chunks[1]!;
+        const client_delta_ms = (c1.arrival_ms ?? 0) - (c0.arrival_ms ?? 0);
+
+        const pbTsMs = new Date(String(pb.timestamp ?? '')).getTime();
+        const streamDurMs = typeof payload.stream_duration_ms === 'number' ? payload.stream_duration_ms : 0;
+        const expectedStartMs = pbTsMs - streamDurMs;
+        const windowLo = expectedStartMs - 500;
+        const windowHi = pbTsMs + 500;
+
+        const hits = bySession.get(sid) ?? [];
+        const inWindow = hits.filter((h) => h.timestampMs >= windowLo && h.timestampMs <= windowHi);
+        const starts = inWindow.filter((h) => h.phase === 'tts_request_start');
+        if (starts.length === 0) continue;
+
+        // Pick the request_start closest to expected start.
+        starts.sort((a, b) => Math.abs(a.timestampMs - expectedStartMs) - Math.abs(b.timestampMs - expectedStartMs));
+        const chosen = starts[0]!;
+        // Find next request_start AFTER the chosen one to cap batch search.
+        const laterStarts = starts.filter((h) => h.timestampMs > chosen.timestampMs);
+        const cap = laterStarts.length > 0
+            ? Math.min(...laterStarts.map((h) => h.timestampMs))
+            : windowHi + 1;
+
+        const batches = inWindow.filter(
+            (h) => h.phase === 'tts_batch_yield' && h.timestampMs >= chosen.timestampMs && h.timestampMs < cap,
+        );
+        const byBatch = new Map<number, ServerTimingHit>();
+        for (const b of batches) if (typeof b.batch === 'number') byBatch.set(b.batch, b);
+        const b0 = byBatch.get(0);
+        const b1 = byBatch.get(1);
+        if (!b0 || !b1) continue;
+
+        const server_ts_delta_ms = b1.ts - b0.ts;
+        const server_wall_delta_ms = b1.timestampMs - b0.timestampMs;
+        const residual_ms = client_delta_ms - server_ts_delta_ms;
+        const openai_delta_bytes = (b1.openaiBytesTotal ?? 0) - (b0.openaiBytesTotal ?? 0);
+        const bps_during_gap = server_ts_delta_ms > 0
+            ? Math.round(openai_delta_bytes / (server_ts_delta_ms / 1000))
+            : null;
+
+        rows.push({
+            session_id: sid,
+            utterance_id: typeof payload.utterance_id === 'string' ? payload.utterance_id : null,
+            timestamp: String(pb.timestamp ?? ''),
+            client_delta_ms: Math.round(client_delta_ms),
+            server_ts_delta_ms: Math.round(server_ts_delta_ms),
+            server_wall_delta_ms: Math.round(server_wall_delta_ms),
+            residual_ms: Math.round(residual_ms),
+            openai_delta_bytes,
+            bps_during_gap,
+            chunk1_snapped: !!c1.snapped_forward,
+            stream_duration_ms: Math.round(streamDurMs),
+        });
+    }
+
+    rows.sort((a, b) => b.client_delta_ms - a.client_delta_ms);
+
+    const cs = rows.map((r) => r.client_delta_ms);
+    const ss = rows.map((r) => r.server_ts_delta_ms);
+    const residuals = rows.map((r) => r.residual_ms);
+    const correlation = pearsonCorrelation(cs, ss);
+    const sortedCs = cs.slice().sort((a, b) => a - b);
+    const sortedSs = ss.slice().sort((a, b) => a - b);
+    const sortedRs = residuals.slice().sort((a, b) => a - b);
+    const med = (xs: number[]) => xs.length === 0 ? 0 : xs[Math.floor(xs.length / 2)]!;
+    const p95 = (xs: number[]) => xs.length === 0 ? 0 : xs[Math.min(xs.length - 1, Math.floor(0.95 * (xs.length - 1)))]!;
+
+    return {
+        kind: 'tts_timing_chunk01_attribution',
+        rows: args.limit ? rows.slice(0, args.limit) : rows,
+        total_utterances_considered: considered,
+        total_utterances_matched: rows.length,
+        correlation,
+        aggregate: {
+            client_delta_median: med(sortedCs),
+            client_delta_p95: p95(sortedCs),
+            server_ts_delta_median: med(sortedSs),
+            server_ts_delta_p95: p95(sortedSs),
+            residual_median: med(sortedRs),
+            residual_mean: residuals.length === 0 ? 0 : Math.round(residuals.reduce((a, b) => a + b, 0) / residuals.length),
+            residual_p95: p95(sortedRs),
+            residual_max_abs: residuals.length === 0 ? 0 : Math.max(...residuals.map(Math.abs)),
+        },
+    };
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Formatter (handles all four result kinds)
 // ──────────────────────────────────────────────────────────────────────────
 
 export function formatTtsTiming(
-    result: TtsTimingResult | TtsTimingByChunkResult | WorstUtteranceResult,
+    result: TtsTimingResult | TtsTimingByChunkResult | WorstUtteranceResult | Chunk01AttributionResult,
     opts: FormatOpts = {},
 ): string {
     const format = opts.format ?? 'text';
@@ -621,6 +872,10 @@ export function formatTtsTiming(
         const body = renderRows(rows, { ...opts, columns });
         if (format === 'json' || format === 'csv') return body;
         return `total utterances: ${result.total_utterances}\n${body}`;
+    }
+
+    if (result.kind === 'tts_timing_chunk01_attribution') {
+        return formatChunk01Attribution(result, opts);
     }
 
     // tts_timing_worst_utterances — one section per utterance.
@@ -675,4 +930,50 @@ export function formatTtsTiming(
         parts.push('');
     }
     return parts.join('\n');
+}
+
+function formatChunk01Attribution(result: Chunk01AttributionResult, opts: FormatOpts): string {
+    const format = opts.format ?? 'text';
+    if (format === 'json') return JSON.stringify(result, null, 2);
+
+    const rows: Record<string, unknown>[] = result.rows.map((r) => ({
+        session_id: r.session_id,
+        utterance_id: r.utterance_id,
+        client_delta_ms: r.client_delta_ms,
+        server_ts_delta_ms: r.server_ts_delta_ms,
+        server_wall_delta_ms: r.server_wall_delta_ms,
+        residual_ms: r.residual_ms,
+        openai_delta_bytes: r.openai_delta_bytes,
+        bps_during_gap: r.bps_during_gap,
+        chunk1_snapped: r.chunk1_snapped,
+        timestamp: r.timestamp,
+    }));
+    const columns = [
+        'session_id', 'utterance_id',
+        'client_delta_ms', 'server_ts_delta_ms', 'server_wall_delta_ms',
+        'residual_ms', 'openai_delta_bytes', 'bps_during_gap',
+        'chunk1_snapped', 'timestamp',
+    ];
+    const body = renderRows(rows, { ...opts, columns });
+    if (format === 'csv') return body;
+
+    const a = result.aggregate;
+    const corrStr = result.correlation === null ? '—' : result.correlation.toFixed(3);
+    const verdict =
+        result.correlation !== null && result.correlation >= 0.8 && Math.abs(a.residual_median) <= 50
+            ? '✓ UPSTREAM (gap explained by server-side openaiTtsStream timing — OpenAI delivers bytes slowly)'
+            : result.correlation !== null && result.correlation < 0.5
+                ? '✗ DOWNSTREAM component dominant (server timing does not explain client gap — investigate network / read loop)'
+                : '~ MIXED (server explains most but not all of the gap; check residuals)';
+
+    const header = [
+        `chunk-0→1 gap attribution — ${result.total_utterances_matched} matched / ${result.total_utterances_considered} considered`,
+        `correlation (client vs server_ts):  ${corrStr}    ${verdict}`,
+        `client_delta:       median ${a.client_delta_median}ms   p95 ${a.client_delta_p95}ms`,
+        `server_ts_delta:    median ${a.server_ts_delta_median}ms   p95 ${a.server_ts_delta_p95}ms`,
+        `residual:           median ${a.residual_median}ms   mean ${a.residual_mean}ms   p95 ${a.residual_p95}ms   max|.|${a.residual_max_abs}ms`,
+        '',
+        'Residual = client_delta − server_ts_delta.  ≈0 → upstream of writeLine.  >>0 → downstream component exists.',
+    ].join('\n');
+    return `${header}\n${body}`;
 }
