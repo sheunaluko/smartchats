@@ -13,12 +13,12 @@
     "bench": "tsx scripts/bench.ts"
   },
   "dependencies": {
-    "openai": "^4.73.0",
-    "llm-service": "*",
-    "cortex": "*",
     "@google-cloud/text-to-speech": "^5.5.0",
-    "ws": "^8.18.0",
-    "@google/genai": "^1.42.0"
+    "@google/genai": "^2.9.0",
+    "cortex": "*",
+    "llm-service": "*",
+    "openai": "^4.73.0",
+    "ws": "^8.18.0"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

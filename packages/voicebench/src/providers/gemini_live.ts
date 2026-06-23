@@ -205,12 +205,14 @@ class GeminiLiveConnection implements TtsConnection {
 }
 
 export class GeminiLiveTtsProvider implements TtsProvider {
-    readonly name = 'gemini_live';
+    readonly name: string;
     constructor(
-        private readonly apiKey: string = process.env['GEMINI_API_KEY'] ?? '',
         private readonly model: string = DEFAULT_MODEL,
+        private readonly apiKey: string = process.env['GEMINI_API_KEY'] ?? '',
     ) {
         if (!this.apiKey) throw new Error('gemini_live provider needs GEMINI_API_KEY');
+        // Provider name includes model so bench output distinguishes variants.
+        this.name = model === DEFAULT_MODEL ? 'gemini_live' : `gemini_live:${model}`;
     }
 
     async connect(opts: ConnectOpts): Promise<TtsConnection> {

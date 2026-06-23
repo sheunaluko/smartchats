@@ -18,7 +18,8 @@
 import { writeFileSync, mkdirSync } from 'node:fs';
 import * as path from 'node:path';
 import {
-    OpenAITtsProvider, GcpStreamingTtsProvider, XaiWsTtsProvider, GeminiLiveTtsProvider,
+    OpenAITtsProvider, GcpStreamingTtsProvider, XaiWsTtsProvider,
+    GeminiLiveTtsProvider, GeminiTtsProvider,
     SCENARIOS, listScenarios,
     runScenario, reportTrials, reportAggregate,
     type TtsProvider, type TrialMeasurement,
@@ -62,14 +63,27 @@ function parseArgs(argv: string[]): CliArgs | null {
     return a;
 }
 
-function buildProvider(name: string): TtsProvider {
+/**
+ * Resolve a provider spec to an instance.
+ *
+ * Spec syntax:
+ *   "openai"                                       — provider with its default model
+ *   "gemini_live:gemini-3.1-flash-live-preview"    — provider with explicit model
+ *
+ * Only providers that take a model arg (gemini_live, gemini_tts) honor the
+ * suffix; others ignore it. This keeps the CLI grammar uniform.
+ */
+function buildProvider(spec: string): TtsProvider {
+    const [name, ...modelParts] = spec.split(':');
+    const model = modelParts.length > 0 ? modelParts.join(':') : undefined;
     switch (name) {
         case 'openai':         return new OpenAITtsProvider();
         case 'gcp_streaming':  return new GcpStreamingTtsProvider();
         case 'xai_ws':         return new XaiWsTtsProvider();
-        case 'gemini_live':    return new GeminiLiveTtsProvider();
+        case 'gemini_live':    return model ? new GeminiLiveTtsProvider(model) : new GeminiLiveTtsProvider();
+        case 'gemini_tts':     return model ? new GeminiTtsProvider(model) : new GeminiTtsProvider();
         default:
-            throw new Error(`Unknown provider: ${name}. Available: openai, gcp_streaming, xai_ws, gemini_live`);
+            throw new Error(`Unknown provider: ${name}. Available: openai, gcp_streaming, xai_ws, gemini_live, gemini_tts (suffix with :<model> for gemini_live/gemini_tts)`);
     }
 }
 

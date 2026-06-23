@@ -7,6 +7,7 @@ export { OpenAITtsProvider } from './providers/openai.js';
 export { GcpStreamingTtsProvider } from './providers/gcp_streaming.js';
 export { XaiWsTtsProvider } from './providers/xai_ws.js';
 export { GeminiLiveTtsProvider } from './providers/gemini_live.js';
+export { GeminiTtsProvider } from './providers/gemini_tts.js';
 
 export type { BatchTiming, TrialMeasurement, AggregateStats } from './metrics/timing.js';
 export { aggregate, deriveStatsFromBatches } from './metrics/timing.js';
