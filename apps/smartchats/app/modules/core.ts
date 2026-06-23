@@ -27,37 +27,104 @@ export function createCoreModule() {
             },
             {
                 enabled: true,
-                description: `Collect extended text input from the user until they say "finished" (or "cancel" to abort). The user_instructions parameter is spoken aloud — either pass instructions there OR speak them in your response, never both. You must RETURN the result of this function to retrieve the collected text.`,
+                description: `Collect extended text input from the user until they say "finished" (or "cancel" to abort). The user_instructions parameter is spoken aloud — either pass instructions there OR speak them in your response, never both. You must RETURN the result of this function to retrieve the collected text. silence_timeout_seconds (optional, defaults to 3600 = 1 hour) bounds how long to wait between chunks before declaring the user silent — pass a shorter value for situations where you specifically want to detect the user falling asleep / drifting off (e.g. dream journaling, body-scan pre-sleep loops).`,
                 name: 'accumulate_text',
-                return_shape: `A string. On success: the user's joined input, one chunk per line ('\\n' separator). On cancellation: the literal string "User cancelled the text accumulation". The return value is the string itself — not wrapped in an object.`,
-                parameters: { user_instructions: 'string' },
+                return_shape: `{ status: 'finished' | 'cancelled' | 'silence_timeout', joined_text: string, pings: [{text, arrived_at_ms, delta_ms_from_previous, delta_ms_from_start}], total_pings: number, total_duration_ms: number, final_silence_ms: number, started_at_ms: number }. joined_text is the assembled input (one chunk per line) — pass THIS (not the whole result object) as the text param to save_log. status === 'silence_timeout' means the user went silent past silence_timeout_seconds; treat joined_text as best-effort and save what you have. status === 'cancelled' means the user explicitly aborted. The pings array is per-chunk timing for drift analysis — only inspect it if you specifically need timing information; in normal flows you can ignore it.`,
+                parameters: { user_instructions: 'string', silence_timeout_seconds: 'number' },
                 fn: async (ops: any) => {
 
-                    let { get_user_data, feedback, user_output, log } = ops.util;
+                    let { get_user_data, feedback, user_output, log, addInsightEvent } = ops.util;
+                    const silence_timeout_seconds = typeof ops.params.silence_timeout_seconds === 'number'
+                        ? ops.params.silence_timeout_seconds
+                        : 3600;
+                    const timeoutMs = silence_timeout_seconds * 1000;
+
                     feedback.activated()
                     await user_output(ops.params.user_instructions || "");
 
-                    let text: string[] = [];
-                    let chunk = await get_user_data();
-
-                    let clean = function (s: string) {
-                        return s.toLowerCase().trim().replace(".", "")
+                    const clean = function (s: string) {
+                        return (s || "").toLowerCase().trim().replace(".", "")
                     }
 
-                    while (clean(chunk) != "finished") {
+                    const started_at_ms = Date.now();
+                    const text: string[] = [];
+                    const pings: any[] = [];
+                    let last_arrived_at_ms = started_at_ms;
+                    let status: 'finished' | 'cancelled' | 'silence_timeout' = 'finished';
 
-                        if (clean(chunk) == "cancel") {
-                            return "User cancelled the text accumulation"
+                    while (true) {
+                        const r = await get_user_data({ timeoutMs });
+
+                        if (r.timed_out) {
+                            status = 'silence_timeout';
+                            break;
                         }
 
-                        text.push(chunk)
+                        const chunk = r.text;
+
+                        // Defensive: channel.flush() resolves with null on cancel
+                        if (chunk == null) {
+                            status = 'cancelled';
+                            break;
+                        }
+
+                        const cleaned = clean(chunk);
+                        if (cleaned === 'cancel') {
+                            status = 'cancelled';
+                            break;
+                        }
+                        if (cleaned === 'finished') {
+                            status = 'finished';
+                            break;
+                        }
+
+                        const arrived_at_ms = Date.now();
+                        text.push(chunk);
+                        pings.push({
+                            text: chunk,
+                            arrived_at_ms,
+                            delta_ms_from_previous: arrived_at_ms - last_arrived_at_ms,
+                            delta_ms_from_start: arrived_at_ms - started_at_ms,
+                        });
+                        last_arrived_at_ms = arrived_at_ms;
                         feedback.ok()
-                        chunk = await get_user_data();
                     }
 
-                    feedback.success();
+                    if (status === 'finished') feedback.success();
 
-                    return text.join("\n")
+                    const end_at_ms = Date.now();
+                    const total_duration_ms = end_at_ms - started_at_ms;
+                    const final_silence_ms = pings.length > 0
+                        ? end_at_ms - pings[pings.length - 1].arrived_at_ms
+                        : total_duration_ms;
+
+                    const result = {
+                        status,
+                        joined_text: text.join("\n"),
+                        pings,
+                        total_pings: pings.length,
+                        total_duration_ms,
+                        final_silence_ms,
+                        started_at_ms,
+                    };
+
+                    // Persist the full session unconditionally so drift data survives
+                    // even if the LLM ignores the pings field in its return handling.
+                    try {
+                        addInsightEvent('accumulate_session', {
+                            status,
+                            total_pings: pings.length,
+                            total_duration_ms,
+                            final_silence_ms,
+                            silence_timeout_seconds,
+                            started_at_ms,
+                            pings,
+                        });
+                    } catch (e: any) {
+                        log(`Failed to emit accumulate_session insight: ${e?.message || e}`);
+                    }
+
+                    return result;
                 },
                 return_type: 'any'
             },

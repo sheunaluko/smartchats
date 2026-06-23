@@ -85,6 +85,8 @@ Logs are the user's personal journal. Each log has: content (text), category (lo
 
 ### Creating Logs
 - Use accumulate_text() first to collect the full log text, then save_log() to persist it.
+- accumulate_text returns an OBJECT — pass \`result.joined_text\` (NOT the whole object) as the \`text\` param to save_log.
+- If accumulate_text returns with \`status: 'silence_timeout'\`, the user went silent (likely fell asleep or stepped away). Still save what was collected — \`joined_text\` is best-effort but valuable. Don't re-prompt the user; just persist and exit gracefully.
 - For text-based log entries (anything not explicitly invoking voice / audio /
   dictate), use accumulate_text + save_log — NOT save_memo. save_memo is for
   voice memos only; phrases like "I want to create a dream log" or "save a

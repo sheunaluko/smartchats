@@ -1041,7 +1041,11 @@ The response will be validated against this structure.
 		try { this.insights?.addEvent?.(event_type, payload); } catch { /* never throw from telemetry */ }
 	    },
 	    user_output: this.user_output,
-	    get_user_data: async () => {
+	    get_user_data: async (opts?: { timeoutMs?: number }) => {
+		if (opts?.timeoutMs && opts.timeoutMs > 0) {
+		    const r = await this.function_input_ch.read_with_timeout(opts.timeoutMs);
+		    return { text: r.value, timed_out: r.timed_out, waited_ms: r.waited_ms };
+		}
 		return await this.function_input_ch.read();
 	    },
 	    get_var: this.get_var.bind(this),

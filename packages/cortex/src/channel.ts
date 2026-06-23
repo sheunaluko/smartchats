@@ -52,6 +52,60 @@ export class Channel {
 
     }
 
+    /**
+     * Read with a deadline. If a value arrives before timeoutMs, resolves with
+     * { value, timed_out: false, waited_ms }. If the deadline fires first, the
+     * pending queue entry is removed (so a later write doesn't get consumed by
+     * this dead reader) and the call resolves with { value: null, timed_out: true,
+     * waited_ms }.
+     */
+    read_with_timeout(timeoutMs : number) : Promise<{ value: any; timed_out: boolean; waited_ms: number }> {
+
+	const started_at = Date.now()
+
+	if (this.value_que.length > 0 ) {
+	    let value_que = this.value_que
+	    return new Promise((resolve)=> {
+		setTimeout( ()=> resolve({
+		    value: value_que.shift(),
+		    timed_out: false,
+		    waited_ms: Date.now() - started_at,
+		}), 0)
+	    })
+	}
+
+	return new Promise((resolve) => {
+	    let settled = false
+	    const promise_que = this.promise_que
+
+	    const entry : promiseEntry = [
+		(v : any) => {
+		    if (settled) return
+		    settled = true
+		    clearTimeout(timer)
+		    resolve({ value: v, timed_out: false, waited_ms: Date.now() - started_at })
+		},
+		(_e : any) => {
+		    if (settled) return
+		    settled = true
+		    clearTimeout(timer)
+		    resolve({ value: null, timed_out: false, waited_ms: Date.now() - started_at })
+		},
+	    ]
+
+	    promise_que.push(entry)
+
+	    const timer = setTimeout(() => {
+		if (settled) return
+		settled = true
+		// Remove from queue so a future write doesn't consume this dead reader
+		const idx = promise_que.indexOf(entry)
+		if (idx >= 0) promise_que.splice(idx, 1)
+		resolve({ value: null, timed_out: true, waited_ms: Date.now() - started_at })
+	    }, timeoutMs)
+	})
+    }
+
     connect(forwarding_to  : Channel ) {
 	/* need to finish this implementation */
 	this.log(`Connecting to channel: ${forwarding_to.name}`);
