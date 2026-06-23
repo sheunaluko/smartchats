@@ -17,21 +17,19 @@
  */
 
 import OpenAI from 'openai';
-import { openaiTtsStream } from 'llm-service';
+import { openaiTtsStream, countGpt4oMiniTtsInputTokens } from 'llm-service';
+import { estimateGpt4oMiniTtsCost } from 'cortex';
 
 import type {
     ConnectOpts, CostEstimate, StreamOpts,
     TtsConnection, TtsProvider,
 } from './_types.js';
 
-// Per-million-token pricing for gpt-4o-mini-tts (OpenAI, approximate).
-// $0.60 / 1M input tokens, $12 / 1M output tokens. Output tokens are
-// roughly bytes / 24 for PCM16 24kHz mono encoded as audio_tokens.
-// Coarse model; we'll refine if we use this for serious billing decisions.
-const PRICE_PER_M_INPUT_TOKENS = 0.60;
-const PRICE_PER_M_OUTPUT_TOKENS = 12.0;
-const TOKENS_PER_CHAR_APPROX = 0.27;          // gpt-4o-mini-tts char→token ratio
-const OUTPUT_TOKENS_PER_BYTE_APPROX = 1 / 24; // crude PCM→token estimate
+// Cost model delegates to cortex's estimateGpt4oMiniTtsCost — the same
+// function prod billing uses (functions/src/llm/tts_stream_http.ts +
+// llm_tts_stream_http.ts). Previous hand-rolled constants here were
+// 100x off because the PCM-bytes-per-audio-token ratio was wrong
+// (24 vs the actual 2400 in model_registry.ts:342).
 
 const VOICES = [
     'alloy', 'ash', 'ballad', 'cedar', 'coral', 'echo',
@@ -109,12 +107,13 @@ export class OpenAITtsProvider implements TtsProvider {
     }
 
     estimateCost(opts: { text: string; outputBytes: number; voice: string; model?: string }): CostEstimate {
-        const inputTokens = Math.ceil(opts.text.length * TOKENS_PER_CHAR_APPROX);
-        const outputTokens = Math.ceil(opts.outputBytes * OUTPUT_TOKENS_PER_BYTE_APPROX);
-        const usd =
-            (inputTokens / 1_000_000) * PRICE_PER_M_INPUT_TOKENS +
-            (outputTokens / 1_000_000) * PRICE_PER_M_OUTPUT_TOKENS;
-        return { usd, unit: 'tokens', quantity: inputTokens + outputTokens };
+        const inputTokens = countGpt4oMiniTtsInputTokens(opts.text);
+        const est = estimateGpt4oMiniTtsCost({ inputTokens, outputPcmBytes: opts.outputBytes });
+        return {
+            usd: est.costUsd,
+            unit: 'tokens',
+            quantity: est.inputTokens + est.outputTokens,
+        };
     }
 
     listVoices(): string[] {
