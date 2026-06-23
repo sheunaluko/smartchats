@@ -18,7 +18,8 @@
 import { writeFileSync, mkdirSync } from 'node:fs';
 import * as path from 'node:path';
 import {
-    OpenAITtsProvider, SCENARIOS, listScenarios,
+    OpenAITtsProvider, GcpStreamingTtsProvider, XaiWsTtsProvider, GeminiLiveTtsProvider,
+    SCENARIOS, listScenarios,
     runScenario, reportTrials, reportAggregate,
     type TtsProvider, type TrialMeasurement,
 } from '../src/index.js';
@@ -63,10 +64,12 @@ function parseArgs(argv: string[]): CliArgs | null {
 
 function buildProvider(name: string): TtsProvider {
     switch (name) {
-        case 'openai': return new OpenAITtsProvider();
-        // xai / gcp_streaming / gemini_live will land in subsequent commits
+        case 'openai':         return new OpenAITtsProvider();
+        case 'gcp_streaming':  return new GcpStreamingTtsProvider();
+        case 'xai_ws':         return new XaiWsTtsProvider();
+        case 'gemini_live':    return new GeminiLiveTtsProvider();
         default:
-            throw new Error(`Unknown provider: ${name}. Available today: openai`);
+            throw new Error(`Unknown provider: ${name}. Available: openai, gcp_streaming, xai_ws, gemini_live`);
     }
 }
 
