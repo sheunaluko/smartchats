@@ -19,7 +19,7 @@ import { writeFileSync, mkdirSync } from 'node:fs';
 import * as path from 'node:path';
 import {
     OpenAITtsProvider, GcpStreamingTtsProvider, XaiWsTtsProvider,
-    GeminiLiveTtsProvider, GeminiTtsProvider,
+    GeminiLiveTtsProvider, GeminiTtsProvider, AzureTtsProvider,
     SCENARIOS, listScenarios,
     runScenario, reportTrials, reportAggregate,
     type TtsProvider, type TrialMeasurement,
@@ -82,8 +82,9 @@ function buildProvider(spec: string): TtsProvider {
         case 'xai_ws':         return new XaiWsTtsProvider();
         case 'gemini_live':    return model ? new GeminiLiveTtsProvider(model) : new GeminiLiveTtsProvider();
         case 'gemini_tts':     return model ? new GeminiTtsProvider(model) : new GeminiTtsProvider();
+        case 'azure':          return new AzureTtsProvider();
         default:
-            throw new Error(`Unknown provider: ${name}. Available: openai, gcp_streaming, xai_ws, gemini_live, gemini_tts (suffix with :<model> for gemini_live/gemini_tts)`);
+            throw new Error(`Unknown provider: ${name}. Available: openai, gcp_streaming, xai_ws, gemini_live, gemini_tts, azure (suffix with :<model> for gemini_live/gemini_tts)`);
     }
 }
 
