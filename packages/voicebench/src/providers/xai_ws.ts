@@ -27,14 +27,16 @@
  * Re-batches incoming audio.delta chunks to ~6400 bytes for cross-
  * provider parity.
  *
- * KNOWN UNKNOWNS at the time of writing:
- *   - Exact `text.delta` payload field name ("text" vs "delta") not in
- *     the public summary; assumed "text". Validate against live API.
- *   - Whether audio.delta is `audio` (base64 string) or `data`; assumed
- *     "audio".
- *   - Whether config is purely query-string or also requires a startup
- *     JSON frame; assumed pure query-string per docs.
- * If first benchmark trial fails, those are the things to inspect.
+ * Verified message schema (probed against the live API 2026-06-23):
+ *   Client → Server:
+ *     { type: 'text.delta', delta: '<text chunk>' }
+ *     { type: 'text.done' }
+ *   Server → Client:
+ *     { type: 'audio.delta', delta: '<base64 PCM>' }
+ *     { type: 'audio.done' }
+ *     { type: 'error', message: '<reason>' }
+ *   Config IS purely query-string at connect time.
+ *   Both directions use `delta` as the payload field name.
  */
 
 import WebSocket from 'ws';
@@ -118,8 +120,7 @@ class XaiWsConnection implements TtsConnection {
         const listener = (frame: Record<string, unknown>) => {
             const type = String(frame.type ?? '');
             if (type === 'audio.delta') {
-                // Assume base64 audio field is `audio` or `data` — try both.
-                const b64 = (frame.audio ?? frame.data ?? '') as string;
+                const b64 = (frame.delta ?? '') as string;
                 if (!b64) return;
                 const chunk = Buffer.from(b64, 'base64');
                 if (!firstByteReported) {
@@ -140,7 +141,7 @@ class XaiWsConnection implements TtsConnection {
         try {
             // Send text + done. xAI accepts incremental deltas but for
             // benchmark parity we send the full utterance as one delta.
-            this.ws.send(JSON.stringify({ type: 'text.delta', text: streamOpts.text }));
+            this.ws.send(JSON.stringify({ type: 'text.delta', delta: streamOpts.text }));
             this.ws.send(JSON.stringify({ type: 'text.done' }));
 
             let buffer: Buffer = Buffer.alloc(0);
