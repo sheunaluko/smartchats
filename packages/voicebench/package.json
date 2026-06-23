@@ -1,0 +1,25 @@
+{
+  "name": "voicebench",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Streaming TTS provider benchmarking — apples-to-apples latency + cost across providers (OpenAI, xAI, Google Cloud TTS, Gemini Live). Defines a TtsProvider/TtsConnection contract so the winner plugs into the production llm_tts_stream_http path with a single import swap.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist",
+    "type-check": "tsc --noEmit",
+    "bench": "tsx scripts/bench.ts"
+  },
+  "dependencies": {
+    "openai": "^4.73.0",
+    "llm-service": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.4.5"
+  },
+  "license": "MIT"
+}
