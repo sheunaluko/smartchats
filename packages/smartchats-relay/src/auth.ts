@@ -10,7 +10,7 @@ let firebaseAuthPromise: Promise<typeof import('firebase-admin/auth')['getAuth']
 async function getVerifier() {
     if (firebaseAuthPromise) return firebaseAuthPromise;
     firebaseAuthPromise = (async () => {
-        const [{ initializeApp, cert, getApps, applicationDefault }, { getAuth }] = await Promise.all([
+        const [{ initializeApp, cert, getApps }, { getAuth }] = await Promise.all([
             import('firebase-admin/app'),
             import('firebase-admin/auth'),
         ]);
@@ -19,7 +19,10 @@ async function getVerifier() {
                 const sa = JSON.parse(Buffer.from(config.firebaseCredentials, 'base64').toString('utf8'));
                 initializeApp({ credential: cert(sa), projectId: config.firebaseProjectId ?? sa.project_id });
             } else {
-                initializeApp({ credential: applicationDefault(), projectId: config.firebaseProjectId });
+                // Project ID alone is sufficient for verifyIdToken — Firebase
+                // signing keys are publicly fetchable. Service account creds
+                // would only be needed for admin ops (revocation, user mgmt).
+                initializeApp({ projectId: config.firebaseProjectId });
             }
         }
         return getAuth;

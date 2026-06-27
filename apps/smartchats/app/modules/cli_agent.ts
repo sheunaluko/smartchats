@@ -5,7 +5,7 @@
  * The agent can send commands, read terminal output, and monitor idle state.
  */
 
-const DEFAULT_RELAY_URL = 'wss://relay.smartchats.ai'
+const DEFAULT_RELAY_URL = 'wss://smartchats-relay.fly.dev'
 
 interface SessionMeta {
     session_id: string
