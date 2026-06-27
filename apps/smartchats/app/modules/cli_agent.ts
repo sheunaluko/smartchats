@@ -15,6 +15,48 @@ const MAX_OUTPUT_BUFFER = 500
 let _emitEvent: ((evt: any) => void) | null = null
 let _voiceForwardActive = false
 
+type OutputCb = (chunk: string) => void
+const outputSubs = new Set<OutputCb>()
+
+export function subscribeCliOutput(cb: OutputCb): () => void {
+    outputSubs.add(cb)
+    return () => { outputSubs.delete(cb) }
+}
+
+type StateCb = (connected: boolean) => void
+const stateSubs = new Set<StateCb>()
+
+export function subscribeCliConnectionState(cb: StateCb): () => void {
+    stateSubs.add(cb)
+    return () => { stateSubs.delete(cb) }
+}
+
+function notifyState(): void {
+    for (const cb of stateSubs) cb(connected)
+}
+
+export function isCliConnected(): boolean {
+    return connected
+}
+
+export function sendCliRawInput(data: string): void {
+    if (ws && connected) ws.send(JSON.stringify({ type: 'input', data }))
+}
+
+export function sendCliResize(cols: number, rows: number): void {
+    if (ws && connected) ws.send(JSON.stringify({ type: 'resize', cols, rows }))
+}
+
+export async function ensureCliConnected(url?: string): Promise<void> {
+    if (url) wsUrl = url
+    const socket = ensureConnection()
+    await waitForOpen(socket)
+}
+
+export function requestCliSnapshot(): void {
+    if (ws && connected) ws.send(JSON.stringify({ type: 'request_snapshot' }))
+}
+
 function ensureConnection(): WebSocket {
     if (ws && connected) return ws
 
@@ -23,22 +65,26 @@ function ensureConnection(): WebSocket {
     ws.onopen = () => {
         connected = true
         idle = false
+        notifyState()
     }
 
     ws.onclose = () => {
         connected = false
         ws = null
+        notifyState()
     }
 
     ws.onerror = () => {
         connected = false
         ws = null
+        notifyState()
     }
 
     ws.onmessage = (event) => {
         const msg = JSON.parse(event.data)
 
-        if (msg.type === 'output') {
+        if (msg.type === 'output' || msg.type === 'snapshot') {
+            for (const cb of outputSubs) cb(msg.data)
             const lines = stripAnsi(msg.data).split('\n')
             for (const line of lines) {
                 outputBuffer.push(line)
@@ -66,6 +112,7 @@ function ensureConnection(): WebSocket {
         } else if (msg.type === 'exit') {
             connected = false
             ws = null
+            notifyState()
         }
     }
 

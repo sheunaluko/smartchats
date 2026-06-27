@@ -29,6 +29,7 @@ const DEFAULT_WIDGETS: WidgetConfig[] = [
   { id: 'processes', name: 'Processes', visible: true, order: 15 },
   { id: 'visualization', name: 'Display', visible: true, order: 16 },
   { id: 'llmInspector', name: 'LLM Inspector', visible: true, order: 17 },
+  { id: 'cliTerminal', name: 'CLI Terminal', visible: true, order: 18 },
 ];
 
 // Default layout configuration
@@ -57,6 +58,7 @@ const DEFAULT_LAYOUT: WidgetGridConfig[] = [
   { i: 'speechQueue',       x: 0, y: 23, w: 6, h: 3, minW: 3, minH: 2 },
   { i: 'processes',         x: 6, y: 24, w: 6, h: 3, minW: 4, minH: 2 },
   { i: 'llmInspector',      x: 0, y: 26, w: 6, h: 4, minW: 4, minH: 4 },
+  { i: 'cliTerminal',       x: 0, y: 30, w: 12, h: 6, minW: 6, minH: 4 },
 ];
 
 // Layout presets for different use cases

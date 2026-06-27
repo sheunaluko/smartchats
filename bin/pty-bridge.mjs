@@ -76,6 +76,18 @@ const MAX_BUFFER_LINES = 5000;
 const lineBuffer = [];
 let partialLine = '';
 
+// Rolling raw-byte buffer — replayed to new WS clients so xterm widgets
+// can render the existing screen state instead of starting blank.
+const MAX_RAW_BUFFER = 65536;
+let rawBuffer = '';
+
+function appendRaw(data) {
+  rawBuffer += data;
+  if (rawBuffer.length > MAX_RAW_BUFFER) {
+    rawBuffer = rawBuffer.slice(rawBuffer.length - MAX_RAW_BUFFER);
+  }
+}
+
 /** Strip ANSI escape sequences for clean line storage */
 function stripAnsi(str) {
   return str.replace(
@@ -161,6 +173,10 @@ const clients = new Set();
 wss.on('connection', (ws) => {
   clients.add(ws);
 
+  if (rawBuffer.length > 0) {
+    ws.send(JSON.stringify({ type: 'snapshot', data: rawBuffer }));
+  }
+
   ws.on('message', (raw) => {
     let msg;
     try {
@@ -183,6 +199,8 @@ wss.on('connection', (ws) => {
       ws.send(JSON.stringify({ type: 'lines', data: getLines(n) }));
     } else if (msg.type === 'resize' && msg.cols && msg.rows) {
       ptyProcess.resize(msg.cols, msg.rows);
+    } else if (msg.type === 'request_snapshot') {
+      ws.send(JSON.stringify({ type: 'snapshot', data: rawBuffer }));
     }
   });
 
@@ -217,6 +235,7 @@ ptyProcess.onData((data) => {
   process.stdout.write(data);
   logStream.write(data);
   bufferOutput(data);
+  appendRaw(data);
   resetIdleTimer();
   broadcast({ type: 'output', data });
 });
