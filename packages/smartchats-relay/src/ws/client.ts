@@ -67,6 +67,7 @@ export function attachClientHandler(ws: WebSocket): void {
                 ws.send(JSON.stringify({ type: 'error', code: result.reason ?? 'FORBIDDEN' }));
                 return;
             }
+            ws.send(JSON.stringify({ type: 'subscribed', session_id: sid }));
             const bridge = registry.getBridge(sid);
             if (bridge && bridge.socket.readyState === bridge.socket.OPEN) {
                 bridge.socket.send(JSON.stringify({ type: 'request_snapshot' }));

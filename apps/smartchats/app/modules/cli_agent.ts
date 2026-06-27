@@ -5,9 +5,22 @@
  * The agent can send commands, read terminal output, and monitor idle state.
  */
 
+const DEFAULT_RELAY_URL = 'wss://relay.smartchats.ai'
+
+interface SessionMeta {
+    session_id: string
+    label: string
+    model: string
+    online: boolean
+    last_active_ms_ago: number
+}
+
 let ws: WebSocket | null = null
 let wsUrl = 'ws://localhost:9100'
 let connected = false
+let connectionMode: 'local' | 'cloud' = 'local'
+let activeSessionId: string | null = null
+let availableSessions: SessionMeta[] = []
 let idle = false
 let idleSeconds = 0
 let outputBuffer: string[] = []
@@ -31,20 +44,37 @@ export function subscribeCliConnectionState(cb: StateCb): () => void {
     return () => { stateSubs.delete(cb) }
 }
 
+function effectivelyConnected(): boolean {
+    if (connectionMode === 'local') return connected
+    return connected && activeSessionId !== null
+}
+
+let lastNotifiedState = false
 function notifyState(): void {
-    for (const cb of stateSubs) cb(connected)
+    const now = effectivelyConnected()
+    if (now === lastNotifiedState) return
+    lastNotifiedState = now
+    for (const cb of stateSubs) cb(now)
 }
 
 export function isCliConnected(): boolean {
-    return connected
+    return effectivelyConnected()
+}
+
+export function getActiveSessionId(): string | null {
+    return activeSessionId
+}
+
+export function getAvailableSessions(): SessionMeta[] {
+    return availableSessions
 }
 
 export function sendCliRawInput(data: string): void {
-    if (ws && connected) ws.send(JSON.stringify({ type: 'input', data }))
+    if (ws && effectivelyConnected()) ws.send(JSON.stringify({ type: 'input', data }))
 }
 
 export function sendCliResize(cols: number, rows: number): void {
-    if (ws && connected) ws.send(JSON.stringify({ type: 'resize', cols, rows }))
+    if (ws && effectivelyConnected()) ws.send(JSON.stringify({ type: 'resize', cols, rows }))
 }
 
 export async function ensureCliConnected(url?: string): Promise<void> {
@@ -54,7 +84,36 @@ export async function ensureCliConnected(url?: string): Promise<void> {
 }
 
 export function requestCliSnapshot(): void {
-    if (ws && connected) ws.send(JSON.stringify({ type: 'request_snapshot' }))
+    if (ws && effectivelyConnected()) ws.send(JSON.stringify({ type: 'request_snapshot' }))
+}
+
+async function getFirebaseToken(): Promise<string> {
+    const { getAuthProvider } = await import('@/lib/auth')
+    const token = await getAuthProvider().getIdToken()
+    if (!token) throw new Error('Not authenticated — sign in before connecting in cloud mode')
+    return token
+}
+
+function waitForRelayMessage(socket: WebSocket, type: string, timeoutMs = 5000): Promise<any> {
+    return new Promise((resolve, reject) => {
+        const handler = (event: MessageEvent) => {
+            try {
+                const msg = JSON.parse(event.data)
+                if (msg.type === type) {
+                    socket.removeEventListener('message', handler)
+                    resolve(msg)
+                } else if (msg.type === 'error') {
+                    socket.removeEventListener('message', handler)
+                    reject(new Error(`relay error: ${msg.code}`))
+                }
+            } catch {}
+        }
+        socket.addEventListener('message', handler)
+        setTimeout(() => {
+            socket.removeEventListener('message', handler)
+            reject(new Error(`Timeout waiting for ${type}`))
+        }, timeoutMs)
+    })
 }
 
 function ensureConnection(): WebSocket {
@@ -70,18 +129,38 @@ function ensureConnection(): WebSocket {
 
     ws.onclose = () => {
         connected = false
+        activeSessionId = null
         ws = null
         notifyState()
     }
 
     ws.onerror = () => {
         connected = false
+        activeSessionId = null
         ws = null
         notifyState()
     }
 
     ws.onmessage = (event) => {
         const msg = JSON.parse(event.data)
+
+        if (msg.type === 'session_list') {
+            availableSessions = Array.isArray(msg.sessions) ? msg.sessions : []
+            return
+        } else if (msg.type === 'subscribed') {
+            activeSessionId = String(msg.session_id)
+            notifyState()
+            return
+        } else if (msg.type === 'session_offline') {
+            if (activeSessionId === msg.session_id) {
+                activeSessionId = null
+                notifyState()
+            }
+            return
+        } else if (msg.type === 'error') {
+            console.warn(`[cli_agent] relay error: ${msg.code}`)
+            return
+        }
 
         if (msg.type === 'output' || msg.type === 'snapshot') {
             for (const cb of outputSubs) cb(msg.data)
@@ -111,6 +190,7 @@ function ensureConnection(): WebSocket {
             idleSeconds = 0
         } else if (msg.type === 'exit') {
             connected = false
+            activeSessionId = null
             ws = null
             notifyState()
         }
@@ -169,7 +249,10 @@ export function createCliAgentModule(options?: { wsUrl?: string }) {
         system_msg: `You have access to a remote Claude Code session running in a terminal via WebSocket.
 Claude Code is an AI coding agent that accepts natural language instructions — send it tasks like you would talk to a developer.
 
-Use cli_connect to connect (or reconnect) to the WebSocket server.
+Two connection modes:
+- Local (LAN): cli_connect with no args — connects to ws://localhost:9100 (a bin/pty-bridge.mjs running on this machine).
+- Cloud (via smartchats-relay): cli_connect with mode="cloud" — connects to the user's bridge running anywhere they've launched bin/pty-bridge.mjs --cloud. If the user has only one bridge online, it auto-selects. If multiple, the call returns { connected: false, sessions: [...] }; call cli_list_sessions or re-call cli_connect with session_id (or label) to pick one.
+
 Use cli_send_command to send a natural language instruction to Claude Code. It returns immediately.
 Use cli_read_output to read recent terminal output without sending anything.
 Use cli_status to check connection and idle state.
@@ -181,23 +264,71 @@ Do NOT poll — just acknowledge the command and WAIT for the idle notification.
         functions: [
             {
                 enabled: true,
-                description: 'Connect to the PTY WebSocket server. Call this first or to reconnect. Optionally provide a custom WebSocket URL.',
+                description: 'Connect to a CLI bridge — either local (LAN, default ws://localhost:9100) or cloud (via smartchats-relay). Pass mode="cloud" with optional relay_url + session_id (or label) to route through the relay. Pass url (or no args) for legacy local mode.',
                 name: 'cli_connect',
-                return_shape: `{ connected: true, url: string } on success. Throws on connect failure (no error-object return path).`,
-                parameters: { url: 'string' },
+                return_shape: `Local mode: { connected: true, url } on ws-open. Cloud mode success: { connected: true, mode: 'cloud', session_id, label }. Cloud mode pending-selection (multiple sessions, none specified): { connected: false, sessions: [{session_id,label,model,online,last_active_ms_ago}], message }.`,
+                parameters: { url: 'string', mode: 'string', relay_url: 'string', session_id: 'string', label: 'string' },
                 fn: async (ops: any) => {
-                    const { url } = ops.params
+                    const { url, mode, relay_url, session_id, label } = ops.params
                     const { log, event } = ops.util
-
-                    if (url) wsUrl = url
                     if (event) _emitEvent = event
-                    log(`Connecting to CLI agent at ${wsUrl}`)
 
+                    if (mode === 'cloud') {
+                        connectionMode = 'cloud'
+                        const relay = (relay_url ?? DEFAULT_RELAY_URL).replace(/\/$/, '')
+                        wsUrl = `${relay}/client`
+                        log(`Connecting to relay ${wsUrl}`)
+
+                        // Tear down any prior socket so we re-handshake cleanly.
+                        if (ws) { try { ws.close() } catch {} ; ws = null ; connected = false }
+                        const socket = ensureConnection()
+                        await waitForOpen(socket)
+
+                        const token = await getFirebaseToken()
+                        socket.send(JSON.stringify({ type: 'client_hello', token }))
+                        await waitForRelayMessage(socket, 'session_list')
+
+                        if (availableSessions.length === 0) {
+                            return { connected: false, sessions: [], message: 'No active sessions for this user. Start a bridge with --cloud.' }
+                        }
+
+                        let target = session_id
+                        if (!target && label) {
+                            target = availableSessions.find(s => s.label === label || s.label.includes(label))?.session_id
+                        }
+                        if (!target && availableSessions.length === 1) {
+                            target = availableSessions[0].session_id
+                        }
+                        if (!target) {
+                            return { connected: false, sessions: availableSessions, message: 'Multiple sessions available — provide session_id or label.' }
+                        }
+
+                        socket.send(JSON.stringify({ type: 'subscribe', session_id: target }))
+                        await waitForRelayMessage(socket, 'subscribed')
+                        log(`Subscribed to session ${target}`)
+                        const chosen = availableSessions.find(s => s.session_id === target)
+                        return { connected: true, mode: 'cloud', session_id: target, label: chosen?.label ?? '' }
+                    }
+
+                    // Local mode (default)
+                    connectionMode = 'local'
+                    if (url) wsUrl = url
+                    log(`Connecting to CLI agent at ${wsUrl}`)
                     const socket = ensureConnection()
                     await waitForOpen(socket)
-
                     log('Connected to CLI agent')
-                    return { connected: true, url: wsUrl }
+                    return { connected: true, mode: 'local', url: wsUrl }
+                },
+                return_type: 'object',
+            },
+            {
+                enabled: true,
+                description: 'List currently available cloud sessions for the logged-in user. Only meaningful after cli_connect with mode=cloud. Returns the cached session_list from the last relay handshake.',
+                name: 'cli_list_sessions',
+                return_shape: `{ sessions: Array<{session_id, label, model, online, last_active_ms_ago}>, active_session_id: string | null }`,
+                parameters: null,
+                fn: async (_ops: any) => {
+                    return { sessions: availableSessions, active_session_id: activeSessionId }
                 },
                 return_type: 'object',
             },
@@ -328,13 +459,15 @@ is running, voice input routes here automatically via the function_input_ch chan
                 enabled: true,
                 description: 'Check the connection status and idle state of the CLI agent.',
                 name: 'cli_status',
-                return_shape: `{ connected: boolean, url: string, idle: boolean, idleSeconds: number (0 when not idle), bufferedLines: number }.`,
+                return_shape: `{ connected, mode: 'local'|'cloud', url, active_session_id, idle, idleSeconds, bufferedLines }.`,
                 parameters: null,
                 fn: async (ops: any) => {
                     const { log } = ops.util
                     const status = {
-                        connected,
+                        connected: effectivelyConnected(),
+                        mode: connectionMode,
                         url: wsUrl,
+                        active_session_id: activeSessionId,
                         idle,
                         idleSeconds: idle ? idleSeconds : 0,
                         bufferedLines: outputBuffer.length,

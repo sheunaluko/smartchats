@@ -104,6 +104,8 @@ describe('relay routing', () => {
         await nextMessage(client); // session_list
 
         client.send(JSON.stringify({ type: 'subscribe', session_id: 'sid-3' }));
+        const sub = await nextMessage(client);
+        expect(sub).toEqual({ type: 'subscribed', session_id: 'sid-3' });
         const reqSnap = await nextMessage(bridge);
         expect(reqSnap.type).toBe('request_snapshot');
 
@@ -158,6 +160,7 @@ describe('relay routing', () => {
         client.send(JSON.stringify({ type: 'client_hello', token: 'tok-userD' }));
         await nextMessage(client);
         client.send(JSON.stringify({ type: 'subscribe', session_id: 'sid-4' }));
+        await nextMessage(client); // subscribed ack
         await nextMessage(bridge); // request_snapshot
 
         bridge.close();
