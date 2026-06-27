@@ -1,0 +1,33 @@
+{
+  "name": "smartchats-relay",
+  "version": "0.1.0",
+  "description": "WebSocket relay between cloud-mode pty-bridge instances and smartchats browser clients. Routes terminal byte streams keyed by Firebase user identity.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist",
+    "type-check": "tsc --noEmit",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "ws": "^8.18.0",
+    "firebase-admin": "^12.7.0",
+    "pino": "^9.5.0"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.5.13",
+    "@types/node": "^24.0.0",
+    "pino-pretty": "^11.3.0",
+    "tsx": "^4.19.0",
+    "typescript": "5.4.5",
+    "vitest": "^2.1.8"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "license": "Apache-2.0"
+}

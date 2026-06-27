@@ -28,10 +28,14 @@
  */
 
 import pty from 'node-pty';
-import { WebSocketServer } from 'ws';
+import { WebSocketServer, WebSocket } from 'ws';
 import fs from 'node:fs';
 import path from 'node:path';
 import http from 'node:http';
+import os from 'node:os';
+import crypto from 'node:crypto';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { resolveConfig, getIdToken, reauthenticate } from 'smartchats-cloud-client';
 
 const MODELS = {
   claude: { cmd: 'claude', displayName: 'Claude Code' },
@@ -46,6 +50,10 @@ const rawArgs = process.argv.slice(2);
 let modelKey = 'claude';
 let wsPort = 9100;
 let idleThreshold = 5; // seconds before broadcasting idle
+let cloudMode = false;
+let relayUrl = 'ws://localhost:8080';
+let bridgeIdArg = null;
+let labelArg = null;
 const passthroughArgs = [];
 
 for (let i = 0; i < rawArgs.length; i++) {
@@ -55,6 +63,14 @@ for (let i = 0; i < rawArgs.length; i++) {
     wsPort = parseInt(rawArgs[++i], 10);
   } else if (rawArgs[i] === '--idle') {
     idleThreshold = parseFloat(rawArgs[++i]);
+  } else if (rawArgs[i] === '--cloud') {
+    cloudMode = true;
+  } else if (rawArgs[i] === '--relay') {
+    relayUrl = rawArgs[++i];
+  } else if (rawArgs[i] === '--bridge-id') {
+    bridgeIdArg = rawArgs[++i];
+  } else if (rawArgs[i] === '--label') {
+    labelArg = rawArgs[++i];
   } else if (rawArgs[i] === '--') {
     passthroughArgs.push(...rawArgs.slice(i + 1));
     break;
@@ -170,6 +186,26 @@ const server = http.createServer();
 const wss = new WebSocketServer({ server });
 const clients = new Set();
 
+function handlePtyClientMessage(ws, msg) {
+  if (msg.type === 'input' && typeof msg.data === 'string') {
+    // Write text body, then send Enter (\r) separately after a short
+    // delay so TUI frameworks (ink, blessed) register it as a keypress.
+    const text = msg.data.replace(/[\r\n]+$/, '');
+    const hasEnter = text.length < msg.data.length;
+    if (text.length > 0) ptyProcess.write(text);
+    if (hasEnter) {
+      setTimeout(() => ptyProcess.write('\r'), 50);
+    }
+  } else if (msg.type === 'read') {
+    const n = typeof msg.lines === 'number' ? msg.lines : 50;
+    ws.send(JSON.stringify({ type: 'lines', data: getLines(n) }));
+  } else if (msg.type === 'resize' && msg.cols && msg.rows) {
+    ptyProcess.resize(msg.cols, msg.rows);
+  } else if (msg.type === 'request_snapshot') {
+    ws.send(JSON.stringify({ type: 'snapshot', data: rawBuffer }));
+  }
+}
+
 wss.on('connection', (ws) => {
   clients.add(ws);
 
@@ -179,42 +215,22 @@ wss.on('connection', (ws) => {
 
   ws.on('message', (raw) => {
     let msg;
-    try {
-      msg = JSON.parse(raw.toString());
-    } catch {
-      return;
-    }
-
-    if (msg.type === 'input' && typeof msg.data === 'string') {
-      // Write text body, then send Enter (\r) separately after a short
-      // delay so TUI frameworks (ink, blessed) register it as a keypress.
-      const text = msg.data.replace(/[\r\n]+$/, '');
-      const hasEnter = text.length < msg.data.length;
-      if (text.length > 0) ptyProcess.write(text);
-      if (hasEnter) {
-        setTimeout(() => ptyProcess.write('\r'), 50);
-      }
-    } else if (msg.type === 'read') {
-      const n = typeof msg.lines === 'number' ? msg.lines : 50;
-      ws.send(JSON.stringify({ type: 'lines', data: getLines(n) }));
-    } else if (msg.type === 'resize' && msg.cols && msg.rows) {
-      ptyProcess.resize(msg.cols, msg.rows);
-    } else if (msg.type === 'request_snapshot') {
-      ws.send(JSON.stringify({ type: 'snapshot', data: rawBuffer }));
-    }
+    try { msg = JSON.parse(raw.toString()); } catch { return; }
+    handlePtyClientMessage(ws, msg);
   });
 
   ws.on('close', () => clients.delete(ws));
   ws.on('error', () => clients.delete(ws));
 });
 
-/** Broadcast a message to all connected WebSocket clients */
+/** Broadcast a message to all connected WebSocket clients (local + cloud) */
 function broadcast(msg) {
   const payload = JSON.stringify(msg);
   for (const ws of clients) {
-    if (ws.readyState === 1) {
-      ws.send(payload);
-    }
+    if (ws.readyState === 1) ws.send(payload);
+  }
+  if (cloudWs && cloudWs.readyState === 1) {
+    cloudWs.send(payload);
   }
 }
 
@@ -240,12 +256,14 @@ ptyProcess.onData((data) => {
   broadcast({ type: 'output', data });
 });
 
-// Local stdin → PTY
-process.stdin.setRawMode(true);
-process.stdin.resume();
-process.stdin.on('data', (data) => {
-  ptyProcess.write(data.toString());
-});
+// Local stdin → PTY (only when run in a TTY — skipped under --cloud / headless)
+if (process.stdin.isTTY) {
+  process.stdin.setRawMode(true);
+  process.stdin.resume();
+  process.stdin.on('data', (data) => {
+    ptyProcess.write(data.toString());
+  });
+}
 
 // Forward local terminal resize
 process.stdout.on('resize', () => {
@@ -257,7 +275,7 @@ process.stdout.on('resize', () => {
 // ---------------------------------------------------------------------------
 ptyProcess.onExit(({ exitCode }) => {
   if (idleTimer) clearTimeout(idleTimer);
-  process.stdin.setRawMode(false);
+  if (process.stdin.isTTY) process.stdin.setRawMode(false);
   logStream.end();
   broadcast({ type: 'exit', code: exitCode });
 
@@ -276,3 +294,115 @@ ptyProcess.onExit(({ exitCode }) => {
 
 process.on('SIGINT', () => ptyProcess.kill('SIGINT'));
 process.on('SIGTERM', () => ptyProcess.kill('SIGTERM'));
+
+// ---------------------------------------------------------------------------
+// Cloud mode — outbound WS to the smartchats-relay
+// ---------------------------------------------------------------------------
+
+let cloudWs = null;
+let cloudReconnectBackoffMs = 1000;
+const CLOUD_MAX_BACKOFF_MS = 30_000;
+const CLOUD_REFRESH_INTERVAL_MS = 50 * 60 * 1000;
+let cloudRefreshTimer = null;
+let cloudConfig = null;
+let cloudBridgeId = null;
+
+async function loadOrCreateBridgeId() {
+  if (bridgeIdArg) return bridgeIdArg;
+  const file = path.join(os.homedir(), '.smartchats-mcp', 'bridge_id');
+  try {
+    const id = (await readFile(file, 'utf-8')).trim();
+    if (id) return id;
+  } catch {}
+  const id = crypto.randomUUID();
+  await mkdir(path.dirname(file), { recursive: true });
+  await writeFile(file, id, { mode: 0o600 });
+  return id;
+}
+
+function scheduleCloudRefresh() {
+  if (cloudRefreshTimer) clearTimeout(cloudRefreshTimer);
+  cloudRefreshTimer = setTimeout(async () => {
+    try {
+      const devToken = process.env.SMARTCHATS_CLOUD_DEV_TOKEN;
+      const newToken = devToken ?? await reauthenticate(cloudConfig);
+      if (cloudWs && cloudWs.readyState === 1) {
+        cloudWs.send(JSON.stringify({ type: 'bridge_reauth', token: newToken }));
+      }
+      scheduleCloudRefresh();
+    } catch (e) {
+      console.error(`\x1b[91m[cloud]\x1b[0m reauth failed: ${e.message}`);
+      try { cloudWs?.close(); } catch {}
+    }
+  }, CLOUD_REFRESH_INTERVAL_MS);
+}
+
+function scheduleCloudReconnect() {
+  setTimeout(connectCloud, cloudReconnectBackoffMs);
+  cloudReconnectBackoffMs = Math.min(cloudReconnectBackoffMs * 2, CLOUD_MAX_BACKOFF_MS);
+}
+
+async function connectCloud() {
+  let token;
+  const devToken = process.env.SMARTCHATS_CLOUD_DEV_TOKEN;
+  if (devToken) {
+    token = devToken;
+  } else {
+    try {
+      token = await getIdToken(cloudConfig);
+    } catch (e) {
+      console.error(`\x1b[91m[cloud]\x1b[0m auth failed: ${e.message}`);
+      scheduleCloudReconnect();
+      return;
+    }
+  }
+  const url = relayUrl.replace(/\/$/, '') + '/bridge';
+  const ws = new WebSocket(url);
+  cloudWs = ws;
+
+  ws.on('open', () => {
+    const label = labelArg ?? `${model.displayName} @ ${os.hostname()}`;
+    ws.send(JSON.stringify({
+      type: 'bridge_hello',
+      token,
+      bridge_id: cloudBridgeId,
+      label,
+      model: modelKey,
+      cols: process.stdout.columns ?? 80,
+      rows: process.stdout.rows ?? 24,
+    }));
+  });
+
+  ws.on('message', (raw) => {
+    let msg;
+    try { msg = JSON.parse(raw.toString()); } catch { return; }
+    if (msg.type === 'bridge_registered') {
+      cloudReconnectBackoffMs = 1000;
+      console.log(`\x1b[96m[cloud]\x1b[0m registered as session ${msg.session_id}`);
+      scheduleCloudRefresh();
+    } else if (msg.type === 'error') {
+      console.error(`\x1b[91m[cloud]\x1b[0m relay error: ${msg.code}`);
+    } else {
+      handlePtyClientMessage(ws, msg);
+    }
+  });
+
+  ws.on('close', (code, reason) => {
+    if (cloudWs === ws) cloudWs = null;
+    if (cloudRefreshTimer) { clearTimeout(cloudRefreshTimer); cloudRefreshTimer = null; }
+    console.log(`\x1b[96m[cloud]\x1b[0m disconnected (${code} ${reason ?? ''}); reconnecting...`);
+    scheduleCloudReconnect();
+  });
+
+  ws.on('error', (err) => {
+    console.error(`\x1b[91m[cloud]\x1b[0m ws error: ${err.message}`);
+  });
+}
+
+if (cloudMode) {
+  cloudConfig = resolveConfig();
+  cloudBridgeId = await loadOrCreateBridgeId();
+  console.log(`\x1b[96m[cloud]\x1b[0m bridge_id: ${cloudBridgeId}`);
+  console.log(`\x1b[96m[cloud]\x1b[0m relay: ${relayUrl}`);
+  connectCloud();
+}

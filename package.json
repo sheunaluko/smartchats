@@ -16,6 +16,7 @@
   },
   "devDependencies": {
     "node-pty": "^1.0.0",
+    "smartchats-cloud-client": "*",
     "turbo": "^2.3.4",
     "ws": "^8.18.0"
   },
