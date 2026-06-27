@@ -118,6 +118,8 @@ DB-side complement: `packages/smartchats-sessions/src/analysis_db/` exposes the 
 ## Auto-loaded per-directory CLAUDE.md
 
 - `apps/smartchats/CLAUDE.md` — agent runtime, store, hooks, voice, billing, telemetry. Most comprehensive doc in the repo.
+- `packages/smartchats-local-server/CLAUDE.md` — self-hosted Express backend; combined LLM+TTS streaming pipeline (`POST /llm/streamWithTTS` — the OSS twin of cloud's `llm_tts_stream_http`).
+- `packages/smartchats-common/CLAUDE.md` — shared utilities; insights/telemetry API.
 - `apps/site/` — Nextra docs source (no CLAUDE.md needed)
 
 ## Known gotchas
