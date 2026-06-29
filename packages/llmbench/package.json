@@ -1,0 +1,25 @@
+{
+  "name": "llmbench",
+  "version": "0.0.1",
+  "private": true,
+  "description": "LLM streaming benchmarking — apples-to-apples TTFB, latency, and cost across providers (OpenAI, Anthropic, Gemini, xAI) and tiers (top / mid / cheap). Same shape as voicebench but for tokens not bytes.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist",
+    "type-check": "tsc --noEmit",
+    "bench": "tsx scripts/bench.ts"
+  },
+  "dependencies": {
+    "llm-service": "*",
+    "cortex": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.4.5"
+  },
+  "license": "MIT"
+}
