@@ -339,7 +339,11 @@ const Component: NextPage = (props: any) => {
     // context on subsequent turns. See ./lib/background_loaders/index.ts.
     const loadersRef = useRef<StartupLoaders | null>(null);
     useEffect(() => {
-        if (!insightsReady || !COR) return;
+        // Gate on authUser too — cloud-mode backends reject queries from
+        // unauthenticated requests (Firebase Functions / surrealQuery).
+        // In local mode authUser resolves to an anonymous user immediately
+        // so this doesn't add latency.
+        if (!insightsReady || !COR || !authUser) return;
         const loaders = createStartupLoaders({
             agent: () => COR,
             insights: insightsClient.current,
@@ -351,7 +355,7 @@ const Component: NextPage = (props: any) => {
             setStartupLoaders(null);
             loadersRef.current = null;
         };
-    }, [insightsReady, COR]);
+    }, [insightsReady, COR, authUser]);
 
     // ── Warmup streaming + TTS + VAD model + prefetch startup data ──
     // Each probe is timed independently so a slow one can be identified;

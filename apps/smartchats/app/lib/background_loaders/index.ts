@@ -154,13 +154,20 @@ export function createStartupLoaders(deps: StartupLoaderDeps): StartupLoaders {
         installed_apps: createBackgroundLoader<any[]>({
             id: 'installed_apps',
             fetch: async () => {
-                await seedBuiltinApps(embed_vector).catch(() => null);
-                const installs = await listInstalls();
-                const items = await Promise.all(installs.map(async (i) => ({
-                    install: i,
-                    manifest: await getApp(i.app_id).catch(() => null),
-                })));
-                return items.filter((x: any) => x.manifest !== null);
+                try {
+                    await seedBuiltinApps(embed_vector).catch(() => null);
+                    const installs = await listInstalls();
+                    const items = await Promise.all(installs.map(async (i) => ({
+                        install: i,
+                        manifest: await getApp(i.app_id).catch(() => null),
+                    })));
+                    return items.filter((x: any) => x.manifest !== null);
+                } catch {
+                    // Match the catch-and-default pattern of every other
+                    // loader: a backend rejection (auth, network) shouldn't
+                    // surface as an unhandled BackgroundLoader rejection.
+                    return [];
+                }
             },
             onResolve: (items) => {
                 const installs = items.map((x: any) => x.install);
