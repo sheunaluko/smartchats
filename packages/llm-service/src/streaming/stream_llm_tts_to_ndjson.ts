@@ -76,6 +76,23 @@ export interface StreamLlmTtsToNdjsonOptions {
     /** Emit server_timing frames? Default true. Disable only if you've
      *  measured the wire-overhead cost matters in your context. */
     emitServerTiming?: boolean
+
+    /** Optional hook called after every TTS promise settles but BEFORE the
+     *  orchestrator writes the `done` frame. Returns extra fields to merge
+     *  into `done.data`. Wrappers use this for concern-specific data: cloud
+     *  appends a `billing` envelope; future tenants might append quotas,
+     *  audit context, etc.
+     *
+     *  Errors thrown from the hook are swallowed (logged via console.error
+     *  only) — the orchestrator always emits `done` with the base stats.
+     *  This makes the hook safe for I/O that may fail (billing fn calls,
+     *  DB writes) without taking down the response. */
+    onBeforeDone?: (info: {
+        aggregated: LLMResponse
+        totalTtsChars: number
+        ttsChunkCount: number
+        msTotal: number
+    }) => Record<string, unknown> | Promise<Record<string, unknown>>
 }
 
 export interface StreamLlmTtsToNdjsonResult {
@@ -95,6 +112,12 @@ export interface StreamLlmTtsToNdjsonResult {
 
     /** Total ms from orchestrator entry to terminal frame written. */
     msTotal: number
+
+    /** True when the LLM aggregated promise resolved; false when it rejected
+     *  (in which case the orchestrator wrote a terminal `error` frame and
+     *  `aggregated` is a zero-valued stub — wrappers should skip per-call
+     *  usage writes and end the response). */
+    aggregateOk: boolean
 }
 
 /** Zero-valued LLMResponse returned to the caller when aggregation rejects. */
@@ -306,6 +329,7 @@ export async function streamLlmTtsToNdjson(
             totalTtsChars,
             ttsChunkCount,
             msTotal: Date.now() - orchestratorStartMs,
+            aggregateOk: false,
         }
     }
 
@@ -326,15 +350,34 @@ export async function streamLlmTtsToNdjson(
     await Promise.allSettled(ttsPromises)
 
     const msTotal = Date.now() - orchestratorStartMs
+
+    // ── onBeforeDone hook — wrappers append billing / quotas / etc. ─────
+    let extra: Record<string, unknown> = {}
+    if (opts.onBeforeDone) {
+        try {
+            extra = await opts.onBeforeDone({
+                aggregated,
+                totalTtsChars,
+                ttsChunkCount,
+                msTotal,
+            })
+        } catch (err) {
+            // Hook errors are non-fatal — log + continue with base stats only.
+            // eslint-disable-next-line no-console
+            console.error('streamLlmTtsToNdjson: onBeforeDone threw', err)
+        }
+    }
+
     writeNdjsonLine(res, {
         t: 'done',
         data: {
             success: true,
-            ms_total: msTotal,
+            latency_ms: msTotal,
             total_tts_chars: totalTtsChars,
             tts_chunk_count: ttsChunkCount,
+            ...extra,
         },
     })
 
-    return { aggregated, totalTtsChars, ttsChunkCount, msTotal }
+    return { aggregated, totalTtsChars, ttsChunkCount, msTotal, aggregateOk: true }
 }

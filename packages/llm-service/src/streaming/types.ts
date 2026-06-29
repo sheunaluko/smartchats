@@ -187,15 +187,22 @@ export interface LlmDoneFrame {
     }
 }
 
-/** Terminal frame — written exactly once, only after every TTS promise settles. */
+/** Terminal frame — written exactly once on the happy path, only after every
+ *  TTS promise settles. Extra fields beyond the core stats are merged from the
+ *  `onBeforeDone` hook in `StreamLlmTtsToNdjsonOptions` — wrappers use this
+ *  to append concern-specific data (cloud: billing envelope). */
 export interface DoneFrame {
     t: 'done'
-    /** Aggregated usage across LLM + TTS. Provider-specific fields are wrapped in `data`. */
     data: {
         success: true
-        ms_total: number
+        /** ms from orchestrator entry to this `done` frame written. Named to
+         *  match the existing wire convention (cloud + local handlers both
+         *  emitted `latency_ms` historically). */
+        latency_ms: number
         total_tts_chars: number
         tts_chunk_count: number
+        /** Arbitrary fields merged via the `onBeforeDone` hook. */
+        [key: string]: unknown
     }
 }
 

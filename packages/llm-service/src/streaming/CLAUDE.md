@@ -35,13 +35,45 @@ streamLlmTtsToNdjson({
   firstChunkTimeThresholdMs,  // alternate splitter knob, 0 to disable
   funcReceivedMs,             // optional — wall-clock at handler entry
   emitServerTiming,           // default true
+  onBeforeDone,               // optional hook — merges extra fields into done.data
 }): Promise<{
   aggregated,        // LLMResponse — usage, output_text, finish_reason, …
   totalTtsChars,     // for caller's billing / usage write
   ttsChunkCount,     // 0..N, in practice ≤ 2
   msTotal,           // ms from entry to `done` frame
+  aggregateOk,       // false when LLM aggregation rejected — caller skips usage writes
 }>
 ```
+
+### `onBeforeDone` hook
+
+```ts
+onBeforeDone?: (info: {
+    aggregated: LLMResponse,
+    totalTtsChars: number,
+    ttsChunkCount: number,
+    msTotal: number,
+}) => Record<string, unknown> | Promise<Record<string, unknown>>
+```
+
+Called after every TTS promise settles, before the orchestrator writes the
+`done` frame. The returned object is shallow-merged into `done.data` after the
+base stats (`latency_ms`, `total_tts_chars`, `tts_chunk_count`). Used by
+wrappers for concern-specific data:
+
+- **cloud** appends a `billing` envelope (credit charge result).
+- **local** doesn't need it — `done.data` carries only base stats.
+
+Hook errors are swallowed (logged via `console.error`) — the orchestrator
+always emits `done` with the base fields so the wire stays intact even when
+billing / quota services fail.
+
+### `aggregateOk` branch
+
+When `aggregateOk === false`:
+- The orchestrator wrote a terminal `error` frame, *not* `done`.
+- `aggregated` is a zero-valued stub (model='', usage zeroed, finish_reason='error').
+- Wrappers should skip per-call usage writes and `res.end()` the response.
 
 ## NDJSON wire format
 

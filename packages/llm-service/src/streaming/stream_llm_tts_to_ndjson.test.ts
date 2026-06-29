@@ -702,6 +702,147 @@ describe('streamLlmTtsToNdjson — return value', () => {
 })
 
 // ────────────────────────────────────────────────────────────────────────────
+// 7b. onBeforeDone hook — wrappers enrich done.data
+// ────────────────────────────────────────────────────────────────────────────
+
+describe('streamLlmTtsToNdjson — onBeforeDone hook', () => {
+    it('merges hook return value into done.data alongside base stats', async () => {
+        const res = createFakeResponse()
+        await streamLlmTtsToNdjson({
+            res,
+            llmStream: createFakeLlmStream({ tokens: STANDARD_TOKENS }),
+            tts: createFakeTts(),
+            voice: 'alloy',
+            firstChunkWordThreshold: 5,
+            firstChunkTimeThresholdMs: 0,
+            onBeforeDone: () => ({ billing: { credits_used: 7, charged_from: 'credits' } }),
+        })
+        const frames = parseFrames(res)
+        const done = frames.find((f): f is Extract<NdjsonFrame, { t: 'done' }> => f.t === 'done')
+        expect(done).toBeDefined()
+        expect(done!.data.latency_ms).toBeGreaterThanOrEqual(0)
+        expect(done!.data.total_tts_chars).toBeGreaterThan(0)
+        expect(done!.data.tts_chunk_count).toBeGreaterThan(0)
+        expect((done!.data as any).billing).toEqual({ credits_used: 7, charged_from: 'credits' })
+    })
+
+    it('awaits an async hook before writing done', async () => {
+        const res = createFakeResponse()
+        let hookSettled = false
+        await streamLlmTtsToNdjson({
+            res,
+            llmStream: createFakeLlmStream({ tokens: STANDARD_TOKENS }),
+            tts: createFakeTts(),
+            voice: 'alloy',
+            firstChunkWordThreshold: 5,
+            firstChunkTimeThresholdMs: 0,
+            onBeforeDone: async () => {
+                await new Promise((r) => setTimeout(r, 10))
+                hookSettled = true
+                return { async_field: 'present' }
+            },
+        })
+        const frames = parseFrames(res)
+        const done = frames.find((f): f is Extract<NdjsonFrame, { t: 'done' }> => f.t === 'done')
+        expect(hookSettled).toBe(true)
+        expect((done!.data as any).async_field).toBe('present')
+    })
+
+    it('passes aggregated + counters + msTotal into the hook', async () => {
+        const res = createFakeResponse()
+        let received: any = null
+        await streamLlmTtsToNdjson({
+            res,
+            llmStream: createFakeLlmStream({ tokens: STANDARD_TOKENS }),
+            tts: createFakeTts(),
+            voice: 'alloy',
+            firstChunkWordThreshold: 5,
+            firstChunkTimeThresholdMs: 0,
+            onBeforeDone: (info) => { received = info; return {} },
+        })
+        expect(received).not.toBeNull()
+        expect(received.aggregated.output_text).toContain('quick brown fox')
+        expect(received.totalTtsChars).toBeGreaterThan(0)
+        expect(received.ttsChunkCount).toBeGreaterThan(0)
+        expect(received.msTotal).toBeGreaterThanOrEqual(0)
+    })
+
+    it('continues with base done when the hook throws', async () => {
+        const res = createFakeResponse()
+        await streamLlmTtsToNdjson({
+            res,
+            llmStream: createFakeLlmStream({ tokens: STANDARD_TOKENS }),
+            tts: createFakeTts(),
+            voice: 'alloy',
+            firstChunkWordThreshold: 5,
+            firstChunkTimeThresholdMs: 0,
+            onBeforeDone: () => { throw new Error('billing service down') },
+        })
+        const frames = parseFrames(res)
+        const done = frames.find((f): f is Extract<NdjsonFrame, { t: 'done' }> => f.t === 'done')
+        expect(done).toBeDefined()
+        expect(done!.data.total_tts_chars).toBeGreaterThan(0)
+        // No `billing` field — hook threw, but base stats still emitted.
+        expect((done!.data as any).billing).toBeUndefined()
+    })
+
+    it('is not called when LLM aggregation rejects', async () => {
+        const res = createFakeResponse()
+        let called = false
+        await streamLlmTtsToNdjson({
+            res,
+            llmStream: createFakeLlmStream({
+                tokens: STANDARD_TOKENS,
+                aggregateError: new Error('upstream aggregation failed'),
+            }),
+            tts: createFakeTts(),
+            voice: 'alloy',
+            firstChunkWordThreshold: 5,
+            firstChunkTimeThresholdMs: 0,
+            onBeforeDone: () => { called = true; return {} },
+        })
+        expect(called).toBe(false)
+    })
+})
+
+// ────────────────────────────────────────────────────────────────────────────
+// 7c. aggregateOk return field — wrappers branch on it
+// ────────────────────────────────────────────────────────────────────────────
+
+describe('streamLlmTtsToNdjson — aggregateOk return field', () => {
+    it('is true on the happy path', async () => {
+        const res = createFakeResponse()
+        const result = await streamLlmTtsToNdjson({
+            res,
+            llmStream: createFakeLlmStream({ tokens: STANDARD_TOKENS }),
+            tts: createFakeTts(),
+            voice: 'alloy',
+            firstChunkWordThreshold: 5,
+            firstChunkTimeThresholdMs: 0,
+        })
+        expect(result.aggregateOk).toBe(true)
+    })
+
+    it('is false when LLM aggregation rejects', async () => {
+        const res = createFakeResponse()
+        const result = await streamLlmTtsToNdjson({
+            res,
+            llmStream: createFakeLlmStream({
+                tokens: STANDARD_TOKENS,
+                aggregateError: new Error('upstream aggregation failed'),
+            }),
+            tts: createFakeTts(),
+            voice: 'alloy',
+            firstChunkWordThreshold: 5,
+            firstChunkTimeThresholdMs: 0,
+        })
+        expect(result.aggregateOk).toBe(false)
+        // The stub aggregated returned in this case isn't usable for usage writes.
+        expect(result.aggregated.model).toBe('')
+    })
+})
+
+// ────────────────────────────────────────────────────────────────────────────
 // 8. Adapter abstraction — TtsStreamFn is the only contract
 // ────────────────────────────────────────────────────────────────────────────
 
