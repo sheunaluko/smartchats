@@ -15,7 +15,7 @@
  *   - JsonStreamParser → ResponseSplitter → TTS fire ladder
  *   - Audio chunk dispatch + `ttsPromises[]` accounting
  *   - NDJSON framing of every frame type
- *   - Server timing stamps (always-on)
+ *   - Server timing stamps (always-on by default)
  *   - Final `llm_done` after aggregation, `done` after all TTS settles
  *
  * The caller owns:
@@ -34,16 +34,16 @@
  *   5. server_timing(tts_*) interleaved with audio_*
  *   6. llm_done (single, after aggregated resolves)
  *   7. audio_end / audio_error tails for any still-streaming chunks
- *   8. done (terminal — exactly once)
- *
- * NB: This is the SIGNATURE STUB. Implementation lives in a follow-up
- * commit. The function throws so the tests that lock in the contract
- * fail loudly until the implementation lands.
+ *   8. done (terminal — exactly once on the happy path; replaced by a
+ *      terminal `error` frame on LLM aggregation failure)
  */
 
+import { JsonStreamParser } from 'cortex'
 import type { LLMStreamResponse, LLMResponse } from '../types.js'
+import { beginNdjsonStream, writeNdjsonLine } from './ndjson_writer.js'
 import type { NdjsonStreamResponse } from './ndjson_writer.js'
-import type { TtsStreamFn } from './types.js'
+import { ResponseSplitter } from './response_splitter.js'
+import type { ServerTimingEvent, TtsStreamFn } from './types.js'
 
 export interface StreamLlmTtsToNdjsonOptions {
     /** HTTP response stream. Framework-agnostic — Express and Firebase
@@ -79,7 +79,9 @@ export interface StreamLlmTtsToNdjsonOptions {
 }
 
 export interface StreamLlmTtsToNdjsonResult {
-    /** Resolved LLM aggregation (output_text, usage, finish_reason, etc.). */
+    /** Resolved LLM aggregation (output_text, usage, finish_reason, etc.).
+     *  When aggregation rejects, this carries a zero-valued stub and the
+     *  wire ended with an `error` frame instead of `done`. */
     aggregated: LLMResponse
 
     /** Total text chars fed to TTS across all chunks. Used by callers for
@@ -91,8 +93,21 @@ export interface StreamLlmTtsToNdjsonResult {
      *  in practice ≤ 2 (early split + remainder). */
     ttsChunkCount: number
 
-    /** Total ms from orchestrator entry to `done` frame written. */
+    /** Total ms from orchestrator entry to terminal frame written. */
     msTotal: number
+}
+
+/** Zero-valued LLMResponse returned to the caller when aggregation rejects. */
+function emptyAggregated(): LLMResponse {
+    return {
+        output_text: '',
+        usage: { input_tokens: 0, output_tokens: 0, cached_input_tokens: 0 },
+        model: '',
+        provider: 'openai',
+        finish_reason: 'error',
+        latency_ms: 0,
+        raw: {},
+    }
 }
 
 /**
@@ -102,11 +117,224 @@ export interface StreamLlmTtsToNdjsonResult {
  * behavioral spec the test suite locks in.
  */
 export async function streamLlmTtsToNdjson(
-    _opts: StreamLlmTtsToNdjsonOptions,
+    opts: StreamLlmTtsToNdjsonOptions,
 ): Promise<StreamLlmTtsToNdjsonResult> {
-    throw new Error(
-        'streamLlmTtsToNdjson: not implemented yet — signature is fixed; ' +
-        'implementation lands in a follow-up commit. See ' +
-        'packages/llm-service/src/streaming/CLAUDE.md.',
-    )
+    const {
+        res,
+        llmStream,
+        tts,
+        voice,
+        firstChunkWordThreshold,
+        firstChunkTimeThresholdMs,
+        emitServerTiming = true,
+    } = opts
+
+    const orchestratorStartMs = Date.now()
+    const funcReceivedMs = opts.funcReceivedMs ?? orchestratorStartMs
+
+    beginNdjsonStream(res)
+
+    // ── timing emit helper ───────────────────────────────────────────────
+    const emitTiming = (event: ServerTimingEvent): void => {
+        if (!emitServerTiming) return
+        writeNdjsonLine(res, event)
+    }
+
+    emitTiming({ t: 'server_timing', phase: 'llm_function_received', ts: funcReceivedMs })
+    const llmRequestStartMs = Date.now()
+    emitTiming({
+        t: 'server_timing',
+        phase: 'llm_request_start',
+        ts: llmRequestStartMs,
+        ms_since_function_received: llmRequestStartMs - funcReceivedMs,
+    })
+
+    // ── TTS dispatch ─────────────────────────────────────────────────────
+    let totalTtsChars = 0
+    let ttsChunkCount = 0
+    const ttsPromises: Promise<void>[] = []
+
+    // Returns true if a fire was actually scheduled (tts + voice present).
+    function fireTts(text: string): boolean {
+        if (!tts || !voice) return false
+        const chunkIdx = ttsChunkCount++
+        totalTtsChars += text.length
+        const promise = (async () => {
+            const ttsReqStartMs = Date.now()
+            try {
+                emitTiming({
+                    t: 'server_timing',
+                    phase: 'tts_request_start',
+                    s: chunkIdx,
+                    ts: ttsReqStartMs - llmRequestStartMs,
+                })
+                writeNdjsonLine(res, {
+                    t: 'audio_start',
+                    s: chunkIdx,
+                    text: text.slice(0, 80),
+                    ms: ttsReqStartMs - llmRequestStartMs,
+                })
+
+                let c = 0
+                let firstByteSeen = false
+                let lastBatchYieldMs = ttsReqStartMs
+
+                for await (const pcm of tts({
+                    text,
+                    voice,
+                    onTiming: (event) => {
+                        try {
+                            if (event.phase === 'first_byte') {
+                                if (!firstByteSeen) {
+                                    firstByteSeen = true
+                                    emitTiming({
+                                        t: 'server_timing',
+                                        phase: 'tts_first_byte',
+                                        s: chunkIdx,
+                                        ts: event.ms_since_request,
+                                    })
+                                }
+                            } else if (event.phase === 'batch_yield') {
+                                emitTiming({
+                                    t: 'server_timing',
+                                    phase: 'tts_batch_yield',
+                                    s: chunkIdx,
+                                    batch: event.batch_index,
+                                    ts: event.ms_since_request,
+                                    bytes: event.bytes,
+                                    provider_bytes_total: event.provider_bytes_cumulative,
+                                })
+                                lastBatchYieldMs = ttsReqStartMs + event.ms_since_request
+                            }
+                        } catch { /* swallow telemetry errors */ }
+                    },
+                })) {
+                    writeNdjsonLine(res, { t: 'audio', s: chunkIdx, c: c++, b64: pcm.toString('base64') })
+                }
+
+                writeNdjsonLine(res, {
+                    t: 'audio_end',
+                    s: chunkIdx,
+                    ms: Date.now() - llmRequestStartMs,
+                })
+                emitTiming({
+                    t: 'server_timing',
+                    phase: 'tts_request_complete',
+                    s: chunkIdx,
+                    ts: Date.now() - ttsReqStartMs,
+                    total_batches: c,
+                    ms_since_first_byte: Date.now() - lastBatchYieldMs,
+                })
+            } catch (err) {
+                writeNdjsonLine(res, {
+                    t: 'audio_error',
+                    s: chunkIdx,
+                    error: (err as Error).message,
+                })
+            }
+        })()
+        ttsPromises.push(promise)
+        return true
+    }
+
+    // ── Parser + splitter wiring ────────────────────────────────────────
+    const splitter = new ResponseSplitter({
+        wordThreshold: firstChunkWordThreshold,
+        timeThresholdMs: firstChunkTimeThresholdMs,
+        startTime: llmRequestStartMs,
+        onFirstChunk: (text) => { fireTts(text) },
+    })
+
+    const parser = new JsonStreamParser({
+        onResponseChunk: (text) => splitter.feed(text),
+        onTextStreamDone: () => {
+            // Closing quote of the response field arrived mid-stream. Flush
+            // whatever the splitter has buffered as the remainder chunk.
+            const remainder = splitter.flushRemainder()
+            if (remainder) fireTts(remainder)
+        },
+    })
+
+    // ── Stream LLM tokens ────────────────────────────────────────────────
+    let llmFirstByteStamped = false
+    try {
+        for await (const chunk of llmStream.stream) {
+            if (!chunk) continue
+            if (!llmFirstByteStamped) {
+                llmFirstByteStamped = true
+                const llmFirstByteMs = Date.now()
+                emitTiming({
+                    t: 'server_timing',
+                    phase: 'llm_first_byte',
+                    ts: llmFirstByteMs,
+                    ms_since_request_start: llmFirstByteMs - llmRequestStartMs,
+                    ms_since_function_received: llmFirstByteMs - funcReceivedMs,
+                })
+            }
+            writeNdjsonLine(res, { t: 'text', d: chunk })
+            parser.feed(chunk)
+        }
+    } catch (err) {
+        writeNdjsonLine(res, { t: 'error', error: (err as Error).message })
+    }
+
+    parser.finalize()
+
+    // If the splitter never fired (short response below threshold, no
+    // onTextStreamDone), flush whatever is buffered as one final chunk.
+    // After onTextStreamDone has run, the buffer is empty and this is a
+    // no-op.
+    if (!splitter.hasFiredFirst) {
+        const remainder = splitter.flushRemainder()
+        if (remainder) fireTts(remainder)
+    }
+
+    // ── Await aggregation ────────────────────────────────────────────────
+    let aggregated: LLMResponse
+    try {
+        aggregated = await llmStream.aggregated
+    } catch (err) {
+        writeNdjsonLine(res, {
+            t: 'error',
+            error: `aggregation failed: ${(err as Error).message}`,
+        })
+        // Drain still-running TTS before returning so the response isn't
+        // truncated mid-stream.
+        await Promise.allSettled(ttsPromises)
+        return {
+            aggregated: emptyAggregated(),
+            totalTtsChars,
+            ttsChunkCount,
+            msTotal: Date.now() - orchestratorStartMs,
+        }
+    }
+
+    writeNdjsonLine(res, {
+        t: 'llm_done',
+        data: {
+            success: true,
+            output_text: aggregated.output_text,
+            usage: aggregated.usage,
+            model: aggregated.model,
+            provider: aggregated.provider,
+            finish_reason: aggregated.finish_reason,
+            latency_ms: Date.now() - llmRequestStartMs,
+        },
+    })
+
+    // ── Wait for every TTS chunk to finish before terminal frame ────────
+    await Promise.allSettled(ttsPromises)
+
+    const msTotal = Date.now() - orchestratorStartMs
+    writeNdjsonLine(res, {
+        t: 'done',
+        data: {
+            success: true,
+            ms_total: msTotal,
+            total_tts_chars: totalTtsChars,
+            tts_chunk_count: ttsChunkCount,
+        },
+    })
+
+    return { aggregated, totalTtsChars, ttsChunkCount, msTotal }
 }

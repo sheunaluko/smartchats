@@ -154,13 +154,20 @@ function createFakeTts(behavior?: {
 /**
  * Standard LLM token stream — produces a JsonStreamParser-parseable response
  * shape because the local + cloud handlers wrap the LLM in a `{"response":
- * "..."}` JSON envelope. Whitespace + sentence boundaries chosen so the
- * 5-word threshold fires roughly halfway through.
+ * "..."}` JSON envelope.
+ *
+ * Two sentence boundaries inside the response so the 5-word threshold has a
+ * subsequent `. ` to split on. The ResponseSplitter's threshold-position
+ * lookup lands past the 5th word; if there's no sentence boundary after
+ * that position, it can't fire — which means the data needs at least one
+ * sentence break *after* the 5th word.
  */
 const STANDARD_TOKENS = [
     '{"response":"',
-    'The ', 'quick ', 'brown ', 'fox ', 'jumps. ',
-    'Over ', 'the ', 'lazy ', 'dog ', 'tonight.',
+    'The ', 'quick ', 'brown ', 'fox ',
+    'jumps ', 'over ', 'the ', 'lazy ', 'dog. ',
+    'Then ', 'it ', 'sleeps. ',
+    'And ', 'dreams.',
     '"}',
 ]
 
