@@ -17,6 +17,15 @@ export interface UsageForCost {
   cache_creation_input_tokens?: number
 }
 
+/**
+ * Tier slot used by the llmbench harness to enumerate "top / mid / cheap"
+ * across providers without hardcoding model lists in the bench. A provider
+ * may have multiple models in the same tier (e.g. Grok 4.20 reasoning vs
+ * non-reasoning both sit at mid); the bench uses the FIRST registered
+ * model per (provider, tier) pair unless an explicit model id is given.
+ */
+export type ModelTier = 'top' | 'mid' | 'cheap'
+
 export interface ModelInfo {
   id: string
   provider: Provider
@@ -29,6 +38,8 @@ export interface ModelInfo {
                                   // For Anthropic 5-min ephemeral cache: 1.25× base.
   description?: string
   tiktokenEncoding?: string  // e.g., 'cl100k_base', 'o200k_base'
+  /** Optional positioning for cross-provider benchmark slotting. */
+  tier?: ModelTier
 }
 
 /**
@@ -89,6 +100,7 @@ export const MODEL_REGISTRY: Record<string, ModelInfo> = {
     maxOutputTokens: 64000,
     description: "Fastest model with near-frontier intelligence",
     tiktokenEncoding: "cl100k_base",
+    tier: "cheap",
   },
   "claude-opus-4-6": {
     id: "claude-opus-4-6",
@@ -111,6 +123,7 @@ export const MODEL_REGISTRY: Record<string, ModelInfo> = {
     maxOutputTokens: 128000,
     description: "Most intelligent Claude — 1M context, 128K output",
     tiktokenEncoding: "cl100k_base",
+    tier: "top",
   },
   "claude-sonnet-4-6": {
     id: "claude-sonnet-4-6",
@@ -122,6 +135,7 @@ export const MODEL_REGISTRY: Record<string, ModelInfo> = {
     maxOutputTokens: 64000,
     description: "Sonnet 4.6 — agentic coding with 1M context",
     tiktokenEncoding: "cl100k_base",
+    tier: "mid",
   },
 
   // ============================================
@@ -170,6 +184,7 @@ export const MODEL_REGISTRY: Record<string, ModelInfo> = {
     maxOutputTokens: 65536,
     description: "Improved multimodal + agentic reasoning preview",
     tiktokenEncoding: "cl100k_base",
+    tier: "top",
   },
   "gemini-3.5-flash": {
     id: "gemini-3.5-flash",
@@ -181,6 +196,7 @@ export const MODEL_REGISTRY: Record<string, ModelInfo> = {
     maxOutputTokens: 65536,
     description: "Frontier intelligence at Flash speed; built for search + grounding",
     tiktokenEncoding: "cl100k_base",
+    tier: "mid",
   },
   "gemini-3.1-flash-lite": {
     id: "gemini-3.1-flash-lite",
@@ -192,6 +208,7 @@ export const MODEL_REGISTRY: Record<string, ModelInfo> = {
     maxOutputTokens: 65536,
     description: "Cost-efficient model for high-volume agentic tasks + translation",
     tiktokenEncoding: "cl100k_base",
+    tier: "cheap",
   },
 
   // ============================================
@@ -226,6 +243,7 @@ export const MODEL_REGISTRY: Record<string, ModelInfo> = {
     maxOutputTokens: 128000,
     description: "Faster, cost-efficient version of GPT-5",
     tiktokenEncoding: "o200k_base",
+    tier: "mid",
   },
   "gpt-5-nano": {
     id: "gpt-5-nano-2025-08-07",
@@ -236,6 +254,7 @@ export const MODEL_REGISTRY: Record<string, ModelInfo> = {
     maxOutputTokens: 128000,
     description: "Fastest, most cost-efficient version of GPT-5",
     tiktokenEncoding: "o200k_base",
+    tier: "cheap",
   },
   "gpt-5.2": {
     id: "gpt-5.2-2025-12-11",
@@ -299,6 +318,7 @@ export const MODEL_REGISTRY: Record<string, ModelInfo> = {
     maxOutputTokens: 128000,
     description: "Most intelligent GPT — 1M context, frontier reasoning",
     tiktokenEncoding: "o200k_base",
+    tier: "top",
   },
   "o4-mini": {
     id: "o4-mini-2025-04-16",
@@ -310,6 +330,90 @@ export const MODEL_REGISTRY: Record<string, ModelInfo> = {
     description: "Fast, cost-efficient reasoning model for coding and visual tasks",
     tiktokenEncoding: "o200k_base",
   },
+
+  // ============================================
+  // XAI / GROK MODELS
+  // ============================================
+  // Pricing per https://docs.x.ai/docs/models (as of 2026-06-24).
+  // Flagship + most mid variants share identical $1.25/$2.50 pricing;
+  // grok-build-0.1 is the budget tier at $1.00/$2.00 with reduced
+  // context (256K vs 1M). No cached-input pricing published.
+  "grok-4.3": {
+    id: "grok-4.3",
+    provider: "xai",
+    inputPricePer1M: 1.25,
+    outputPricePer1M: 2.50,
+    contextWindow: 1_000_000,
+    maxOutputTokens: 8192,         // not officially published; conservative default
+    description: "Grok flagship — most intelligent and fastest for chat + coding",
+    tiktokenEncoding: "o200k_base",
+    tier: "top",
+  },
+  "grok-4.20-0309-non-reasoning": {
+    id: "grok-4.20-0309-non-reasoning",
+    provider: "xai",
+    inputPricePer1M: 1.25,
+    outputPricePer1M: 2.50,
+    contextWindow: 1_000_000,
+    maxOutputTokens: 8192,
+    description: "Grok 4.20 standard — general-purpose mid tier",
+    tiktokenEncoding: "o200k_base",
+    tier: "mid",
+  },
+  "grok-4.20-0309-reasoning": {
+    id: "grok-4.20-0309-reasoning",
+    provider: "xai",
+    inputPricePer1M: 1.25,
+    outputPricePer1M: 2.50,
+    contextWindow: 1_000_000,
+    maxOutputTokens: 8192,
+    description: "Grok 4.20 reasoning variant — chain-of-thought enabled",
+    tiktokenEncoding: "o200k_base",
+    // Two mid-tier variants exist for 4.20; getModelByTier picks the first
+    // registered, which is the non-reasoning one above (cheaper-on-output
+    // for the same nominal price, and faster for general use).
+  },
+  "grok-build-0.1": {
+    id: "grok-build-0.1",
+    provider: "xai",
+    inputPricePer1M: 1.00,
+    outputPricePer1M: 2.00,
+    contextWindow: 256_000,
+    maxOutputTokens: 8192,
+    description: "Grok build agent variant — budget tier",
+    tiktokenEncoding: "o200k_base",
+    tier: "cheap",
+  },
+}
+
+// ============================================================================
+// Tier lookup — used by llmbench to enumerate models across providers
+// ============================================================================
+
+/**
+ * Find the canonical model id for a given (provider, tier) pair.
+ * Returns undefined when no model in the registry matches — typically
+ * means the registry hasn't been updated for a newer provider yet.
+ *
+ * When multiple models match (e.g. Grok 4.20 has both reasoning and
+ * non-reasoning at mid tier), returns the first-registered, which is
+ * the deliberate "general-purpose default" choice. Callers wanting a
+ * specific variant should look it up by id directly.
+ */
+export function getModelByTier(provider: Provider, tier: ModelTier): string | undefined {
+  for (const [key, info] of Object.entries(MODEL_REGISTRY)) {
+    if (info.provider === provider && info.tier === tier) return key
+  }
+  return undefined
+}
+
+/** Return all (provider, tier, model_id) tuples for which a tier is annotated. */
+export function listTieredModels(): Array<{ provider: Provider; tier: ModelTier; key: string }> {
+  const out: Array<{ provider: Provider; tier: ModelTier; key: string }> = []
+  for (const [key, info] of Object.entries(MODEL_REGISTRY)) {
+    if (info.tier) out.push({ provider: info.provider, tier: info.tier, key })
+  }
+  return out
 }
 
 // ============================================================================
@@ -400,6 +504,14 @@ const DEFAULT_MODEL_INFO: Record<Provider, Omit<ModelInfo, 'id'>> = {
     outputPricePer1M: 3,
     tiktokenEncoding: 'cl100k_base',
   },
+  xai: {
+    provider: 'xai',
+    contextWindow: 1_000_000,
+    maxOutputTokens: 8192,
+    inputPricePer1M: 1.25,    // Grok 4.x baseline
+    outputPricePer1M: 2.50,
+    tiktokenEncoding: 'o200k_base',
+  },
 }
 
 /**
@@ -427,6 +539,7 @@ export function getModelInfo(model: string, provider?: Provider): ModelInfo {
 function inferProviderFromModel(model: string): Provider {
   if (model.startsWith('claude-')) return 'anthropic'
   if (model.startsWith('gemini-')) return 'gemini'
+  if (model.startsWith('grok-')) return 'xai'
   return 'openai'
 }
 

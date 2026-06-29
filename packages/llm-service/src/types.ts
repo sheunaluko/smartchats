@@ -2,7 +2,7 @@
  * LLM Service types
  */
 
-export type Provider = 'openai' | 'anthropic' | 'gemini'
+export type Provider = 'openai' | 'anthropic' | 'gemini' | 'xai'
 
 export interface Message {
   role: 'system' | 'user' | 'assistant'

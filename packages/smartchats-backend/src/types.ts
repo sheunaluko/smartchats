@@ -165,6 +165,9 @@ export interface LLMTTSExtras {
   speed?: number;
   /** gpt-4o-mini-tts voice style directive. */
   instructions?: string;
+  /** Cloud TTS provider override (e.g. 'azure', 'openai'). When omitted,
+   *  the server uses its DEFAULT_TTS_PROVIDER. */
+  tts_provider?: string;
 
   // ─── Experiment params (optional, set by /sail) ────────────────────
   // When `experiment_id` is present, the server emits server_timing
@@ -213,6 +216,9 @@ export interface TTSArgs {
   instructions?: string;
   session_id?: string;
   signal?: AbortSignal;
+  /** Cloud TTS provider override (e.g. 'azure', 'openai'). When omitted,
+   *  the server uses its DEFAULT_TTS_PROVIDER. */
+  tts_provider?: string;
 }
 
 export interface TTSAudioChunk {
@@ -404,15 +410,24 @@ export interface UsageAPI {
 // Keys — BYO API keys (local + cloud)
 // ============================================================================
 
-export type LLMProvider = 'openai' | 'anthropic' | 'google';
+/**
+ * Provider id for any API key / cost-attribution surface. Includes LLM
+ * providers (openai, anthropic, google, xai) AND TTS-only providers
+ * (azure). Naming is historical — the type would be better called
+ * `ApiProvider` but renaming has broad reach; treat the union as
+ * "providers that have an API key the server may resolve."
+ */
+export type LLMProvider = 'openai' | 'anthropic' | 'google' | 'xai' | 'azure';
 
 /** Canonical list of LLM providers, in the order used by UI + iteration. */
-export const LLM_PROVIDERS: readonly LLMProvider[] = ['openai', 'anthropic', 'google'] as const;
+export const LLM_PROVIDERS: readonly LLMProvider[] = ['openai', 'anthropic', 'google', 'xai', 'azure'] as const;
 
 export interface BYOKeys {
   openai?: string;
   anthropic?: string;
   google?: string;
+  xai?: string;
+  azure?: string;
 }
 
 /** For each provider: `null` if no key configured, otherwise a short masked preview

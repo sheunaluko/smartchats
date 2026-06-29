@@ -6,12 +6,17 @@ import type { LLMRequest, LLMResponse, LLMStreamRequest, LLMStreamResponse, Prov
 import { handleAnthropicRequest } from './anthropic.js'
 import { handleOpenAIRequest } from './openai.js'
 import { handleGeminiRequest } from './gemini.js'
+import { handleXaiRequest } from './xai.js'
 import { handleOpenAIStreamRequestResponses as handleOpenAIStreamRequest } from './openai_stream_responses.js'
 import { handleAnthropicStreamRequest } from './anthropic_stream.js'
 import { handleGeminiStreamRequest } from './gemini_stream.js'
+import { handleXaiStreamRequest } from './xai_stream.js'
 import { getModelInfo } from 'cortex'
 
-export { handleAnthropicRequest, handleOpenAIRequest, handleGeminiRequest, handleOpenAIStreamRequest, handleAnthropicStreamRequest, handleGeminiStreamRequest }
+export {
+  handleAnthropicRequest, handleOpenAIRequest, handleGeminiRequest, handleXaiRequest,
+  handleOpenAIStreamRequest, handleAnthropicStreamRequest, handleGeminiStreamRequest, handleXaiStreamRequest,
+}
 
 /**
  * Returns the provider for a given model name.
@@ -34,6 +39,8 @@ export async function handleLLMRequest(request: LLMRequest): Promise<LLMResponse
       return handleOpenAIRequest(request)
     case 'gemini':
       return handleGeminiRequest(request)
+    case 'xai':
+      return handleXaiRequest(request)
     default:
       throw new Error(`Unsupported provider: ${provider}`)
   }
@@ -52,6 +59,8 @@ export function handleLLMStreamRequest(request: LLMStreamRequest): LLMStreamResp
       return handleAnthropicStreamRequest(request)
     case 'gemini':
       return handleGeminiStreamRequest(request)
+    case 'xai':
+      return handleXaiStreamRequest(request)
     default:
       throw new Error(`Unsupported provider: ${provider}`)
   }

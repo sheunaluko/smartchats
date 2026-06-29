@@ -22,6 +22,7 @@ const CHARS_PER_TOKEN: Record<Provider | 'default', number> = {
   openai: 4,
   anthropic: 3.5,
   gemini: 4,
+  xai: 4,         // Grok uses OpenAI-style tokenization (o200k_base family)
   default: 4
 }
 

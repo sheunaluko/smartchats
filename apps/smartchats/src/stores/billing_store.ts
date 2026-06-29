@@ -127,7 +127,7 @@ export const useBillingStore = createInsightStore<BillingState>({
     creditPacks: [],
 
     // BYO keys defaults
-    byoKeys: { openai: null, anthropic: null, google: null },
+    byoKeys: { openai: null, anthropic: null, google: null, xai: null, azure: null },
 
     // Usage defaults
     usageRecords: [],

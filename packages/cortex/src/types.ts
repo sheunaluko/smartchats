@@ -7,7 +7,7 @@ import type { Runner } from './runner/types.js'
 import type { SystemContextManager } from './system_context_manager.js'
 
 /* Provider types */
-export type Provider = 'openai' | 'anthropic' | 'gemini'
+export type Provider = 'openai' | 'anthropic' | 'gemini' | 'xai'
 
 /* Function types */
 export type FunctionParameters = Record<string, any> | null
