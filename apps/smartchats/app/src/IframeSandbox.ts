@@ -371,6 +371,13 @@ export class IframeSandboxExecutor implements SandboxExecutor {
             events.push(payload)
             break
 
+          case 'event_batch':
+            // Batched events from the iframe — flush in chunks to amortize the
+            // cross-process IPC cost. See emitEvent / flushEvents in the iframe
+            // srcdoc below for the buffering policy.
+            for (const e of payload) events.push(e)
+            break
+
           case 'functionCall':
             // Execute function in parent context and send result back
             this.handleFunctionCall(payload, context, executionId)
@@ -509,9 +516,63 @@ export class IframeSandboxExecutor implements SandboxExecutor {
         }
       }
 
-      // Helper to emit observability events
+      // Helper to emit observability events.
+      //
+      // Events buffer in iframe-local memory and flush as a single
+      // 'event_batch' postMessage to amortize cross-process IPC.
+      // Sandbox iframe is null-origin → separate renderer process →
+      // per-message IPC cost ~10-30ms via the browser broker. With this
+      // batching, a loop emitting hundreds of events costs ~1 IPC instead of N.
+      //
+      // Flush triggers:
+      //   - 100 events buffered → immediate flush
+      //   - 50ms elapsed since first buffered event → timed flush
+      //   - execution end (success or error) → forced flush
+      //
+      // Coalescing: consecutive variable_set events with the same name
+      // collapse to the LAST one. This kills loop-variable spam (e.g.
+      // 754 row assignments in an aggregation loop → 1 event) AND fixes
+      // a parallel UI issue in VariableInspectorWidget where every set
+      // becomes its own history entry. Distinct assignments to the same
+      // name across the program (e.g. result = ...; result = transform(result))
+      // remain separate because they're separated by other events.
+      var __eventBuf = []
+      var __flushTimer = null
+      function flushEvents() {
+        if (__eventBuf.length === 0) return
+        var batch = __eventBuf
+        __eventBuf = []
+        if (__flushTimer) { clearTimeout(__flushTimer); __flushTimer = null }
+        // Coalesce variable_set within-batch-by-name (not just consecutive).
+        // Loop bodies typically alternate writes — e.g. row = ...; key = ...
+        // each iteration — so consecutive-only dedup misses them. This keeps
+        // each variable_set name at most once per batch, at its LATEST
+        // position with its LATEST value. Non-variable_set events keep their
+        // order intact.
+        var latestIdxByName = {}
+        for (var i = 0; i < batch.length; i++) {
+          if (batch[i].type === 'variable_set') {
+            latestIdxByName[batch[i].data.name] = i
+          }
+        }
+        var coalesced = []
+        for (var j = 0; j < batch.length; j++) {
+          var ev = batch[j]
+          if (ev.type === 'variable_set') {
+            if (latestIdxByName[ev.data.name] === j) coalesced.push(ev)
+          } else {
+            coalesced.push(ev)
+          }
+        }
+        sendMessage('event_batch', coalesced)
+      }
       function emitEvent(type, data) {
-        sendMessage('event', { type, data, timestamp: Date.now() })
+        __eventBuf.push({ type: type, data: data, timestamp: Date.now() })
+        if (__eventBuf.length >= 100) {
+          flushEvents()
+        } else if (!__flushTimer) {
+          __flushTimer = setTimeout(flushEvents, 50)
+        }
       }
 
       try {
@@ -552,8 +613,10 @@ export class IframeSandboxExecutor implements SandboxExecutor {
               return undefined
             }
 
-            // Track property access
-            emitEvent('property_access', { property: String(prop) })
+            // (property_access tracking removed 2026-06-26 — no consumer reads
+            // it; cost was the dominant slowdown in sandbox execution because
+            // every identifier inside with(membrane) fires a Proxy.get → IPC.
+            // See benchpress audit run_2026-06-26T14-40-19-439Z for evidence.)
 
             if (target.hasOwnProperty(prop)) {
               const value = target[prop]
@@ -653,15 +716,19 @@ export class IframeSandboxExecutor implements SandboxExecutor {
         // Handle async results
         Promise.resolve(__result).then(
           (result) => {
-            // Send the full result (includes __userResult and __workspace)
+            // Flush any buffered observability events before terminal message
+            // so the parent's event[] array is complete when success arrives.
+            flushEvents()
             sendMessage('success', result)
           },
           (error) => {
+            flushEvents()
             sendMessage('error', error.message || String(error))
           }
         )
 
       } catch (error) {
+        flushEvents()
         sendMessage('error', error.message || String(error))
       }
     })()
