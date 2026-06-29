@@ -54,7 +54,10 @@ function makeValueAnswerWorkflow(scenario: BenchScenarioV1) {
   const prompts = rawPrompts.map((p, i) =>
     i === rawPrompts.length - 1 ? `${p}${directive(scenario)}` : p,
   );
-  const maxTurnMs = scenario.maxTurnMs ?? 30_000;
+  // Tightened from 30s → 20s. Per-scenario maxTurnMs overrides still in
+  // effect for scenarios that legitimately need more (q05/q07 45s, q06 60s,
+  // HARD-1 90s). Faster default catches silent agent hangs sooner.
+  const maxTurnMs = scenario.maxTurnMs ?? 20_000;
 
   const steps: any[] = [
     { waitFor: 'state.agent !== null && state.aiModel !== ""', timeout: 10_000 },
@@ -72,7 +75,10 @@ function makeValueAnswerWorkflow(scenario: BenchScenarioV1) {
     });
   });
 
-  steps.push({ waitFor: 'state.workspace.bench_answer != null', timeout: 10_000 });
+  // Tightened from 10s → 5s. By this point sendMessageAsync has returned,
+  // so the agent's already finished its turn; we're just waiting for the
+  // bench_answer write to land in the workspace.
+  steps.push({ waitFor: 'state.workspace.bench_answer != null', timeout: 5_000 });
 
   return defineWorkflow({
     id: `bench_${scenario.id}`,
