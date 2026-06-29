@@ -71,3 +71,9 @@ data/user_response
 # Emacs autosave + lock files
 \#*\#
 .\#*
+
+# One-off local reports + DB dumps that shouldn't land in the public repo.
+# history.txt is a SurrealQL dump scratchpad; local_surreal_option_report.html
+# is a generated investigation report.
+/history.txt
+/local_surreal_option_report.html
