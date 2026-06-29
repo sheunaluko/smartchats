@@ -23,6 +23,17 @@ export interface RunOptions {
     interTrialMs?: number;
     /** Connect options (model, batching). Defaults inherited from the provider. */
     connectOpts?: Partial<ConnectOpts>;
+    /**
+     * If set, the runner accumulates each batch's PCM buffer in-memory and
+     * passes them to this callback after the trial completes. Used by the
+     * --save-audio path in bench.ts to write per-batch raw PCM (and a
+     * concatenated reference WAV) to disk so the playback simulator can
+     * reconstruct the stuttered listening experience offline.
+     *
+     * Heads up: keeping per-batch buffers doubles peak memory during a trial,
+     * so leave this undefined when running large matrices.
+     */
+    onTrialAudio?: (trial: TrialMeasurement, pcmBatches: Buffer[]) => Promise<void> | void;
 }
 
 export async function runScenario(opts: RunOptions): Promise<TrialMeasurement[]> {
@@ -65,6 +76,8 @@ export async function runScenario(opts: RunOptions): Promise<TrialMeasurement[]>
         let firstByteMs: number | null = null;
         const batches: BatchTiming[] = [];
         let totalBytes = 0;
+        const captureAudio = !!opts.onTrialAudio;
+        const pcmBatches: Buffer[] = [];
 
         try {
             for await (const pcm of connection.stream({
@@ -73,6 +86,7 @@ export async function runScenario(opts: RunOptions): Promise<TrialMeasurement[]>
                 onBatchYield: (e) => { batches.push(e); },
             })) {
                 totalBytes += pcm.length;
+                if (captureAudio) pcmBatches.push(pcm);
             }
             const totalResponseMs = Date.now() - streamStart;
             // PCM16 24kHz mono = 48,000 bytes per second of audio.
@@ -83,7 +97,7 @@ export async function runScenario(opts: RunOptions): Promise<TrialMeasurement[]>
                 voice: opts.voice,
                 ...(opts.connectOpts?.model ? { model: opts.connectOpts.model } : {}),
             });
-            results.push({
+            const trial: TrialMeasurement = {
                 provider: opts.provider.name,
                 scenarioId: opts.scenario.id,
                 trialIndex,
@@ -96,7 +110,9 @@ export async function runScenario(opts: RunOptions): Promise<TrialMeasurement[]>
                 totalBytes,
                 totalAudioMs,
                 estimatedCostUsd: cost.usd,
-            });
+            };
+            if (captureAudio) await opts.onTrialAudio!(trial, pcmBatches);
+            results.push(trial);
         } catch (err) {
             results.push({
                 provider: opts.provider.name,

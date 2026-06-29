@@ -15,7 +15,7 @@
  *   -h, --help
  */
 
-import { writeFileSync, mkdirSync } from 'node:fs';
+import { writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import * as path from 'node:path';
 import {
     OpenAITtsProvider, GcpStreamingTtsProvider, XaiWsTtsProvider,
@@ -32,6 +32,13 @@ interface CliArgs {
     trials: number;
     interTrialMs: number;
     out: string | null;
+    /**
+     * When set, every trial's PCM batches are written to <dir>/<provider>_<scenario>_t<idx>/.
+     * Two files per batch: batch_NNN.pcm (raw PCM16 24kHz mono) and timing.json (arrival ms,
+     * cumulative bytes). Used by scripts/simulate_playback.py to reconstruct a WAV that
+     * reproduces the listener's experienced stutter.
+     */
+    saveAudioDir: string | null;
 }
 
 function parseArgs(argv: string[]): CliArgs | null {
@@ -42,6 +49,7 @@ function parseArgs(argv: string[]): CliArgs | null {
         trials: 3,
         interTrialMs: 500,
         out: null,
+        saveAudioDir: null,
     };
     for (let i = 2; i < argv.length; i++) {
         const arg = argv[i]!;
@@ -53,6 +61,7 @@ function parseArgs(argv: string[]): CliArgs | null {
             case '--trials':          a.trials = Math.max(1, parseInt(next(), 10) || 3); break;
             case '--inter-trial-ms':  a.interTrialMs = Math.max(0, parseInt(next(), 10) || 500); break;
             case '--out':             a.out = next(); break;
+            case '--save-audio':      a.saveAudioDir = next(); break;
             case '-h':
             case '--help':            return null;
             default:
@@ -119,6 +128,31 @@ for (const providerName of args.providers) {
         const trials = await runScenario({
             provider, scenario, voice, trials: args.trials,
             interTrialMs: args.interTrialMs,
+            ...(args.saveAudioDir ? {
+                onTrialAudio: async (trial, pcmBatches) => {
+                    const dir = path.resolve(args.saveAudioDir!, `${trial.provider}_${trial.scenarioId}_t${trial.trialIndex}`);
+                    mkdirSync(dir, { recursive: true });
+                    // Write per-batch PCM
+                    for (let i = 0; i < pcmBatches.length; i++) {
+                        const f = path.join(dir, `batch_${String(i).padStart(3, '0')}.pcm`);
+                        writeFileSync(f, pcmBatches[i]!);
+                    }
+                    // Companion timing.json — easier for the simulator than parsing the full trial JSON
+                    const timing = {
+                        provider: trial.provider,
+                        scenarioId: trial.scenarioId,
+                        voice: trial.voice,
+                        timeToFirstByteMs: trial.timeToFirstByteMs,
+                        totalResponseMs: trial.totalResponseMs,
+                        totalAudioMs: trial.totalAudioMs,
+                        sampleRateHz: 24000,
+                        bytesPerSecond: 48000,
+                        batches: trial.batches,
+                    };
+                    writeFileSync(path.join(dir, 'timing.json'), JSON.stringify(timing, null, 2));
+                    console.error(`    saved ${pcmBatches.length} batches → ${dir}`);
+                },
+            } : {}),
         });
         allTrials.push(...trials);
     }
