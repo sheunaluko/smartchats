@@ -32,9 +32,18 @@ export {
   TTS_TARGET_BYTES,
   beginNdjsonStream,
   writeNdjsonLine,
+  streamLlmTtsToNdjson,
 } from './streaming/index.js'
 export type {
   ResponseSplitterOptions,
   OpenAITtsStreamOptions,
   NdjsonStreamResponse,
+  StreamLlmTtsToNdjsonOptions,
+  StreamLlmTtsToNdjsonResult,
+  NdjsonFrame,
+  TextFrame, AudioStartFrame, AudioFrame, AudioEndFrame, AudioErrorFrame,
+  ErrorFrame, LlmDoneFrame, DoneFrame, ServerTimingFrame,
+  ServerTimingEvent, ServerTimingPhase,
+  LlmServerTimingPhase, TtsServerTimingPhase,
+  TtsTimingEvent, TtsStreamFn, TtsStreamFnOpts,
 } from './streaming/index.js'
