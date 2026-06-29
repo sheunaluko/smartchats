@@ -54,13 +54,14 @@ export function createLLMAPI(opts: LocalBackendOptions): LLMAPI {
         },
 
         async streamWithTTS(args: LLMCallArgs & LLMTTSExtras): Promise<LLMTTSStreamResult> {
-            const { voice, speed, instructions, ...llmArgs } = args;
+            const { voice, speed, instructions, tts_provider, ...llmArgs } = args;
             const body = {
                 ...toServerArgs(llmArgs),
                 tts: true,
                 voice,
                 ...(speed !== undefined && { speed }),
                 ...(instructions && { instructions }),
+                ...(tts_provider && { tts_provider }),
             };
             const response = await postStream(llmTtsStreamUrl, body, baseHeaders(opts), args.signal);
             return createLLMTTSStreamResult(response, args);

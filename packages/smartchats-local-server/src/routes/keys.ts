@@ -66,7 +66,7 @@ export function keysRoutes(config: ServerConfig): Router {
     // reported here — they're system-level fallbacks, not user BYO. Cloud
     // parity: after a user deletes their BYO key, the preview is null.
     r.get('/', async (_req: Request, res: Response) => {
-        const out: BYOKeyPreviews = { openai: null, anthropic: null, google: null };
+        const out: BYOKeyPreviews = { openai: null, anthropic: null, google: null, xai: null, azure: null };
         for (const p of LLM_PROVIDERS) {
             const dbKey = await getDbKey(p);
             out[p] = dbKey ? mask(dbKey) : null;

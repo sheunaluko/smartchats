@@ -26,7 +26,15 @@ export interface ServerConfig {
         openai: string | null;
         anthropic: string | null;
         google: string | null;
+        xai: string | null;
+        /** TTS-only. Pairs with `azure.region` — region is a separate concept
+         *  than for OpenAI/Anthropic, so it lives in its own config slot. */
+        azure: string | null;
         serper: string | null;
+    };
+    /** Azure-specific config (TTS provider needs region in addition to key). */
+    azure: {
+        region: string | null;
     };
 }
 
@@ -57,7 +65,12 @@ export function loadConfig(): ServerConfig {
             // Google-namespaced env var or the GEMINI_API_KEY name the SDK +
             // Google's docs most commonly use.
             google: envKey('SMARTCHATS_GOOGLE_API_KEY', 'GOOGLE_API_KEY', 'GEMINI_API_KEY'),
+            xai: envKey('SMARTCHATS_XAI_API_KEY', 'XAI_API_KEY'),
+            azure: envKey('SMARTCHATS_AZURE_SPEECH_KEY', 'AZURE_SPEECH_KEY'),
             serper: envKey('SMARTCHATS_SERPER_API_KEY', 'SERPER_API_KEY'),
+        },
+        azure: {
+            region: envKey('SMARTCHATS_AZURE_SPEECH_REGION', 'AZURE_SPEECH_REGION'),
         },
     };
 }

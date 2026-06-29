@@ -157,8 +157,13 @@ export function VoiceSelector({ provider: forcedProvider, backend: forcedBackend
   const [isLoading, setIsLoading] = useState(true);
   const [searchFilter, setSearchFilter] = useState('English');
 
-  // TTS provider state
-  const [ttsProvider, setTtsProvider] = useState<'browser' | 'openai'>(() => forcedProvider || getTiviSettings().ttsProvider);
+  // TTS provider state. Includes 'cloud' for routing through the backend's
+  // active cloud TTS provider (Azure / OpenAI / etc.), selected by the
+  // active aiPreset. Legacy 'openai' is treated like 'cloud' by the runtime.
+  const [ttsProvider, setTtsProvider] = useState<'browser' | 'openai' | 'cloud'>(() => {
+    const initial = forcedProvider || getTiviSettings().ttsProvider;
+    return (initial === 'cloud' || initial === 'openai' || initial === 'browser') ? initial : 'cloud';
+  });
   const [ttsBackend, setTtsBackend] = useState<'local' | 'firebase'>(() => forcedBackend || getTiviSettings().ttsBackend);
   const [openaiVoice, setOpenaiVoice] = useState<string>(() => getTiviSettings().openaiVoice);
   const [openaiModel, setOpenaiModel] = useState<string>(() => forcedModel || getTiviSettings().openaiModel);

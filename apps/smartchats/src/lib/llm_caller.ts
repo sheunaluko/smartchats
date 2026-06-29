@@ -12,7 +12,7 @@
 'use client';
 
 import type { LLMMessage } from 'smartchats-backend';
-import { setLookaheadConfig } from '@lab-components/tivi/lib';
+import { setLookaheadConfig, getTiviSettings } from '@lab-components/tivi/lib';
 import { getBackend } from './backend';
 
 // ─── Types matching the existing cortex call-fn signature ─────────
@@ -76,6 +76,8 @@ export interface ExperimentParams {
     tts_model_id?: string;
     /** Server-side: TTS voice override (default alloy) */
     tts_voice?: string;
+    /** Server-side: TTS provider override (default azure). Pairs with tts_voice. */
+    tts_provider?: string;
     /** Client-side: initial scheduling lookahead in ms (default 300).
      *  How far ahead of ctx.currentTime to schedule the first audio chunk.
      *  Higher = more glitch resistance but more first-word latency. */
@@ -314,8 +316,16 @@ export function createBackendLlmCaller(opts: BackendLlmCallerOptions = {}) {
 
         // Voice mode: combined stream. Text deltas → caller; audio events → ttsQueue.
         const exp = _currentExperimentParams;
-        const voice = exp?.tts_voice ?? opts.getVoice?.() ?? 'nova';
+        const voice = exp?.tts_voice ?? opts.getVoice?.() ?? 'en-US-AvaMultilingualNeural';
+        // Read TTS provider from tivi settings — set by the active preset via
+        // store.applyPreset(). When 'cloud' transport is active, this picks
+        // the cloud provider; the server falls back to its default if absent.
+        const tiviSettings = getTiviSettings();
+        const ttsProviderOverride =
+            exp?.tts_provider
+            ?? (tiviSettings.ttsProvider === 'cloud' ? tiviSettings.ttsCloudProvider : undefined);
         const ttsExtras: Record<string, any> = { voice };
+        if (ttsProviderOverride) ttsExtras.tts_provider = ttsProviderOverride;
         if (exp) {
             // Per-call experiment params — server reads from request body and
             // overrides its hardcoded constants when present. experiment_id

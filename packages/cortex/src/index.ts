@@ -55,12 +55,22 @@ export type {
 } from './types.js'
 
 // Model registry
-export { getModelInfo, getRegisteredModels, MODEL_REGISTRY, calculateCost, getCachedInputPrice, getModelsByProvider } from './model_registry.js'
-export type { ModelInfo } from './model_registry.js'
+export { getModelInfo, getRegisteredModels, MODEL_REGISTRY, calculateCost, getCachedInputPrice, getModelsByProvider, getModelByTier, listTieredModels } from './model_registry.js'
+export type { ModelInfo, ModelTier } from './model_registry.js'
 
 // TTS pricing (non-LLM models — byte-output semantics)
 export { GPT4O_MINI_TTS_PRICING, estimateGpt4oMiniTtsCost } from './model_registry.js'
 export type { TtsCostEstimate } from './model_registry.js'
+
+// Agent presets — bundled (LLM model, TTS provider, voice) configurations
+export {
+    AGENT_PRESETS,
+    DEFAULT_PRESET_ID,
+    getPreset,
+    getPresetOrDefault,
+    findMatchingPreset,
+} from './presets.js'
+export type { AgentPreset, TTSProvider } from './presets.js'
 
 // Token counting
 export {

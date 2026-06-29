@@ -21,33 +21,30 @@
 
 import type { Router, Request, Response } from 'express';
 import express from 'express';
-import OpenAI from 'openai';
 import * as llm_service from 'llm-service';
 import {
     ResponseSplitter,
-    openaiTtsStream,
     beginNdjsonStream,
     writeNdjsonLine as writeLine,
-    countGpt4oMiniTtsInputTokens,
 } from 'llm-service';
-import {
-    calculateCost,
-    estimateGpt4oMiniTtsCost,
-    GPT4O_MINI_TTS_PRICING,
-    JsonStreamParser,
-} from 'cortex';
+import { calculateCost, JsonStreamParser } from 'cortex';
 import type { LLMProvider } from 'smartchats-backend';
 import type { ServerConfig } from '../config.js';
 import { resolveProviderKey } from './keys.js';
 import { writeUsageRecord } from '../usage_writer.js';
 import { log } from '../logger.js';
+import {
+    resolveAdapter as resolveTtsAdapter,
+    DEFAULT_TTS_PROVIDER,
+} from '../tts_providers/index.js';
 
 const routeLog = log.withTag('llm');
 
 // ─── Wire-format constants ───────────────────────────────────────
 
-const DEFAULT_VOICE = 'alloy';
-const DEFAULT_TTS_MODEL = GPT4O_MINI_TTS_PRICING.model;
+/** Fallback voice — only used when the request omits `tts_voice`. The
+ *  adapter validates; mismatched provider+voice will error there. */
+const DEFAULT_VOICE = 'en-US-AvaMultilingualNeural';
 const FIRST_CHUNK_WORD_THRESHOLD = 8;
 const FIRST_CHUNK_TIME_THRESHOLD_MS = 0;
 
@@ -55,7 +52,8 @@ const FIRST_CHUNK_TIME_THRESHOLD_MS = 0;
 
 /** llm-service uses 'gemini'; smartchats-backend + our config use 'google'. */
 function toKeyProvider(p: llm_service.Provider): LLMProvider {
-    return p === 'gemini' ? 'google' : p;
+    if (p === 'gemini') return 'google';
+    return p;
 }
 
 /**
@@ -196,10 +194,10 @@ export function llmRoutes(config: ServerConfig): Router {
         }
 
         const enableTTS = body.tts !== false;
-        const voice = enableTTS ? (body.voice || DEFAULT_VOICE) : null;
-        const ttsModel = body.tts_model_id || DEFAULT_TTS_MODEL;
+        const voice = enableTTS ? (body.voice || body.tts_voice || DEFAULT_VOICE) : null;
         const ttsSpeed = body.tts_speed ?? body.speed ?? 1;
         const ttsInstructions = body.tts_instructions ?? body.instructions;
+        const ttsProviderName: string = body.tts_provider || DEFAULT_TTS_PROVIDER;
 
         let provider: llm_service.Provider;
         try {
@@ -208,14 +206,21 @@ export function llmRoutes(config: ServerConfig): Router {
             return res.status(400).json({ error: `unknown model: ${model}` });
         }
 
-        // Resolve both keys upfront — LLM (whichever provider) + OpenAI for TTS.
+        // LLM key required regardless of TTS choice.
         const llmApiKey = await requireProviderKey(config, provider, res);
         if (!llmApiKey) return;
-        const ttsApiKey = enableTTS ? await requireProviderKey(config, 'openai', res) : null;
-        if (enableTTS && !ttsApiKey) return;
+
+        // Resolve TTS adapter once per request. Adapter owns its own key
+        // (resolved from config at construction time inside the registry).
+        const ttsAdapter = enableTTS ? resolveTtsAdapter(config, ttsProviderName) : null;
+        if (enableTTS && !ttsAdapter) {
+            return res.status(400).json({
+                error: `no TTS adapter available for "${ttsProviderName}" (and fallback to "${DEFAULT_TTS_PROVIDER}" also failed) — check config + provider keys`,
+            });
+        }
 
         routeLog.info(
-            `streamWithTTS: model=${model}, provider=${provider}, voice=${voice || 'disabled'}, messages=${input.length}`,
+            `streamWithTTS: model=${model}, provider=${provider}, tts_provider=${ttsAdapter?.name ?? 'disabled'}, voice=${voice || 'disabled'}, messages=${input.length}`,
         );
 
         let streamResponse;
@@ -237,25 +242,24 @@ export function llmRoutes(config: ServerConfig): Router {
 
         const startMs = Date.now();
         let ttsChunkCount = 0;
-        let totalTtsInputTokens = 0;
+        let totalTtsCharacters = 0;
         let totalTtsPcmBytes = 0;
         const ttsPromises: Promise<void>[] = [];
-        const openai = ttsApiKey ? new OpenAI({ apiKey: ttsApiKey }) : null;
 
         function fireTts(text: string, chunkIdx: number): void {
-            if (!openai || !voice) return;
-            totalTtsInputTokens += countGpt4oMiniTtsInputTokens(text);
+            if (!ttsAdapter || !voice) return;
+            totalTtsCharacters += text.length;
             const promise = (async () => {
                 try {
                     writeLine(res, { t: 'audio_start', s: chunkIdx, text: text.slice(0, 80), ms: Date.now() - startMs });
                     let c = 0;
-                    for await (const pcm of openaiTtsStream(openai, { text, voice, model: ttsModel, speed: ttsSpeed, instructions: ttsInstructions })) {
+                    for await (const pcm of ttsAdapter.stream({ text, voice, speed: ttsSpeed, instructions: ttsInstructions })) {
                         totalTtsPcmBytes += pcm.length;
                         writeLine(res, { t: 'audio', s: chunkIdx, c: c++, b64: pcm.toString('base64') });
                     }
                     writeLine(res, { t: 'audio_end', s: chunkIdx, ms: Date.now() - startMs });
                 } catch (err) {
-                    routeLog.error(`TTS error chunk ${chunkIdx}: ${(err as Error).message}`);
+                    routeLog.error(`TTS error chunk ${chunkIdx} (${ttsAdapter.name}): ${(err as Error).message}`);
                     writeLine(res, { t: 'audio_error', s: chunkIdx, error: (err as Error).message });
                 }
             })();
@@ -321,8 +325,15 @@ export function llmRoutes(config: ServerConfig): Router {
         await Promise.allSettled(ttsPromises);
 
         const llmCostUsd = calculateCost(model, aggregated.usage, provider);
-        const ttsEstimate = totalTtsInputTokens > 0
-            ? estimateGpt4oMiniTtsCost({ inputTokens: totalTtsInputTokens, outputPcmBytes: totalTtsPcmBytes })
+        // Cost via the adapter. Each provider knows its own pricing model
+        // (OpenAI = tokens, Azure = characters, etc.) and surfaces it in
+        // TtsCostEstimate.unit so usage records remain meaningful.
+        const ttsEstimate = ttsAdapter && totalTtsCharacters > 0
+            ? ttsAdapter.estimateCost({
+                text: 'x'.repeat(totalTtsCharacters), // adapter only needs the char count
+                outputBytes: totalTtsPcmBytes,
+                voice: voice ?? '',
+            })
             : null;
 
         await writeUsageRecord({
@@ -335,13 +346,15 @@ export function llmRoutes(config: ServerConfig): Router {
             sessionId: session_id ?? null,
             requestType: 'combined_tts_llm',
         });
-        if (ttsEstimate) {
+        if (ttsAdapter && ttsEstimate) {
             await writeUsageRecord({
-                model: ttsModel,
-                provider: 'openai',
-                inputTokens: ttsEstimate.inputTokens,
-                outputTokens: ttsEstimate.outputTokens,
-                costUsd: ttsEstimate.costUsd,
+                // Use provider-specific model id label so usage analytics
+                // can group by TTS provider without ambiguity.
+                model: `${ttsAdapter.name}:${voice ?? 'default'}`,
+                provider: ttsAdapter.name as LLMProvider,
+                inputTokens: ttsEstimate.unit === 'tokens' ? ttsEstimate.quantity : 0,
+                outputTokens: Math.floor(totalTtsPcmBytes / 2), // PCM16 = 2 bytes/sample
+                costUsd: ttsEstimate.usd,
                 sessionId: session_id ?? null,
                 requestType: 'combined_tts_audio',
             });
@@ -366,7 +379,7 @@ export function llmRoutes(config: ServerConfig): Router {
         res.end();
 
         routeLog.info(
-            `streamWithTTS done: tokens=${aggregated.usage.input_tokens}/${aggregated.usage.output_tokens}, tts_chunks=${ttsChunkCount}, tts_bytes=${totalTtsPcmBytes}, cost=$${(llmCostUsd + (ttsEstimate?.costUsd ?? 0)).toFixed(6)}`,
+            `streamWithTTS done: tokens=${aggregated.usage.input_tokens}/${aggregated.usage.output_tokens}, tts=${ttsAdapter?.name ?? 'none'}, tts_chunks=${ttsChunkCount}, tts_bytes=${totalTtsPcmBytes}, cost=$${(llmCostUsd + (ttsEstimate?.usd ?? 0)).toFixed(6)}`,
         );
     });
 

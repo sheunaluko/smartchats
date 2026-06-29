@@ -20,6 +20,7 @@ export function createTTSAPI(opts: LocalBackendOptions): TTSAPI {
                         ...(args.speed !== undefined && { speed: args.speed }),
                         ...(args.instructions && { instructions: args.instructions }),
                         ...(args.session_id && { session_id: args.session_id }),
+                        ...(args.tts_provider && { tts_provider: args.tts_provider }),
                     }),
                     signal: args.signal,
                 });

@@ -26,16 +26,41 @@ export interface TiviSettings {
   defaultVoiceURI: string | null;
   language: string;
   verbose: boolean;
-  ttsProvider: 'browser' | 'openai';
+  /** Transport choice. 'browser' = Web Speech API; 'cloud' = backend TTS
+   *  provider (which provider is determined by the active aiPreset). The
+   *  legacy value 'openai' is treated as 'cloud'. */
+  ttsProvider: 'browser' | 'openai' | 'cloud';
   ttsBackend: 'local' | 'firebase';
+  /** Voice id (provider-specific). Kept name for backward compat — applies
+   *  to whichever cloud provider the active preset selects, not just OpenAI. */
   openaiVoice: string;
   openaiModel: string;
+  /** Currently-active agent preset id. Resolves via cortex's getPreset(id).
+   *  When applied via the store's `applyPreset` action, aiModel +
+   *  openaiVoice fields are derived from the preset atomically. */
+  aiPreset: string;
+  /** Cloud TTS provider that the active preset resolves to (cached for
+   *  client-side reads). Derived from preset; don't edit directly. */
+  ttsCloudProvider: string;
+  /** One-time migration marker: set true the first time a session boots
+   *  after presets were introduced (2026-06-27). Existing users get their
+   *  saved aiModel + voice overwritten with the default preset's values
+   *  ONCE; subsequent loads respect their post-migration choice.
+   *  See useSmartChatsStore.loadSettings for the migration trigger. */
+  preset_v1_applied: boolean;
 }
 
 export type TiviSettingsKey = keyof TiviSettings;
 
 // ─── Defaults ──────────────────────────────────────────────────────
 
+/**
+ * Defaults align with the 'snappy' preset (grok-4.20-non-reasoning + Azure
+ * Ava) as of 2026-06-27. Voice + provider here are mirrored from
+ * cortex/presets.ts's DEFAULT_PRESET_ID — change there to change here.
+ * Settings are deliberately not importing cortex to avoid a circular
+ * dependency at the tivi package boundary; values are hand-mirrored.
+ */
 export const TIVI_DEFAULTS: Readonly<TiviSettings> = {
   positiveSpeechThreshold: 0.5,
   negativeSpeechThreshold: 0.35,
@@ -48,10 +73,13 @@ export const TIVI_DEFAULTS: Readonly<TiviSettings> = {
   defaultVoiceURI: null,
   language: 'en-US',
   verbose: false,
-  ttsProvider: 'browser',
+  ttsProvider: 'cloud',
   ttsBackend: 'firebase',
-  openaiVoice: 'marin',
+  openaiVoice: 'en-US-AvaMultilingualNeural',
   openaiModel: 'gpt-4o-mini-tts',
+  aiPreset: 'snappy',
+  ttsCloudProvider: 'azure',
+  preset_v1_applied: false,
 };
 
 /** TTS models that are no longer valid — auto-migrated to current default on load */

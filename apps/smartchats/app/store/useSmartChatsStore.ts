@@ -19,6 +19,8 @@ import { toast_toast } from '@/components/Toast';
 import { cortexWorkflows } from '../simi';
 import { recordTurnComplete } from '../modules/timing';
 import { getStartupLoaders } from '../lib/background_loaders';
+import { getPresetOrDefault, DEFAULT_PRESET_ID } from 'cortex';
+import { updateTiviSettings, getTiviSettings } from '@lab-components/tivi/lib/index';
 import {
     getCurrentSessionId, setCurrentSessionId,
     saveSessionToSurreal, loadSessionFromSurreal, listSessionsFromSurreal,
@@ -69,8 +71,11 @@ interface SmartChatsSettings {
   soundFeedback: boolean;
 }
 
+// Default LLM model mirrors the 'snappy' preset (cortex/presets.ts) as of
+// 2026-06-27. Settings persistence ensures existing users keep their saved
+// pick; only fresh installs see this.
 const DEFAULT_SETTINGS: SmartChatsSettings = {
-  aiModel: 'gpt-5.5',
+  aiModel: 'grok-4.20-0309-non-reasoning',
   speechCooldownMs: 2000,
   soundFeedback: true,
 };
@@ -100,6 +105,9 @@ export interface SmartChatsState {
   speechCooldownMs: number;
   soundFeedback: boolean;
   updateSettings(partial: Partial<SmartChatsSettings>): void;
+  /** Atomically apply a named preset (aiModel + ttsVoice + ttsProvider).
+   *  Unknown preset id → falls back to DEFAULT_PRESET_ID. */
+  applyPreset(presetId: string): void;
   loadSettings(): Promise<void>;
   saveSettings(): Promise<void>;
 
@@ -341,6 +349,32 @@ export const useSmartChatsStore = createInsightStore<SmartChatsState>({
       });
     },
 
+    applyPreset(presetId: string) {
+      // Atomic write across both stores: SmartChats store owns aiModel,
+      // tivi settings own the voice + provider. Persistence is handled
+      // by each store's existing auto-save path.
+      const preset = getPresetOrDefault(presetId);
+      const before = {
+        aiModel: get().aiModel,
+        aiPreset: presetId,
+      };
+      set({ aiModel: preset.aiModel });
+      updateTiviSettings({
+        aiPreset: preset.id,
+        openaiVoice: preset.ttsVoice,        // legacy field name — provider-agnostic value
+        ttsCloudProvider: preset.ttsProvider, // surfaces provider for cloud-TTS requests
+        ttsProvider: 'cloud',                 // ensure we route through backend, not Web Speech
+      });
+      insights.emit('cortex_preset_applied', {
+        preset_id: preset.id,
+        preset_name: preset.name,
+        ai_model: preset.aiModel,
+        tts_provider: preset.ttsProvider,
+        tts_voice: preset.ttsVoice,
+        before,
+      });
+    },
+
     async loadSettings() {
       const loadStart = performance.now();
       const client = insights.getClient();
@@ -396,6 +430,32 @@ export const useSmartChatsStore = createInsightStore<SmartChatsState>({
         }
       } catch (err: any) {
         log(`Failed to load settings: ${err}`);
+      }
+
+      // ── One-time preset migration (presets shipped 2026-06-27) ──
+      // Existing users had aiModel = 'gpt-5.5' and openaiVoice = 'marin'
+      // persisted from before presets existed. Flip them ONCE to the
+      // default preset (snappy = grok-4.20-non-reasoning + Azure Ava) so
+      // they actually test the new combo. After this first migration the
+      // marker is set; subsequent loads respect whatever the user picks.
+      try {
+        if (!getTiviSettings().preset_v1_applied) {
+          const beforeModel = get().aiModel;
+          const beforeVoice = getTiviSettings().openaiVoice;
+          get().applyPreset(DEFAULT_PRESET_ID);
+          updateTiviSettings({ preset_v1_applied: true });
+          // Persist the SmartChats-side change immediately. tivi settings
+          // auto-persist via their own backend.
+          await get().saveSettings();
+          insights.emit('cortex_preset_migration_v1', {
+            applied_preset: DEFAULT_PRESET_ID,
+            previous_model: beforeModel,
+            previous_voice: beforeVoice,
+            new_model: get().aiModel,
+          });
+        }
+      } catch (err: any) {
+        log(`preset_v1 migration failed (non-fatal): ${err?.message ?? err}`);
       }
 
       // Run auth check after settings are loaded
