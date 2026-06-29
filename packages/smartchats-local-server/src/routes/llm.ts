@@ -23,11 +23,12 @@ import type { Router, Request, Response } from 'express';
 import express from 'express';
 import * as llm_service from 'llm-service';
 import {
-    ResponseSplitter,
     beginNdjsonStream,
     writeNdjsonLine as writeLine,
+    streamLlmTtsToNdjson,
 } from 'llm-service';
-import { calculateCost, JsonStreamParser } from 'cortex';
+import type { TtsStreamFn } from 'llm-service';
+import { calculateCost } from 'cortex';
 import type { LLMProvider } from 'smartchats-backend';
 import type { ServerConfig } from '../config.js';
 import { resolveProviderKey } from './keys.js';
@@ -238,99 +239,49 @@ export function llmRoutes(config: ServerConfig): Router {
             return res.status(500).json({ error: `LLM stream error: ${(err as Error).message}` });
         }
 
-        beginNdjsonStream(res);
-
-        const startMs = Date.now();
-        let ttsChunkCount = 0;
-        let totalTtsCharacters = 0;
+        // Build the TtsStreamFn the orchestrator will call. Closes over the
+        // resolved adapter + per-request voice/speed/instructions, and tracks
+        // total PCM bytes for the post-call cost estimate (the adapter's
+        // estimateCost needs `outputBytes` and we can only know that by
+        // watching what was actually yielded).
         let totalTtsPcmBytes = 0;
-        const ttsPromises: Promise<void>[] = [];
-
-        function fireTts(text: string, chunkIdx: number): void {
-            if (!ttsAdapter || !voice) return;
-            totalTtsCharacters += text.length;
-            const promise = (async () => {
-                try {
-                    writeLine(res, { t: 'audio_start', s: chunkIdx, text: text.slice(0, 80), ms: Date.now() - startMs });
-                    let c = 0;
-                    for await (const pcm of ttsAdapter.stream({ text, voice, speed: ttsSpeed, instructions: ttsInstructions })) {
-                        totalTtsPcmBytes += pcm.length;
-                        writeLine(res, { t: 'audio', s: chunkIdx, c: c++, b64: pcm.toString('base64') });
-                    }
-                    writeLine(res, { t: 'audio_end', s: chunkIdx, ms: Date.now() - startMs });
-                } catch (err) {
-                    routeLog.error(`TTS error chunk ${chunkIdx} (${ttsAdapter.name}): ${(err as Error).message}`);
-                    writeLine(res, { t: 'audio_error', s: chunkIdx, error: (err as Error).message });
-                }
-            })();
-            ttsPromises.push(promise);
-        }
-
-        const splitter = new ResponseSplitter({
-            wordThreshold: FIRST_CHUNK_WORD_THRESHOLD,
-            timeThresholdMs: FIRST_CHUNK_TIME_THRESHOLD_MS,
-            startTime: startMs,
-            onFirstChunk: (text) => fireTts(text, ttsChunkCount++),
-        });
-
-        const parser = new JsonStreamParser({
-            onResponseChunk: (text) => splitter.feed(text),
-            onTextStreamDone: () => {
-                const remainder = splitter.flushRemainder();
-                if (remainder) fireTts(remainder, ttsChunkCount++);
-            },
-        });
-
-        try {
-            for await (const chunk of streamResponse.stream) {
-                if (chunk) {
-                    writeLine(res, { t: 'text', d: chunk });
-                    parser.feed(chunk);
+        const tts: TtsStreamFn | undefined = (ttsAdapter && voice)
+            ? async function* (o) {
+                for await (const pcm of ttsAdapter.stream({
+                    text: o.text,
+                    voice: o.voice,
+                    speed: ttsSpeed,
+                    instructions: ttsInstructions,
+                })) {
+                    totalTtsPcmBytes += pcm.length;
+                    yield pcm;
                 }
             }
-        } catch (err) {
-            routeLog.error(`streamWithTTS LLM error: ${(err as Error).message}`);
-            writeLine(res, { t: 'error', error: (err as Error).message });
-        }
+            : undefined;
 
-        // Flush parser + edge case: short response where splitter's threshold never tripped.
-        parser.finalize();
-        if (voice && !splitter.hasFiredFirst) {
-            const remainder = splitter.flushRemainder();
-            if (remainder) fireTts(remainder, ttsChunkCount++);
-        }
-
-        let aggregated;
-        try {
-            aggregated = await streamResponse.aggregated;
-        } catch (err) {
-            writeLine(res, { t: 'error', error: `Aggregation error: ${(err as Error).message}` });
-            return res.end();
-        }
-
-        // llm_done fires before TTS completes — lets the client finalize the runner turn early.
-        writeLine(res, {
-            t: 'llm_done',
-            data: {
-                success: true,
-                output_text: aggregated.output_text,
-                usage: aggregated.usage,
-                model: aggregated.model,
-                provider: aggregated.provider,
-                finish_reason: aggregated.finish_reason,
-                latency_ms: Date.now() - startMs,
-            },
+        const { aggregated, totalTtsChars, ttsChunkCount, aggregateOk } = await streamLlmTtsToNdjson({
+            res,
+            llmStream: streamResponse,
+            tts,
+            voice: voice ?? undefined,
+            firstChunkWordThreshold: FIRST_CHUNK_WORD_THRESHOLD,
+            firstChunkTimeThresholdMs: FIRST_CHUNK_TIME_THRESHOLD_MS,
         });
 
-        await Promise.allSettled(ttsPromises);
+        // Aggregation rejected — orchestrator wrote a terminal `error` frame
+        // and returned a zero-valued stub. Usage rows would be meaningless;
+        // just close the response.
+        if (!aggregateOk) {
+            res.end();
+            return;
+        }
 
+        // Post-call: cost estimate + usage rows. Two rows when TTS ran (one
+        // LLM, one TTS) for downstream analytics that group by provider.
         const llmCostUsd = calculateCost(model, aggregated.usage, provider);
-        // Cost via the adapter. Each provider knows its own pricing model
-        // (OpenAI = tokens, Azure = characters, etc.) and surfaces it in
-        // TtsCostEstimate.unit so usage records remain meaningful.
-        const ttsEstimate = ttsAdapter && totalTtsCharacters > 0
+        const ttsEstimate = ttsAdapter && totalTtsChars > 0
             ? ttsAdapter.estimateCost({
-                text: 'x'.repeat(totalTtsCharacters), // adapter only needs the char count
+                text: 'x'.repeat(totalTtsChars), // adapter only needs the char count
                 outputBytes: totalTtsPcmBytes,
                 voice: voice ?? '',
             })
@@ -348,8 +299,8 @@ export function llmRoutes(config: ServerConfig): Router {
         });
         if (ttsAdapter && ttsEstimate) {
             await writeUsageRecord({
-                // Use provider-specific model id label so usage analytics
-                // can group by TTS provider without ambiguity.
+                // Provider-specific model id label so usage analytics can
+                // group by TTS provider without ambiguity.
                 model: `${ttsAdapter.name}:${voice ?? 'default'}`,
                 provider: ttsAdapter.name as LLMProvider,
                 inputTokens: ttsEstimate.unit === 'tokens' ? ttsEstimate.quantity : 0,
@@ -360,22 +311,6 @@ export function llmRoutes(config: ServerConfig): Router {
             });
         }
 
-        writeLine(res, {
-            t: 'done',
-            data: {
-                success: true,
-                output_text: aggregated.output_text,
-                usage: aggregated.usage,
-                model: aggregated.model,
-                provider: aggregated.provider,
-                finish_reason: aggregated.finish_reason,
-                latency_ms: Date.now() - startMs,
-                tts: {
-                    total_chunks: ttsChunkCount,
-                    latency_ms: Date.now() - startMs,
-                },
-            },
-        });
         res.end();
 
         routeLog.info(
