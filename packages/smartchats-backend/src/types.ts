@@ -144,7 +144,12 @@ export interface TtsServerTimingEvent {
   batch?: number;
   /** Bytes in this batch (tts_batch_yield only). */
   bytes?: number;
-  /** Cumulative bytes received from OpenAI through this batch (tts_batch_yield only). */
+  /** Cumulative provider HTTP-body bytes received through this batch
+   *  (tts_batch_yield only). Emitted by streamLlmTtsToNdjson (shared
+   *  orchestrator). Replaces openai_bytes_total. */
+  provider_bytes_total?: number;
+  /** @deprecated Use provider_bytes_total. Retained for back-compat with
+   *  the not-yet-migrated cloud llm_tts_stream_http handler. */
   openai_bytes_total?: number;
   /** Total batches yielded for this sentence (tts_request_complete only). */
   total_batches?: number;

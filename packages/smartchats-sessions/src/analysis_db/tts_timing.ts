@@ -725,7 +725,15 @@ export async function queryTtsTimingChunk01Attribution(
             ts: typeof p.ts === 'number' ? p.ts : 0,
             batch: typeof p.batch === 'number' ? p.batch : undefined,
             bytes: typeof p.bytes === 'number' ? p.bytes : undefined,
-            openaiBytesTotal: typeof p.openai_bytes_total === 'number' ? p.openai_bytes_total : undefined,
+            // Prefer the new wire name (emitted by streamLlmTtsToNdjson), fall
+            // back to the old `openai_bytes_total` until the cloud handler
+            // migrates. Both name the same thing — the cumulative
+            // provider-side HTTP-body bytes received through this batch.
+            openaiBytesTotal: typeof p.provider_bytes_total === 'number'
+                ? p.provider_bytes_total
+                : typeof p.openai_bytes_total === 'number'
+                    ? p.openai_bytes_total
+                    : undefined,
         };
         let arr = bySession.get(sid);
         if (!arr) { arr = []; bySession.set(sid, arr); }

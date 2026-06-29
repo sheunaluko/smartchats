@@ -191,7 +191,7 @@ function summarizeEvent(ev: InsightsEvent): string {
             switch (p.phase) {
                 case 'tts_request_start':   return `s${s} · request_start (t+${p.ts}ms)`;
                 case 'tts_first_byte':      return `s${s} · first_byte (${p.ts}ms after request)`;
-                case 'tts_batch_yield':     return `s${s} · batch ${p.batch} yielded (${p.ts}ms · ${p.bytes}B · cumul ${p.openai_bytes_total}B)`;
+                case 'tts_batch_yield':     return `s${s} · batch ${p.batch} yielded (${p.ts}ms · ${p.bytes}B · cumul ${p.provider_bytes_total ?? p.openai_bytes_total}B)`;
                 case 'tts_request_complete': return `s${s} · complete (${p.total_batches} batches · ${p.ts}ms · tail ${p.ms_since_first_byte}ms)`;
                 default:                    return `s${s} · ${p.phase}`;
             }

@@ -105,6 +105,14 @@ type LLMTTSLine =
           ts: number;
           batch?: number;
           bytes?: number;
+          /** Cumulative provider HTTP-body bytes received since tts_request_start.
+           *  Emitted by streamLlmTtsToNdjson (shared orchestrator) from 2026-06-30.
+           *  Replaces openai_bytes_total — the old name is still accepted on the
+           *  wire for back-compat with the not-yet-migrated cloud handler; once
+           *  cloud migrates, drop openai_bytes_total. */
+          provider_bytes_total?: number;
+          /** @deprecated Use provider_bytes_total. Retained until the cloud
+           *  llm_tts_stream_http handler migrates to streamLlmTtsToNdjson. */
           openai_bytes_total?: number;
           total_batches?: number;
           ms_since_first_byte?: number;
@@ -193,6 +201,9 @@ export function createLLMTTSStreamResult(
                                 ts: line.ts,
                                 ...(line.batch !== undefined && { batch: line.batch }),
                                 ...(line.bytes !== undefined && { bytes: line.bytes }),
+                                // Forward both names so downstream insights events stay
+                                // backwards-compatible while the cloud handler is mid-migration.
+                                ...(line.provider_bytes_total !== undefined && { provider_bytes_total: line.provider_bytes_total }),
                                 ...(line.openai_bytes_total !== undefined && { openai_bytes_total: line.openai_bytes_total }),
                                 ...(line.total_batches !== undefined && { total_batches: line.total_batches }),
                                 ...(line.ms_since_first_byte !== undefined && { ms_since_first_byte: line.ms_since_first_byte }),
