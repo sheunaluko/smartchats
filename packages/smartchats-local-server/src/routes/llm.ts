@@ -23,9 +23,8 @@ import type { Router, Request, Response } from 'express';
 import express from 'express';
 import * as llm_service from 'llm-service';
 import {
-    beginNdjsonStream,
-    writeNdjsonLine as writeLine,
     streamLlmTtsToNdjson,
+    streamLlmToNdjson,
 } from 'llm-service';
 import type { TtsStreamFn } from 'llm-service';
 import { calculateCost } from 'cortex';
@@ -127,24 +126,14 @@ export function llmRoutes(config: ServerConfig): Router {
             return res.status(500).json({ error: `LLM stream error: ${(err as Error).message}` });
         }
 
-        beginNdjsonStream(res);
+        const { aggregated, aggregateOk } = await streamLlmToNdjson({
+            res,
+            llmStream: streamResponse,
+        });
 
-        try {
-            for await (const chunk of streamResponse.stream) {
-                if (chunk) writeLine(res, { t: 'delta', d: chunk });
-            }
-        } catch (err) {
-            routeLog.error(`stream error: ${(err as Error).message}`);
-            writeLine(res, { t: 'error', error: (err as Error).message });
-            return res.end();
-        }
-
-        let aggregated;
-        try {
-            aggregated = await streamResponse.aggregated;
-        } catch (err) {
-            writeLine(res, { t: 'error', error: `Aggregation error: ${(err as Error).message}` });
-            return res.end();
+        if (!aggregateOk) {
+            res.end();
+            return;
         }
 
         const costUsd = calculateCost(model, aggregated.usage, provider);
@@ -160,18 +149,6 @@ export function llmRoutes(config: ServerConfig): Router {
             requestType: text_format ? 'structured' : 'unstructured',
         });
 
-        writeLine(res, {
-            t: 'done',
-            data: {
-                success: true,
-                output_text: aggregated.output_text,
-                usage: aggregated.usage,
-                model: aggregated.model,
-                provider: aggregated.provider,
-                finish_reason: aggregated.finish_reason,
-                latency_ms: aggregated.latency_ms,
-            },
-        });
         res.end();
 
         routeLog.info(`stream done: tokens=${aggregated.usage.input_tokens}/${aggregated.usage.output_tokens}, cost=$${costUsd.toFixed(6)}`);

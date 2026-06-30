@@ -63,6 +63,7 @@ export {
   beginNdjsonStream,
   writeNdjsonLine,
   streamLlmTtsToNdjson,
+  streamLlmToNdjson,
 } from './streaming/index.js'
 export type {
   ResponseSplitterOptions,
@@ -70,6 +71,8 @@ export type {
   NdjsonStreamResponse,
   StreamLlmTtsToNdjsonOptions,
   StreamLlmTtsToNdjsonResult,
+  StreamLlmToNdjsonOptions,
+  StreamLlmToNdjsonResult,
   NdjsonFrame,
   TextFrame, AudioStartFrame, AudioFrame, AudioEndFrame, AudioErrorFrame,
   ErrorFrame, LlmDoneFrame, DoneFrame, ServerTimingFrame,
