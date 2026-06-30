@@ -26,7 +26,8 @@
     "@mozilla/readability": "^0.5.0",
     "js-tiktoken": "^1.0.13",
     "cortex": "*",
-    "llm-service": "*"
+    "llm-service": "*",
+    "smartchats-tools": "*"
   },
   "devDependencies": {
     "@types/express": "^4.17.21",

@@ -1,0 +1,23 @@
+{
+  "name": "smartchats-tools",
+  "version": "0.1.0",
+  "description": "Shared agent-tool primitives — Serper web search, URL fetch + Readability text extraction, and other I/O helpers consumed by both the open self-hosted server and the cloud Firebase Functions. Pure functions over std web APIs; no host or framework dependencies.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@mozilla/readability": "^0.5.0",
+    "linkedom": "^0.18.12",
+    "smartchats-backend": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.4.5"
+  },
+  "license": "Apache-2.0"
+}

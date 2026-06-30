@@ -10,7 +10,7 @@ import type { Router, Request, Response } from 'express';
 import express from 'express';
 import { parseHTML } from 'linkedom';
 import { Readability } from '@mozilla/readability';
-import type { SearchResult } from 'smartchats-backend';
+import { serperSearch, normalizeOrganic, SerperError } from 'smartchats-tools';
 import type { ServerConfig } from '../config.js';
 import { writeUsageRecord } from '../usage_writer.js';
 import { log } from '../logger.js';
@@ -44,47 +44,29 @@ export function toolsRoutes(config: ServerConfig): Router {
             });
         }
 
-        let serperResponse: { organic?: any[]; credits?: number } = {};
+        let result;
         try {
-            const response = await fetch('https://google.serper.dev/search', {
-                method: 'POST',
-                headers: { 'X-API-KEY': serperKey, 'Content-Type': 'application/json' },
-                body: JSON.stringify({ q: query, num: numResults ?? 10 }),
+            result = await serperSearch({
+                apiKey: serperKey,
+                query,
+                ...(numResults !== undefined && { numResults }),
             });
-            if (!response.ok) {
-                const text = await response.text().catch(() => '');
-                return res.status(502).json({ error: `serper: ${response.status} ${text}` });
-            }
-            serperResponse = await response.json() as typeof serperResponse;
         } catch (err) {
             routeLog.error(`serper fetch failed: ${(err as Error).message}`);
-            return res.status(502).json({ error: `serper fetch failed: ${(err as Error).message}` });
+            const status = err instanceof SerperError && err.status ? 502 : 502;
+            return res.status(status).json({ error: `serper fetch failed: ${(err as Error).message}` });
         }
 
-        const results: SearchResult[] = (serperResponse.organic ?? []).map((raw: any) => {
-            const { title, link, snippet, ...extra } = raw;
-            return {
-                title: title ?? '',
-                url: link ?? '',
-                snippet: snippet ?? '',
-                ...(Object.keys(extra).length > 0 ? { extra } : {}),
-            };
-        });
-
-        // Serper reports credits used per call in the response body.
-        // 1 Serper credit = $0.001 USD.
-        const serperCredits = serperResponse.credits ?? 1;
-        const costUsd = serperCredits / 1000;
         await writeUsageRecord({
             model: 'serper',
             provider: 'serper',
             inputTokens: 0,
-            costUsd,
+            costUsd: result.costUsd,
             sessionId: session_id ?? null,
             requestType: 'tools.search',
         });
 
-        res.json({ results });
+        res.json({ results: normalizeOrganic(result.organic) });
     });
 
     // ── /tools/fetchUrl ────────────────────────────────────────────
