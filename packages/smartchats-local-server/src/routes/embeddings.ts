@@ -4,20 +4,20 @@
  * Proxies to OpenAI's text-embedding-3-small using whichever key the
  * resolver finds (env var or DB). Records usage for observability;
  * no billing envelope returned (self-hosted mode).
+ *
+ * Delegates the actual OpenAI call to llm-service's openaiEmbedding
+ * helper — same module the cloud openaiEmbedding Cloud Function uses.
  */
 
 import type { Router, Request, Response } from 'express';
 import express from 'express';
-import OpenAI from 'openai';
+import { openaiEmbedding, EMBEDDING_MODEL, OpenAIEmbeddingError } from 'llm-service';
 import type { ServerConfig } from '../config.js';
 import { resolveProviderKey } from './keys.js';
 import { writeUsageRecord } from '../usage_writer.js';
 import { log } from '../logger.js';
 
 const routeLog = log.withTag('embeddings');
-
-const DEFAULT_MODEL = 'text-embedding-3-small';
-const USD_PER_1M_TOKENS = 0.02; // OpenAI text-embedding-3-small
 
 export function embeddingsRoutes(config: ServerConfig): Router {
     const r = express.Router();
@@ -40,40 +40,32 @@ export function embeddingsRoutes(config: ServerConfig): Router {
             });
         }
 
-        let embedding: number[];
-        let totalTokens = 0;
-        let actualDimensions = 0;
+        let result;
         try {
-            const client = new OpenAI({ apiKey: resolved.key });
-            const response = await client.embeddings.create({
-                input: text,
-                model: DEFAULT_MODEL,
-                ...(dimensions && { dimensions }),
+            result = await openaiEmbedding({
+                apiKey: resolved.key,
+                text,
+                ...(dimensions !== undefined && { dimensions }),
             });
-            embedding = response.data[0].embedding;
-            totalTokens = response.usage?.total_tokens ?? 0;
-            actualDimensions = embedding.length;
         } catch (err) {
             routeLog.error(`OpenAI embed failed: ${(err as Error).message}`);
-            return res.status(502).json({ error: `provider error: ${(err as Error).message}` });
+            const status = err instanceof OpenAIEmbeddingError ? 502 : 500;
+            return res.status(status).json({ error: `provider error: ${(err as Error).message}` });
         }
 
-        const costUsd = (totalTokens * USD_PER_1M_TOKENS) / 1_000_000;
-
-        // Fire-and-forget usage record
         await writeUsageRecord({
-            model: DEFAULT_MODEL,
+            model: EMBEDDING_MODEL,
             provider: 'openai',
-            inputTokens: totalTokens,
-            costUsd,
+            inputTokens: result.inputTokens,
+            costUsd: result.costUsd,
             sessionId: session_id ?? null,
             requestType: 'embedding',
         });
 
         res.json({
-            embedding,
-            model: DEFAULT_MODEL,
-            dimensions: actualDimensions,
+            embedding: result.embedding,
+            model: result.model,
+            dimensions: result.dimensions,
         });
     });
 

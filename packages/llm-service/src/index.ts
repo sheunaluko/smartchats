@@ -21,6 +21,18 @@ export {
 // Tiktoken helper for gpt-4o-mini-tts input-token counting.
 export { countGpt4oMiniTtsInputTokens } from './tts_tokens.js'
 
+// OpenAI embeddings — shared helper consumed by both the open
+// /embeddings/embed route and the cloud openaiEmbedding Cloud Function.
+export {
+    openaiEmbedding,
+    EMBEDDING_MODEL,
+    OpenAIEmbeddingError,
+} from './embeddings.js'
+export type {
+    OpenAIEmbeddingOptions,
+    OpenAIEmbeddingResult,
+} from './embeddings.js'
+
 // TTS provider registry — shared between the open local-server and the cloud
 // llmTtsStreamHttp function so both call the same set of adapters. See
 // ./tts_providers/index.ts for the registry; ./tts_providers/_types.ts for
