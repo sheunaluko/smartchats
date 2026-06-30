@@ -6,6 +6,7 @@
  */
 
 import { SMARTCHATS_DEFAULT_LOCAL_PORT } from 'smartchats-backend';
+import type { TtsAdapterConfig } from 'llm-service';
 
 export interface ServerConfig {
     port: number;
@@ -72,5 +73,19 @@ export function loadConfig(): ServerConfig {
         azure: {
             region: envKey('SMARTCHATS_AZURE_SPEECH_REGION', 'AZURE_SPEECH_REGION'),
         },
+    };
+}
+
+/**
+ * Project the server config into the narrower shape the llm-service TTS
+ * adapter registry expects. Same field set as cloud's env-var read in
+ * llm_tts_stream_http.ts — keeping both call sites going through this
+ * shape keeps open + cloud lockstep.
+ */
+export function ttsConfigFromServerConfig(config: ServerConfig): TtsAdapterConfig {
+    return {
+        openaiKey: config.providerEnvKeys.openai,
+        azureKey: config.providerEnvKeys.azure,
+        azureRegion: config.azure.region,
     };
 }

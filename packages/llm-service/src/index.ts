@@ -21,6 +21,24 @@ export {
 // Tiktoken helper for gpt-4o-mini-tts input-token counting.
 export { countGpt4oMiniTtsInputTokens } from './tts_tokens.js'
 
+// TTS provider registry — shared between the open local-server and the cloud
+// llmTtsStreamHttp function so both call the same set of adapters. See
+// ./tts_providers/index.ts for the registry; ./tts_providers/_types.ts for
+// the ServerTtsAdapter interface implementations must satisfy.
+export {
+  resolveAdapter,
+  DEFAULT_TTS_PROVIDER,
+  getProviderStatus,
+} from './tts_providers/index.js'
+export type {
+  TtsProviderId,
+  TtsAdapterConfig,
+  ServerTtsAdapter,
+  TtsStreamOpts,
+  TtsCostOpts,
+  TtsCostEstimate,
+} from './tts_providers/index.js'
+
 // Streaming utilities — response splitting + TTS batching + NDJSON framing
 // primitives reused across LLM + combined LLM+TTS endpoints (see streaming/).
 export {

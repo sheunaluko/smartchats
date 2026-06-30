@@ -9,10 +9,8 @@
  */
 
 import OpenAI from 'openai';
-import {
-    openaiTtsStream,
-    countGpt4oMiniTtsInputTokens,
-} from 'llm-service';
+import { openaiTtsStream } from '../streaming/openai_tts.js';
+import { countGpt4oMiniTtsInputTokens } from '../tts_tokens.js';
 import { estimateGpt4oMiniTtsCost, GPT4O_MINI_TTS_PRICING } from 'cortex';
 
 import type {

@@ -31,13 +31,14 @@ import type { TtsStreamFn } from 'llm-service';
 import { calculateCost } from 'cortex';
 import type { LLMProvider } from 'smartchats-backend';
 import type { ServerConfig } from '../config.js';
+import { ttsConfigFromServerConfig } from '../config.js';
 import { resolveProviderKey } from './keys.js';
 import { writeUsageRecord } from '../usage_writer.js';
 import { log } from '../logger.js';
 import {
     resolveAdapter as resolveTtsAdapter,
     DEFAULT_TTS_PROVIDER,
-} from '../tts_providers/index.js';
+} from 'llm-service';
 
 const routeLog = log.withTag('llm');
 
@@ -213,7 +214,7 @@ export function llmRoutes(config: ServerConfig): Router {
 
         // Resolve TTS adapter once per request. Adapter owns its own key
         // (resolved from config at construction time inside the registry).
-        const ttsAdapter = enableTTS ? resolveTtsAdapter(config, ttsProviderName) : null;
+        const ttsAdapter = enableTTS ? resolveTtsAdapter(ttsConfigFromServerConfig(config), ttsProviderName) : null;
         if (enableTTS && !ttsAdapter) {
             return res.status(400).json({
                 error: `no TTS adapter available for "${ttsProviderName}" (and fallback to "${DEFAULT_TTS_PROVIDER}" also failed) — check config + provider keys`,

@@ -17,7 +17,14 @@
  * apps/smartchats depends on but the server doesn't).
  */
 
-export type TTSProvider = 'openai' | 'azure' | 'xai' | 'gemini_live';
+/**
+ * TTS provider id — must match a built adapter in llm-service's tts_providers
+ * registry. Narrowed to the productionized set; xai_ws / gemini_live live
+ * in voicebench only and aren't selectable from agent presets. Expand this
+ * union (and the registry's TtsProviderId in llm-service/tts_providers/index.ts)
+ * together when promoting a new adapter.
+ */
+export type TTSProvider = 'openai' | 'azure';
 
 export interface AgentPreset {
     /** Stable id used everywhere (persisted, agent tool args, etc). */

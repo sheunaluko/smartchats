@@ -1,19 +1,28 @@
 /**
- * TTS provider registry — single resolution point for the /llm/streamWithTTS
- * + /tts routes. Adapters are instantiated lazily on first request so the
- * server doesn't fail to boot when an optional provider key is missing.
+ * TTS provider registry — single resolution point for combined LLM+TTS
+ * handlers (smartchats-local-server `/llm/streamWithTTS` and the cloud
+ * `llmTtsStreamHttp` function). Adapters are instantiated lazily on first
+ * request so the server doesn't fail to boot when an optional provider
+ * key is missing.
  *
  * Default is 'azure' as of 2026-06-27 (the voicebench winner: 0ms chunk-0→1,
- * ~1ms p95 gap). Pre-flight check verifies the default is actually
- * configured; if not, falls back to 'openai' to preserve boot.
+ * ~1ms p95 gap). resolveAdapter falls back to 'openai' if the default isn't
+ * configured.
+ *
+ * Lives in llm-service (not local-server) so both the open + cloud
+ * handlers consume the same module. Cloud previously hardcoded
+ * openaiTtsStream because the adapter abstraction shipped local-only;
+ * this is the shared home that closes that divergence.
  *
  * To add a provider:
  *   1. Add an adapter under tts_providers/ implementing ServerTtsAdapter
  *   2. Wire it into the switch in `buildAdapter()`
- *   3. Add the provider id to the TTSProvider union (cortex/src/presets.ts)
+ *   3. Add the provider id to the TtsProviderId union (and to the
+ *      TTSProvider union in cortex/src/presets.ts if it should be
+ *      preset-selectable)
+ *   4. Document the env vars the build step requires
  */
 
-import type { ServerConfig } from '../config.js';
 import { AzureTtsAdapter } from './azure.js';
 import { OpenAiTtsAdapter } from './openai.js';
 
@@ -23,20 +32,35 @@ export type TtsProviderId = 'openai' | 'azure';
 
 export const DEFAULT_TTS_PROVIDER: TtsProviderId = 'azure';
 
+/**
+ * Minimal env-shaped config the registry needs to build each adapter.
+ * Callers pass this directly (cloud reads from process.env; local
+ * unwraps it from its richer ServerConfig). Decoupled from any host's
+ * config shape so the registry stays portable.
+ */
+export interface TtsAdapterConfig {
+    /** OpenAI API key. Required to build the openai adapter. */
+    openaiKey: string | null;
+    /** Azure Speech key. Required to build the azure adapter. */
+    azureKey: string | null;
+    /** Azure region (e.g. 'eastus'). Required to build the azure adapter. */
+    azureRegion: string | null;
+}
+
 const adapters: Partial<Record<TtsProviderId, ServerTtsAdapter>> = {};
 const buildErrors: Partial<Record<TtsProviderId, string>> = {};
 
-function buildAdapter(name: TtsProviderId, config: ServerConfig): ServerTtsAdapter | null {
+function buildAdapter(name: TtsProviderId, config: TtsAdapterConfig): ServerTtsAdapter | null {
     try {
         switch (name) {
             case 'openai': {
-                const key = config.providerEnvKeys.openai;
+                const key = config.openaiKey;
                 if (!key) { buildErrors.openai = 'OPENAI_API_KEY not set'; return null; }
                 return new OpenAiTtsAdapter(key);
             }
             case 'azure': {
-                const key = config.providerEnvKeys.azure;
-                const region = config.azure.region;
+                const key = config.azureKey;
+                const region = config.azureRegion;
                 if (!key) { buildErrors.azure = 'AZURE_SPEECH_KEY not set'; return null; }
                 if (!region) { buildErrors.azure = 'AZURE_SPEECH_REGION not set'; return null; }
                 return new AzureTtsAdapter(key, region);
@@ -50,15 +74,20 @@ function buildAdapter(name: TtsProviderId, config: ServerConfig): ServerTtsAdapt
 
 /**
  * Returns the adapter for `name`, or for DEFAULT_TTS_PROVIDER if `name` is
- * undefined or not configured. Returns null only when neither the requested
- * provider nor the default can be built — in which case the caller should
- * fail the request with a clear error.
+ * undefined or not a known provider. Returns null only when neither the
+ * requested provider nor the default can be built — caller should fail the
+ * request with a clear error in that case.
+ *
+ * Adapters are cached at module scope across requests — same instance
+ * reused, which is the right shape for stateful adapters like Azure's
+ * persistent SpeechConfig.
  */
 export function resolveAdapter(
-    config: ServerConfig,
-    name?: TtsProviderId | string,
+    config: TtsAdapterConfig,
+    name?: TtsProviderId | string | null,
 ): ServerTtsAdapter | null {
-    const requested = (name && (name === 'openai' || name === 'azure')) ? name : DEFAULT_TTS_PROVIDER;
+    const requested: TtsProviderId =
+        (name === 'openai' || name === 'azure') ? name : DEFAULT_TTS_PROVIDER;
     if (!adapters[requested]) {
         const built = buildAdapter(requested, config);
         if (built) adapters[requested] = built;
@@ -76,7 +105,7 @@ export function resolveAdapter(
 }
 
 /** For diagnostics — which providers are available + why others aren't. */
-export function getProviderStatus(config: ServerConfig): Array<{
+export function getProviderStatus(config: TtsAdapterConfig): Array<{
     provider: TtsProviderId;
     available: boolean;
     isDefault: boolean;
@@ -84,7 +113,6 @@ export function getProviderStatus(config: ServerConfig): Array<{
 }> {
     const result: ReturnType<typeof getProviderStatus> = [];
     for (const name of ['azure', 'openai'] as const) {
-        // Try a build to populate adapters or errors
         if (!adapters[name] && !buildErrors[name]) {
             const built = buildAdapter(name, config);
             if (built) adapters[name] = built;
@@ -99,4 +127,9 @@ export function getProviderStatus(config: ServerConfig): Array<{
     return result;
 }
 
-export type { ServerTtsAdapter } from './_types.js';
+export type {
+    ServerTtsAdapter,
+    TtsStreamOpts,
+    TtsCostOpts,
+    TtsCostEstimate,
+} from './_types.js';

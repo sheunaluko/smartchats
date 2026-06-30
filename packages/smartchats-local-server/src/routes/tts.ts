@@ -24,12 +24,13 @@ import {
 } from 'llm-service';
 import type { LLMProvider } from 'smartchats-backend';
 import type { ServerConfig } from '../config.js';
+import { ttsConfigFromServerConfig } from '../config.js';
 import { writeUsageRecord } from '../usage_writer.js';
 import { log } from '../logger.js';
 import {
     resolveAdapter as resolveTtsAdapter,
     DEFAULT_TTS_PROVIDER,
-} from '../tts_providers/index.js';
+} from 'llm-service';
 
 const routeLog = log.withTag('tts');
 
@@ -61,7 +62,7 @@ export function ttsRoutes(config: ServerConfig): Router {
             return res.status(400).json({ error: 'voice (string) is required' });
         }
 
-        const adapter = resolveTtsAdapter(config, tts_provider);
+        const adapter = resolveTtsAdapter(ttsConfigFromServerConfig(config), tts_provider);
         if (!adapter) {
             return res.status(400).json({
                 error: `no TTS adapter available for "${tts_provider ?? DEFAULT_TTS_PROVIDER}" — check config + provider keys`,
