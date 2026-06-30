@@ -38,6 +38,25 @@ export class OpenAiTtsAdapter implements ServerTtsAdapter {
             model: GPT4O_MINI_TTS_PRICING.model,
             speed: opts.speed ?? 1,
             ...(opts.instructions ? { instructions: opts.instructions } : {}),
+            ...(opts.onTiming && {
+                onTiming: (e) => {
+                    // Translate openai_tts's adapter-level event into the
+                    // generic TtsTimingEvent the orchestrator expects.
+                    // openai_bytes_cumulative becomes provider_bytes_cumulative
+                    // so wire emission stays provider-agnostic.
+                    if (e.phase === 'first_byte') {
+                        opts.onTiming!({ phase: 'first_byte', ms_since_request: e.ms_since_request });
+                    } else {
+                        opts.onTiming!({
+                            phase: 'batch_yield',
+                            batch_index: e.batch_index,
+                            ms_since_request: e.ms_since_request,
+                            bytes: e.bytes,
+                            provider_bytes_cumulative: e.openai_bytes_cumulative,
+                        });
+                    }
+                },
+            }),
         })) {
             yield pcm;
         }

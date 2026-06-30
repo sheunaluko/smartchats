@@ -40,6 +40,14 @@ export interface TtsStreamOpts {
     speed?: number;
     /** Optional style/instructions — only OpenAI's gpt-4o-mini-tts honors this. */
     instructions?: string;
+    /** Optional adapter-side timing hook. Adapters with a transport that
+     *  exposes batch-level events (e.g. OpenAI's HTTP stream first byte
+     *  + per-batch yield) forward those here as generic TtsTimingEvents
+     *  for streamLlmTtsToNdjson to re-emit as tts_first_byte / tts_batch_yield
+     *  server_timing frames. Adapters without such a surface (e.g. Azure's
+     *  Speech SDK, which only exposes synthesisCompleted) leave this absent —
+     *  the orchestrator just won't emit those phases for those providers. */
+    onTiming?: (event: import('../streaming/types.js').TtsTimingEvent) => void;
 }
 
 export interface TtsCostOpts {
