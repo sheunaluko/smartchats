@@ -119,9 +119,17 @@ export class IframeSandboxExecutor implements SandboxExecutor {
       if (!event.data.executionId) return;
       const { type, payload } = event.data;
 
-      // Only handle log and event types (not success/error/functionCall)
+      // Live-fire path for cortex's sandbox_event emission. Mirrors the
+      // execution-coordination messageHandler's collection logic: 'event'
+      // is a single event, 'event_batch' is a coalesced array of events
+      // (added 2026-06-30 in the IPC-batching perf pass). Unfan the batch
+      // back into one handler call per event so downstream listeners
+      // (cortex.emit_event → store.handleSandboxEvent → state.functionCalls)
+      // see the same per-event stream they did before batching landed.
       if (type === 'log' || type === 'event') {
         handler({ type, payload });
+      } else if (type === 'event_batch' && Array.isArray(payload)) {
+        for (const e of payload) handler({ type: 'event', payload: e });
       }
     };
 
