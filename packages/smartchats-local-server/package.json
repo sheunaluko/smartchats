@@ -22,8 +22,6 @@
     "cors": "^2.8.5",
     "openai": "^4.72.0",
     "consola": "^3.2.3",
-    "linkedom": "^0.18.12",
-    "@mozilla/readability": "^0.5.0",
     "js-tiktoken": "^1.0.13",
     "cortex": "*",
     "llm-service": "*",

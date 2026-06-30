@@ -21,3 +21,12 @@ export type {
     SerperSearchResult,
     SerperOrganicResult,
 } from './serper_search.js';
+
+export {
+    extractReadableText,
+    ExtractError,
+} from './extract_readable_text.js';
+export type {
+    ExtractOptions,
+    ExtractedText,
+} from './extract_readable_text.js';
