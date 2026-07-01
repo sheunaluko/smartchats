@@ -1,0 +1,12 @@
+{
+  "name": "smartchats-tunnel",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Fly.io-hosted SSH bastion. Both endpoints connect OUT; sshd's channel multiplexer rendezvous-es them on the bastion's loopback. Lets a browser on machine B reach a dev server on machine A over `http://localhost:3000` — preserves secure-context for getUserMedia + Firebase's connectFunctionsEmulator.",
+  "scripts": {
+    "deploy": "fly deploy",
+    "logs": "fly logs",
+    "status": "fly status"
+  },
+  "license": "Apache-2.0"
+}

@@ -1,0 +1,63 @@
+# smartchats-tunnel — Fly.io app config.
+#
+# SSH bastion. Public :2222 → container :2222.
+# Both endpoints (dev-box Mac, laptop) connect OUT to this app; sshd's
+# channel multiplexer rendezvous-es them on 127.0.0.1.
+#
+# Deployment prereqs (sm tunnel up runs this):
+#   fly volumes create tunnel_hostkeys -r iad -s 1
+#   fly ips allocate-v4                  ← required for raw-TCP pass-through
+#   fly secrets set TUNNEL_AUTHORIZED_KEYS="$(cat authorized_bastion_keys)"
+
+app = "smartchats-tunnel"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+# Raw TCP service — Fly's TCP LB passes bytes through without
+# interpreting them. `handlers = []` (implicit — no proxy_proto,
+# no tls, no http). SSH negotiates its own encryption on top.
+[[services]]
+  protocol = "tcp"
+  internal_port = 2222
+  # auto_stop deliberately OFF for v1. Fly's autostop decides idle by
+  # traffic heuristics evaluated every few minutes, not by TCP
+  # connection state. Long-lived SSH connections have historically
+  # been killed by autostop. Cost with autostop off is ~$2/mo — cheap
+  # for the reliability. Revisit when Fly's autostop understands
+  # persistent TCP connections properly.
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+  # Public :2222 → container :2222. Same port for convenience; users
+  # don't have to remember an internal/external mapping.
+  [[services.ports]]
+    port = 2222
+
+  # Connection-based capacity signal. Fly uses these to route incoming
+  # connections when there's more than one machine (not our case in
+  # v1) — also serves as the signal for future autostop-with-TCP if
+  # Fly adds it.
+  [services.concurrency]
+    type = "connections"
+    soft_limit = 4
+    hard_limit = 25
+
+# Host keys volume — persists across deploys so client known_hosts
+# entries stay valid. Volume must exist before first deploy:
+#   fly volumes create tunnel_hostkeys -r iad -s 1
+[[mounts]]
+  source = "tunnel_hostkeys"
+  destination = "/etc/ssh"
+
+# Cheapest machine that runs Alpine sshd comfortably.
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"
+
+# Restart policy — if sshd dies, restart the machine. Fly's default
+# is "on-failure" already but be explicit.
+[experimental]
+  auto_rollback = true

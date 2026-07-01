@@ -1,0 +1,87 @@
+# smartchats-tunnel sshd_config — hardened for SSH-bastion use.
+#
+# Design intent: allow reverse + forward TCP forwarding for the `tunnel`
+# user (authenticated by pubkey), on 127.0.0.1 only, restricted to the
+# dev-server ports. Disallow everything else (root login, password auth,
+# shell command execution, X11, agent forwarding).
+
+# Internal :2222 to avoid colliding with Fly's :22 on the IPv6 admin
+# interface. Fly's public TCP LB maps public :2222 → this.
+Port 2222
+AddressFamily any
+Protocol 2
+
+# Host keys — persisted to the fly volume mount at /etc/ssh. Entrypoint
+# generates them on first boot if missing.
+HostKey /etc/ssh/ssh_host_ed25519_key
+HostKey /etc/ssh/ssh_host_rsa_key
+
+# Auth — pubkey only. No root, no password.
+PermitRootLogin no
+PasswordAuthentication no
+PubkeyAuthentication yes
+AuthorizedKeysFile .ssh/authorized_keys
+ChallengeResponseAuthentication no
+KbdInteractiveAuthentication no
+PermitEmptyPasswords no
+
+# TCP forwarding — the whole point of this bastion.
+#
+#   AllowTcpForwarding yes → both -R and -L work
+#   GatewayPorts no        → -R listeners stay on 127.0.0.1 (default)
+#   PermitListen 127.0.0.1:* → -R can only bind loopback (defense in
+#                             depth; if a key ever leaks the bastion
+#                             can't be repurposed as a public port
+#                             exposer). Wildcards for port so users can
+#                             forward additional dev ports without
+#                             updating this config.
+#   PermitOpen  127.0.0.1:* → -L can only dial loopback (blocks using
+#                             this bastion as a SOCKS proxy to reach
+#                             the wider Fly-internal 6PN network).
+#   PermitTunnel no        → no layer-2/3 VPN
+#   X11Forwarding no       → no X11
+#   AllowAgentForwarding no → no agent forwarding
+AllowTcpForwarding yes
+GatewayPorts no
+# PermitListen/PermitOpen match request STRINGS, not resolved IPs.
+# Clients use `localhost` or `127.0.0.1` interchangeably in -R/-L args
+# — accept both. GatewayPorts no still enforces loopback binding of
+# the listener, so listing `localhost:*` here doesn't expose external
+# interfaces.
+PermitListen 127.0.0.1:* localhost:*
+PermitOpen 127.0.0.1:* localhost:*
+PermitTunnel no
+X11Forwarding no
+AllowAgentForwarding no
+
+# Keepalive tuned for reverse-tunnel reliability. Aggressive detection
+# of dead sessions is critical: when a Mac's `-R` connection dies
+# uncleanly, its 127.0.0.1:3000 listener stays bound to the zombie
+# session for the full ClientAlive* window. During that window, the
+# Mac reconnecting can't rebind (address in use) and — because ssh's
+# default is to silently ignore -R bind failures — the reconnect
+# appears to succeed while nothing is actually forwarded.
+#
+# 15s * 2 = 30s max zombie window. Pair with -o ExitOnForwardFailure=yes
+# on the Mac side so the reconnect refuses to sit on a stale tunnel.
+#
+# TCPKeepAlive off — redundant with ClientAlive* and it can extend
+# zombie lifetime by pretending broken connections are still healthy.
+ClientAliveInterval 15
+ClientAliveCountMax 2
+TCPKeepAlive no
+
+# Logging.
+LogLevel INFO
+SyslogFacility AUTH
+
+# No shell command execution needed — tunnel user has /sbin/nologin.
+PermitUserRC no
+# UsePAM omitted — Alpine's openssh isn't compiled with PAM support so
+# setting this to `no` still trips "Unsupported option" at startup.
+# Not needed anyway since there's no shell to invoke.
+
+# Modern algorithms only.
+KexAlgorithms curve25519-sha256,curve25519-sha256@libssh.org
+Ciphers chacha20-poly1305@openssh.com,aes256-gcm@openssh.com,aes128-gcm@openssh.com
+MACs hmac-sha2-512-etm@openssh.com,hmac-sha2-256-etm@openssh.com
