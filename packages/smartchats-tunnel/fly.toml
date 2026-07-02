@@ -48,9 +48,16 @@ primary_region = "iad"
 # Host keys volume — persists across deploys so client known_hosts
 # entries stay valid. Volume must exist before first deploy:
 #   fly volumes create tunnel_hostkeys -r iad -s 1
+#
+# IMPORTANT: mount at /etc/ssh-hostkeys, NOT /etc/ssh. Fly's volume
+# mount replaces the directory contents entirely — mounting at
+# /etc/ssh shadows the sshd_config the image ships with, and sshd
+# crash-loops with "No such file or directory". Keep sshd_config at
+# /etc/ssh (from the image), keep host keys at /etc/ssh-hostkeys
+# (persisted), point HostKey directives in sshd_config at the latter.
 [[mounts]]
   source = "tunnel_hostkeys"
-  destination = "/etc/ssh"
+  destination = "/etc/ssh-hostkeys"
 
 # Cheapest machine that runs Alpine sshd comfortably.
 [[vm]]

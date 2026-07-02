@@ -11,10 +11,11 @@ Port 2222
 AddressFamily any
 Protocol 2
 
-# Host keys — persisted to the fly volume mount at /etc/ssh. Entrypoint
-# generates them on first boot if missing.
-HostKey /etc/ssh/ssh_host_ed25519_key
-HostKey /etc/ssh/ssh_host_rsa_key
+# Host keys — persisted to the fly volume mounted at /etc/ssh-hostkeys.
+# (NOT /etc/ssh — that would shadow this config file at mount time.)
+# Entrypoint generates them on first boot if missing.
+HostKey /etc/ssh-hostkeys/ssh_host_ed25519_key
+HostKey /etc/ssh-hostkeys/ssh_host_rsa_key
 
 # Auth — pubkey only. No root, no password.
 PermitRootLogin no

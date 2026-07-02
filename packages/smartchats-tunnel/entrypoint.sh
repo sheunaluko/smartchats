@@ -37,12 +37,14 @@ else
 fi
 
 # ── 2. Host keys — generate on first boot only ─────────────────────────
-# /etc/ssh should be a fly volume mount so this survives deploys. If it's
-# not mounted, keys get regenerated every restart — client known_hosts
-# entries will require -o StrictHostKeyChecking=accept-new or manual
-# accept.
+# /etc/ssh-hostkeys is a fly volume mount so this survives deploys.
+# (Note: NOT /etc/ssh — mounting there would shadow sshd_config.)
+# If the volume isn't mounted, keys get regenerated every restart and
+# clients will hit host-key-mismatch on reconnect.
+HOSTKEY_DIR=/etc/ssh-hostkeys
+mkdir -p "${HOSTKEY_DIR}"
 for keytype in ed25519 rsa; do
-    keyfile="/etc/ssh/ssh_host_${keytype}_key"
+    keyfile="${HOSTKEY_DIR}/ssh_host_${keytype}_key"
     if [ ! -f "${keyfile}" ]; then
         echo "[entrypoint] generating ${keytype} host key"
         ssh-keygen -t "${keytype}" -f "${keyfile}" -N "" -q
@@ -54,7 +56,7 @@ done
 
 # ── 3. Print host-key fingerprints so `fly logs` gives an easy way to
 # verify what clients see on first connect. ─────────────────────────────
-for keyfile in /etc/ssh/ssh_host_*_key.pub; do
+for keyfile in "${HOSTKEY_DIR}"/ssh_host_*_key.pub; do
     if [ -f "${keyfile}" ]; then
         ssh-keygen -l -f "${keyfile}" | sed 's/^/[entrypoint] host key: /'
     fi
