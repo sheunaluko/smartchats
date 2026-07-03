@@ -887,6 +887,10 @@ export function ClaudeMobileShellV2({ voice, ui, auth, settings, widgetConfig, w
           availableShells={meta.availableShells}
           aiModel={settings.aiModel}
           onModelChange={actions.onModelChange}
+          ttsProvider={settings.ttsProvider}
+          ttsVoice={settings.ttsVoice}
+          onSelectPreset={actions.onSelectPreset}
+          presetLocked={voice.started || meta.conversationStarted}
         />
 
         <SessionBrowser
@@ -1079,6 +1083,10 @@ export function ClaudeMobileShellV2({ voice, ui, auth, settings, widgetConfig, w
         availableShells={meta.availableShells}
         aiModel={settings.aiModel}
         onModelChange={actions.onModelChange}
+        ttsProvider={settings.ttsProvider}
+        ttsVoice={settings.ttsVoice}
+        onSelectPreset={actions.onSelectPreset}
+        presetLocked={voice.started || meta.conversationStarted}
       />
 
       <SessionBrowser

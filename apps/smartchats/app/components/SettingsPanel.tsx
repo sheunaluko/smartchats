@@ -19,6 +19,7 @@ function getModelRegistry(): Record<string, any> {
 }
 import { FieldGroup } from '../ui/recipes/FieldGroup';
 import { SettingsRow } from '../ui/recipes/SettingsRow';
+import { PresetChipStrip } from './PresetChipStrip';
 import type { VoiceFeedbackVariant } from '../types/mobileVoice';
 import { voiceFeedbackVariantOptions } from '../types/mobileVoice';
 
@@ -78,9 +79,15 @@ interface SettingsPanelProps {
   onVoiceFeedbackVariantChange?: (variant: VoiceFeedbackVariant) => void;
   /** 'drawer' (default) renders in a side Drawer; 'fullscreen' renders as a full-page overlay with back button */
   variant?: 'drawer' | 'fullscreen';
-  // Model selection
+  // Model selection (advanced — fine-grained override)
   aiModel?: string;
   onModelChange?: (model: string) => void;
+  // Preset selection (coarse — atomic model + provider + voice bundle)
+  ttsProvider?: string;
+  ttsVoice?: string;
+  onSelectPreset?: (presetId: string) => void;
+  /** Disable preset switching mid-session (adapter swap). */
+  presetLocked?: boolean;
 }
 
 export const SettingsPanel: React.FC<SettingsPanelProps> = React.memo(({
@@ -113,6 +120,10 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = React.memo(({
   variant = 'drawer',
   aiModel,
   onModelChange,
+  ttsProvider,
+  ttsVoice,
+  onSelectPreset,
+  presetLocked = false,
 }) => {
   // Filter shell options: only show desktop-default, desktop-focus, claude-mobile-v2 (renamed "Mobile")
   const filteredShells = useMemo(() => {
@@ -128,10 +139,31 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = React.memo(({
   const settingsContent = (
     <>
 
-      {/* Model Selection */}
+      {/* Preset chip strip — atomic (model, provider, voice) bundle picker.
+          Also lives in the desktop TopBar; surfaced here for mobile parity
+          and as the primary control on all platforms. */}
+      {aiModel && ttsProvider !== undefined && ttsVoice !== undefined && onSelectPreset && (
+        <>
+          <FieldGroup label="Preset" className="mb-4">
+            <SettingsRow label="Bundle">
+              <PresetChipStrip
+                aiModel={aiModel}
+                ttsProvider={ttsProvider}
+                ttsVoice={ttsVoice}
+                onSelectPreset={onSelectPreset}
+                disabled={presetLocked}
+              />
+            </SettingsRow>
+          </FieldGroup>
+          <hr className="surface-divider my-4" />
+        </>
+      )}
+
+      {/* Model Selection — advanced fine-grained override. Hidden when
+          the caller doesn't wire it (mobile currently exposes preset only). */}
       {aiModel && onModelChange && modelOptions.length > 0 && (
         <>
-          <FieldGroup label="Model" className="mb-4">
+          <FieldGroup label="Model (advanced)" className="mb-4">
             <SettingsRow label="AI Model">
               <div className="w-full sm:w-[220px]">
                 <Select
