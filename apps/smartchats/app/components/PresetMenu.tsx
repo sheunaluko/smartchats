@@ -25,7 +25,8 @@
  * provider — no per-row provider badge (per user preference).
  */
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { ChevronDown, Check } from 'lucide-react';
 import {
     AGENT_PRESETS,
@@ -69,10 +70,10 @@ export const PresetMenu: React.FC<PresetMenuProps> = React.memo(({
     className = '',
 }) => {
     const [open, setOpen] = useState(false);
+    const [popupPos, setPopupPos] = useState<{ top: number; left: number; width: number } | null>(null);
     const wrapRef = useRef<HTMLDivElement>(null);
-    // Ignore the first mouseleave right after opening via click — hovers
-    // that follow taps are a UX papercut.
-    const openedByClickRef = useRef(false);
+    const triggerRef = useRef<HTMLButtonElement>(null);
+    const popupRef = useRef<HTMLDivElement>(null);
 
     const active = useMemo(
         () => findMatchingPreset(aiModel, ttsProvider, ttsVoice),
@@ -80,12 +81,45 @@ export const PresetMenu: React.FC<PresetMenuProps> = React.memo(({
     );
     const triggerLabel = active?.name ?? 'Custom';
 
-    // Close on click-outside + Esc.
+    // Compute popup position: centered horizontally on the trigger button
+    // (so the middle column lines up with the trigger), placed just below
+    // it. Clamped to viewport so it never runs off-screen. Recomputed on
+    // window resize + scroll while open.
+    const recomputePos = useCallback(() => {
+        const t = triggerRef.current;
+        if (!t) return;
+        const rect = t.getBoundingClientRect();
+        const vw = window.innerWidth;
+        // Match the CSS max-width used below (`min(720px, 90vw)`).
+        const width = Math.min(720, vw * 0.9);
+        const triggerCenter = rect.left + rect.width / 2;
+        let left = Math.round(triggerCenter - width / 2);
+        const margin = 8;
+        if (left < margin) left = margin;
+        if (left + width > vw - margin) left = vw - width - margin;
+        const top = Math.round(rect.bottom + 6);
+        setPopupPos({ top, left, width });
+    }, []);
+
+    useLayoutEffect(() => {
+        if (!open) return;
+        recomputePos();
+        const onResize = () => recomputePos();
+        window.addEventListener('resize', onResize);
+        window.addEventListener('scroll', onResize, true);
+        return () => {
+            window.removeEventListener('resize', onResize);
+            window.removeEventListener('scroll', onResize, true);
+        };
+    }, [open, recomputePos]);
+
+    // Close on click-outside + Esc. Trigger + popup both count as "inside".
     useEffect(() => {
         if (!open) return;
         const onDown = (e: MouseEvent) => {
-            if (!wrapRef.current) return;
-            if (!wrapRef.current.contains(e.target as Node)) setOpen(false);
+            const inTrigger = wrapRef.current?.contains(e.target as Node);
+            const inPopup   = popupRef.current?.contains(e.target as Node);
+            if (!inTrigger && !inPopup) setOpen(false);
         };
         const onKey = (e: KeyboardEvent) => {
             if (e.key === 'Escape') setOpen(false);
@@ -99,7 +133,6 @@ export const PresetMenu: React.FC<PresetMenuProps> = React.memo(({
     }, [open]);
 
     const handleTriggerClick = useCallback(() => {
-        openedByClickRef.current = true;
         setOpen((v) => !v);
     }, []);
     const handleTriggerEnter = useCallback(() => {
@@ -126,6 +159,7 @@ export const PresetMenu: React.FC<PresetMenuProps> = React.memo(({
             onMouseEnter={handleTriggerEnter}
         >
             <button
+                ref={triggerRef}
                 type="button"
                 onClick={handleTriggerClick}
                 disabled={disabled}
@@ -144,11 +178,18 @@ export const PresetMenu: React.FC<PresetMenuProps> = React.memo(({
                 <ChevronDown size={12} className={`transition-transform ${open ? 'rotate-180' : ''}`} />
             </button>
 
-            {open && (
+            {open && popupPos && typeof document !== 'undefined' && createPortal(
                 <div
+                    ref={popupRef}
                     role="menu"
-                    className="absolute right-0 top-full mt-1 z-40 rounded-md border border-[var(--sc-separator)] bg-[var(--sc-surface)] shadow-lg overflow-hidden"
-                    style={{ width: 'min(720px, 90vw)' }}
+                    className="rounded-md border border-[var(--sc-separator)] bg-[var(--sc-surface)] shadow-2xl overflow-hidden"
+                    style={{
+                        position: 'fixed',
+                        top: popupPos.top,
+                        left: popupPos.left,
+                        width: popupPos.width,
+                        zIndex: 1000,
+                    }}
                 >
                     <div className="grid grid-cols-3 divide-x divide-[var(--sc-separator)]">
                         {/* ── Presets column ─────────────────────────── */}
@@ -212,7 +253,8 @@ export const PresetMenu: React.FC<PresetMenuProps> = React.memo(({
                             ))}
                         </MenuColumn>
                     </div>
-                </div>
+                </div>,
+                document.body,
             )}
         </div>
     );
