@@ -5,6 +5,8 @@
  * Uses window.__smartchats_appearance__ bridge exposed by app3.tsx.
  */
 
+import { listAllVoices, findVoice } from 'cortex';
+
 declare var window: any;
 
 const DESIGN_PACK_IDS = [
@@ -14,21 +16,14 @@ const DESIGN_PACK_IDS = [
 
 const VIZ_MOTIF_IDS = ['classic', 'glass', 'minimal', 'retro'];
 
-const OPENAI_VOICES: Record<string, string> = {
-    alloy: 'Neutral, balanced',
-    ash: 'Calm, measured',
-    ballad: 'Smooth, melodic',
-    coral: 'Warm, engaging',
-    echo: 'Warm, conversational',
-    fable: 'Expressive, storytelling',
-    nova: 'Friendly, natural',
-    onyx: 'Deep, authoritative',
-    sage: 'Wise, steady',
-    shimmer: 'Clear, bright',
-    verse: 'Poetic, expressive',
-    marin: 'Bright, cheerful',
-    cedar: 'Grounded, natural',
-};
+// Voice list is derived at module-load from cortex's VOICE_CATALOG, so
+// adding an OpenAI/Azure voice in `packages/cortex/src/voices.ts`
+// automatically exposes it to the agent's `set_voice` tool — no edit here.
+const AVAILABLE_VOICES = listAllVoices();
+const VOICE_IDS = AVAILABLE_VOICES.map((v) => v.id);
+const VOICE_LINE = AVAILABLE_VOICES
+    .map((v) => `${v.id} [${v.provider}] (${v.description})`)
+    .join(', ');
 
 const SYSTEM_MSG = `
 ## Appearance & Voice
@@ -37,7 +32,7 @@ You can change the app's visual theme, dark/light mode, and your own speaking vo
 
 Available design packs: ${DESIGN_PACK_IDS.join(', ')}
 Available viz motifs: ${VIZ_MOTIF_IDS.join(', ')} (classic = standard charts, glass = frosted bars with blur, minimal = stripped-down scientific, retro = pixel/dot-matrix)
-Available voices: ${Object.entries(OPENAI_VOICES).map(([k, v]) => `${k} (${v})`).join(', ')}
+Available voices: ${VOICE_LINE}
 Color modes: dark, light
 
 Design packs control colors and tokens. Viz motifs control chart appearance/structure. They are independent — change either without affecting the other.
@@ -117,18 +112,22 @@ export function createAppearanceModule() {
                     const { log } = ops.util;
                     const { voice } = ops.params;
 
-                    if (!voice || !OPENAI_VOICES[voice]) {
-                        return { error: `Invalid voice. Must be one of: ${Object.keys(OPENAI_VOICES).join(', ')}` };
+                    const voiceInfo = voice ? findVoice(voice) : null;
+                    if (!voiceInfo) {
+                        return { error: `Invalid voice. Must be one of: ${VOICE_IDS.join(', ')}` };
                     }
 
-                    log(`Setting voice to: ${voice}`);
+                    log(`Setting voice to: ${voice} [${voiceInfo.provider}]`);
                     const bridge = window?.__smartchats_appearance__;
                     if (!bridge?.updateTiviSettings) {
                         return { error: 'Appearance bridge not available' };
                     }
 
+                    // NOTE: openaiVoice is the legacy tivi field name. Step 3
+                    // of the preset refactor introduces provider-aware voice
+                    // routing; until then set_voice still targets openaiVoice.
                     bridge.updateTiviSettings({ openaiVoice: voice });
-                    return { success: true, voice, description: OPENAI_VOICES[voice], message: `Voice changed to ${voice}` };
+                    return { success: true, voice, provider: voiceInfo.provider, description: voiceInfo.description, message: `Voice changed to ${voice}` };
                 },
                 return_type: 'object',
             },

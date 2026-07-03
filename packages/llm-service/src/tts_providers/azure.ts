@@ -21,6 +21,7 @@
  */
 
 import * as sdk from 'microsoft-cognitiveservices-speech-sdk';
+import { listVoiceIdsForProvider } from 'cortex';
 
 import type {
     ServerTtsAdapter, TtsStreamOpts, TtsCostOpts, TtsCostEstimate,
@@ -28,21 +29,9 @@ import type {
 
 const PRICE_PER_M_CHARS = 16.0;
 
-/**
- * Multilingual + EN-US neural voices commonly used by SmartChats voice agent.
- * Azure's full catalog has 200+ voices including regional + speaker styles —
- * we'll add a runtime catalog API later if the static list isn't enough.
- */
-const VOICES = [
-    'en-US-AvaMultilingualNeural',
-    'en-US-AndrewMultilingualNeural',
-    'en-US-EmmaMultilingualNeural',
-    'en-US-BrianMultilingualNeural',
-    'en-US-JennyNeural',
-    'en-US-GuyNeural',
-    'en-US-AriaNeural',
-    'en-US-DavisNeural',
-];
+// Voices come from cortex's VOICE_CATALOG. Azure's full catalog has 200+
+// entries (regional + speaker styles); the productionized subset we
+// serve lives in voices.ts. Add there to expose more.
 
 export class AzureTtsAdapter implements ServerTtsAdapter {
     readonly name = 'azure';
@@ -130,5 +119,5 @@ export class AzureTtsAdapter implements ServerTtsAdapter {
         return { usd, unit: 'characters', quantity: chars };
     }
 
-    listVoices(): string[] { return VOICES; }
+    listVoices(): string[] { return listVoiceIdsForProvider('azure'); }
 }

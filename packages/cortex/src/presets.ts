@@ -122,3 +122,28 @@ export function findMatchingPreset(
     }
     return null;
 }
+
+// ── Build-time validation ─────────────────────────────────────────
+//
+// Every preset's (ttsProvider, ttsVoice) pair must exist in the shared
+// VOICE_CATALOG. If a typo lands here, module import throws immediately
+// — surfaced as a build failure (tsc emit) or a boot-time crash rather
+// than a mysterious "Azure adapter: invalid voice" at runtime.
+
+import { VOICE_CATALOG } from './voices.js';
+
+for (const preset of AGENT_PRESETS) {
+    const catalog = VOICE_CATALOG[preset.ttsProvider];
+    if (!catalog) {
+        throw new Error(
+            `preset "${preset.id}" references unknown TTS provider "${preset.ttsProvider}" ` +
+            `(not in VOICE_CATALOG). Fix presets.ts or add the provider to voices.ts.`,
+        );
+    }
+    if (!catalog.some((v) => v.id === preset.ttsVoice)) {
+        throw new Error(
+            `preset "${preset.id}" references unknown voice "${preset.ttsVoice}" for provider ` +
+            `"${preset.ttsProvider}". Fix presets.ts or add the voice to voices.ts.`,
+        );
+    }
+}

@@ -11,6 +11,7 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
+    "cortex": "*",
     "smartchats-common": "*"
   },
   "peerDependencies": {

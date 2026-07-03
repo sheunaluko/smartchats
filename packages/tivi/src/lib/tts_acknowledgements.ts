@@ -67,8 +67,20 @@ export const ACK_TYPES = [
 
 export type AckType = typeof ACK_TYPES[number];
 
-export const OPENAI_VOICES = ['alloy', 'ash', 'ballad', 'coral', 'echo', 'fable', 'nova', 'onyx', 'sage', 'shimmer', 'verse', 'marin', 'cedar'] as const;
-export type OpenAIVoice = typeof OPENAI_VOICES[number];
+// Voice ids come from cortex's VOICE_CATALOG — single source of truth.
+// This module keeps the legacy `OPENAI_VOICES` + `OpenAIVoice` names
+// as a compatibility shim; new code should prefer the cortex helpers
+// directly (`listVoiceIdsForProvider('openai')`, `VoiceInfo`).
+import { listVoiceIdsForProvider, VOICE_CATALOG } from 'cortex';
+
+export const OPENAI_VOICES: readonly string[] = listVoiceIdsForProvider('openai');
+export type OpenAIVoice = string;
+
+/** Voice ids that have pre-recorded ack MP3s under
+ *  `apps/smartchats/public/audio/acks/{id}/`. The full openai voice list
+ *  is broader — this is the subset the preloader should actually fetch. */
+export const OPENAI_ACK_CACHED_VOICES: readonly string[] =
+    VOICE_CATALOG.openai.filter((v) => v.hasAckCache).map((v) => v.id);
 
 /**
  * Mapping from ack type to the spoken text for TTS generation.

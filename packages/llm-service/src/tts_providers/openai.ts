@@ -11,16 +11,11 @@
 import OpenAI from 'openai';
 import { openaiTtsStream } from '../streaming/openai_tts.js';
 import { countGpt4oMiniTtsInputTokens } from '../tts_tokens.js';
-import { estimateGpt4oMiniTtsCost, GPT4O_MINI_TTS_PRICING } from 'cortex';
+import { estimateGpt4oMiniTtsCost, GPT4O_MINI_TTS_PRICING, listVoiceIdsForProvider } from 'cortex';
 
 import type {
     ServerTtsAdapter, TtsStreamOpts, TtsCostOpts, TtsCostEstimate,
 } from './_types.js';
-
-const VOICES = [
-    'alloy', 'ash', 'ballad', 'coral', 'echo',
-    'fable', 'marin', 'nova', 'onyx', 'sage', 'shimmer', 'verse',
-];
 
 export class OpenAiTtsAdapter implements ServerTtsAdapter {
     readonly name = 'openai';
@@ -75,5 +70,5 @@ export class OpenAiTtsAdapter implements ServerTtsAdapter {
         };
     }
 
-    listVoices(): string[] { return VOICES; }
+    listVoices(): string[] { return listVoiceIdsForProvider('openai'); }
 }

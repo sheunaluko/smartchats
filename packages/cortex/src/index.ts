@@ -72,6 +72,19 @@ export {
 } from './presets.js'
 export type { AgentPreset, TTSProvider } from './presets.js'
 
+// Voice catalog — single source of truth for per-provider voice metadata.
+// See ./voices.ts for the module-level doc. Consumed by adapter listVoices,
+// UI VoiceSelector, agent set_voice tool, tivi ack-cache preloader, and
+// preset validation.
+export {
+    VOICE_CATALOG,
+    listVoicesForProvider,
+    listVoiceIdsForProvider,
+    findVoice,
+    listAllVoices,
+} from './voices.js'
+export type { VoiceInfo } from './voices.js'
+
 // Token counting
 export {
   countTokens,
