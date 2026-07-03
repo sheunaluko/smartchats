@@ -12,7 +12,7 @@ import { ControlGroup } from './ControlGroup';
 import { ToolbarButton } from './ToolbarButton';
 import { useSmartChatsStore } from '../../store/useSmartChatsStore';
 import { useTrackedClick } from '../../hooks/useTrackedClick';
-import { PresetChipStrip } from '../../components/PresetChipStrip';
+import { PresetMenu } from '../../components/PresetMenu';
 
 
 type AppHeaderProps = {
@@ -22,9 +22,8 @@ type AppHeaderProps = {
   onTranscribeToggle: () => void;
   isSpeaking: boolean;
   onCancelSpeech: () => void;
-  /** Current LLM model id — passed through for `PresetChipStrip` to
-   *  match against `AGENT_PRESETS`. Individual model overrides live in
-   *  the settings drawer now. */
+  /** Current LLM model id — passed through for `PresetMenu` to match
+   *  against `AGENT_PRESETS`. */
   aiModel: string;
   /** Currently-selected TTS provider (`'openai' | 'azure'`). Read from
    *  tivi settings in the caller; used with `aiModel` + `ttsVoice` to
@@ -35,6 +34,10 @@ type AppHeaderProps = {
   /** Atomically switch model + provider + voice via
    *  `useSmartChatsStore.applyPreset`. */
   onSelectPreset: (presetId: string) => void;
+  /** Change LLM model only. Triple drifts → PresetMenu trigger reads "Custom". */
+  onSelectModel: (modelId: string) => void;
+  /** Change TTS voice only. Provider is inferred from the catalog entry. */
+  onSelectVoice: (voiceId: string) => void;
   onOpenSettings: () => void;
   onSaveSession: () => void;
   onOpenSessions: () => void;
@@ -79,6 +82,8 @@ export function AppHeader({
   ttsProvider,
   ttsVoice,
   onSelectPreset,
+  onSelectModel,
+  onSelectVoice,
   onOpenSettings,
   onSaveSession,
   onOpenSessions,
@@ -279,14 +284,16 @@ export function AppHeader({
             )}
           </div>
 
-          {/* 5. Preset chip strip — atomic (model, provider, voice) bundle
-              picker. Fine-grained per-axis overrides live in Settings. */}
+          {/* 5. Preset menu — one button, three-column popup for
+              preset / model / voice. */}
           <div className="shrink-0">
-            <PresetChipStrip
+            <PresetMenu
               aiModel={aiModel}
               ttsProvider={ttsProvider}
               ttsVoice={ttsVoice}
               onSelectPreset={onSelectPreset}
+              onSelectModel={onSelectModel}
+              onSelectVoice={onSelectVoice}
               disabled={started || conversationStarted}
             />
           </div>

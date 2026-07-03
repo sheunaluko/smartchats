@@ -50,6 +50,7 @@ import { setTtsQueueRef, setTtsServerTimingCallback, setLlmServerTimingCallback,
 import { getBackend } from '@/lib/backend';
 import { useTiviSettings } from '@lab-components/tivi/lib/useTiviSettings';
 import { getTiviSettings } from '@lab-components/tivi/lib/settings';
+import { findVoice } from 'cortex';
 import * as classifier from '@/classifier';
 
 import { useAuth } from '@/lib/auth';
@@ -626,6 +627,15 @@ const Component: NextPage = (props: any) => {
     const handleCancelSpeech = useCallback(() => tiviRef.current.cancelSpeech(), []);
     const handleModelChange = useCallback((model: string) => store_updateSettings({ aiModel: model }), [store_updateSettings]);
     const handleSelectPreset = useCallback((presetId: string) => store_applyPreset(presetId), [store_applyPreset]);
+    // PresetMenu's per-axis handles. Model just updates aiModel; voice
+    // also writes ttsCloudProvider (inferred from catalog) so the cloud
+    // TTS route dispatches to the right adapter.
+    const handleSelectModel = useCallback((modelId: string) => store_updateSettings({ aiModel: modelId }), [store_updateSettings]);
+    const handleSelectVoice = useCallback((voiceId: string) => {
+        const info = findVoice(voiceId);
+        if (!info) return;
+        updateTiviSettings({ openaiVoice: voiceId, ttsCloudProvider: info.provider });
+    }, [updateTiviSettings]);
     const handleOpenSettings = useCallback(() => setSettingsOpen(true), []);
     const handleSaveSession = useCallback(async () => {
         await saveSession();
@@ -745,6 +755,8 @@ const Component: NextPage = (props: any) => {
             onCancelSpeech: handleCancelSpeech,
             onModelChange: handleModelChange,
             onSelectPreset: handleSelectPreset,
+            onSelectModel: handleSelectModel,
+            onSelectVoice: handleSelectVoice,
             onSpeechCooldownChange: handleSpeechCooldownChange,
             onPlaybackRateChange: handlePlaybackRateChange,
             onDesignPackChange: setDesignPack,

@@ -19,7 +19,7 @@ function getModelRegistry(): Record<string, any> {
 }
 import { FieldGroup } from '../ui/recipes/FieldGroup';
 import { SettingsRow } from '../ui/recipes/SettingsRow';
-import { PresetChipStrip } from './PresetChipStrip';
+import { PresetMenu } from './PresetMenu';
 import type { VoiceFeedbackVariant } from '../types/mobileVoice';
 import { voiceFeedbackVariantOptions } from '../types/mobileVoice';
 
@@ -86,6 +86,8 @@ interface SettingsPanelProps {
   ttsProvider?: string;
   ttsVoice?: string;
   onSelectPreset?: (presetId: string) => void;
+  onSelectModel?: (modelId: string) => void;
+  onSelectVoice?: (voiceId: string) => void;
   /** Disable preset switching mid-session (adapter swap). */
   presetLocked?: boolean;
 }
@@ -123,6 +125,8 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = React.memo(({
   ttsProvider,
   ttsVoice,
   onSelectPreset,
+  onSelectModel,
+  onSelectVoice,
   presetLocked = false,
 }) => {
   // Filter shell options: only show desktop-default, desktop-focus, claude-mobile-v2 (renamed "Mobile")
@@ -139,40 +143,27 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = React.memo(({
   const settingsContent = (
     <>
 
-      {/* Preset chip strip — atomic (model, provider, voice) bundle picker.
-          Also lives in the desktop TopBar; surfaced here for mobile parity
-          and as the primary control on all platforms. */}
-      {aiModel && ttsProvider !== undefined && ttsVoice !== undefined && onSelectPreset && (
+      {/* Preset menu — single-button trigger + three-column popup
+          (preset / model / voice). Same component the desktop TopBar
+          uses; surfaced here for mobile parity + drawer discoverability. */}
+      {aiModel
+        && ttsProvider !== undefined
+        && ttsVoice !== undefined
+        && onSelectPreset
+        && onSelectModel
+        && onSelectVoice && (
         <>
-          <FieldGroup label="Preset" className="mb-4">
+          <FieldGroup label="Model & Voice" className="mb-4">
             <SettingsRow label="Bundle">
-              <PresetChipStrip
+              <PresetMenu
                 aiModel={aiModel}
                 ttsProvider={ttsProvider}
                 ttsVoice={ttsVoice}
                 onSelectPreset={onSelectPreset}
+                onSelectModel={onSelectModel}
+                onSelectVoice={onSelectVoice}
                 disabled={presetLocked}
               />
-            </SettingsRow>
-          </FieldGroup>
-          <hr className="surface-divider my-4" />
-        </>
-      )}
-
-      {/* Model Selection — advanced fine-grained override. Hidden when
-          the caller doesn't wire it (mobile currently exposes preset only). */}
-      {aiModel && onModelChange && modelOptions.length > 0 && (
-        <>
-          <FieldGroup label="Model (advanced)" className="mb-4">
-            <SettingsRow label="AI Model">
-              <div className="w-full sm:w-[220px]">
-                <Select
-                  value={aiModel}
-                  onChange={onModelChange}
-                  options={modelOptions}
-                  aria-label="AI Model"
-                />
-              </div>
             </SettingsRow>
           </FieldGroup>
           <hr className="surface-divider my-4" />

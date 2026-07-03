@@ -98,6 +98,13 @@ export type ShellActions = {
   /** Atomically switch (aiModel, ttsProvider, ttsVoice) to a named preset
    *  from `AGENT_PRESETS`. Delegates to store.applyPreset. */
   onSelectPreset: (presetId: string) => void;
+  /** Change LLM model only. Provider + voice stay put; the (model, voice)
+   *  triple usually drifts away from any preset → PresetMenu trigger
+   *  reads "Custom". */
+  onSelectModel: (modelId: string) => void;
+  /** Change TTS voice only. Provider is inferred from the catalog entry
+   *  and updated alongside. Also drifts the triple → "Custom". */
+  onSelectVoice: (voiceId: string) => void;
   onSpeechCooldownChange: (ms: number) => void;
   onPlaybackRateChange: (rate: number) => void;
   onDesignPackChange: (id: string) => void;
