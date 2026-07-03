@@ -26,7 +26,7 @@ import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import * as tts from './lib/tts';
 import { getTiviSettings, updateTiviSettings } from './lib/settings';
 import type { TiviSettings } from './lib/settings';
-import { OPENAI_VOICES } from './lib/tts_acknowledgements';
+import { VOICE_CATALOG, listVoicesForProvider, findVoice, type VoiceInfo, type TTSProvider } from 'cortex';
 
 // Memoized voice item component for performance
 const VoiceItem = React.memo<{
@@ -124,21 +124,13 @@ const VoiceItem = React.memo<{
 
 VoiceItem.displayName = 'VoiceItem';
 
-const OPENAI_VOICE_LABELS: Record<string, string> = {
-  alloy: 'Alloy — Neutral, balanced',
-  ash: 'Ash — Calm, measured',
-  ballad: 'Ballad — Smooth, melodic',
-  coral: 'Coral — Warm, engaging',
-  echo: 'Echo — Warm, conversational',
-  fable: 'Fable — Expressive, storytelling',
-  nova: 'Nova — Friendly, natural',
-  onyx: 'Onyx — Deep, authoritative',
-  sage: 'Sage — Wise, steady',
-  shimmer: 'Shimmer — Clear, bright',
-  verse: 'Verse — Poetic, expressive',
-  marin: 'Marin — Bright, cheerful',
-  cedar: 'Cedar — Grounded, natural',
-};
+/** Format a catalog voice as "DisplayName — description" for the selector list. */
+function formatVoiceLabel(v: VoiceInfo): string {
+  return `${v.displayName} — ${v.description}`;
+}
+
+/** Provider ids we surface a sub-tab for. Keep aligned with cortex's TTSProvider. */
+const CLOUD_PROVIDERS: TTSProvider[] = Object.keys(VOICE_CATALOG) as TTSProvider[];
 
 interface VoiceSelectorProps {
   /** Force a specific TTS provider and hide the toggle. Omit to show the toggle. */
@@ -165,8 +157,21 @@ export function VoiceSelector({ provider: forcedProvider, backend: forcedBackend
     return (initial === 'cloud' || initial === 'openai' || initial === 'browser') ? initial : 'cloud';
   });
   const [ttsBackend, setTtsBackend] = useState<'local' | 'firebase'>(() => forcedBackend || getTiviSettings().ttsBackend);
-  const [openaiVoice, setOpenaiVoice] = useState<string>(() => getTiviSettings().openaiVoice);
+  // openaiVoice is the legacy tivi field name — the value is provider-agnostic
+  // (an id from VOICE_CATALOG). Renamed conceptually here to `voiceId`.
+  const [voiceId, setVoiceId] = useState<string>(() => getTiviSettings().openaiVoice);
   const [openaiModel, setOpenaiModel] = useState<string>(() => forcedModel || getTiviSettings().openaiModel);
+
+  // Which cloud TTS provider's catalog to show. Sourced from tivi's
+  // `ttsCloudProvider` (the field written by store.applyPreset). Falls
+  // back to whichever provider currently owns the selected voiceId, or
+  // the first provider in the catalog.
+  const [cloudProvider, setCloudProvider] = useState<TTSProvider>(() => {
+    const explicit = getTiviSettings().ttsCloudProvider as TTSProvider | undefined;
+    if (explicit && VOICE_CATALOG[explicit]) return explicit;
+    return findVoice(voiceId)?.provider ?? CLOUD_PROVIDERS[0]!;
+  });
+  const cloudProviderVoices = useMemo(() => listVoicesForProvider(cloudProvider), [cloudProvider]);
 
   // Write forced values to settings on mount so TTS queue picks them up
   useEffect(() => {
@@ -207,7 +212,7 @@ export function VoiceSelector({ provider: forcedProvider, backend: forcedBackend
     );
   }, [voices, searchFilter]);
 
-  const handleProviderChange = useCallback((_: any, value: 'browser' | 'openai' | null) => {
+  const handleProviderChange = useCallback((_: any, value: 'browser' | 'cloud' | null) => {
     if (!value) return;
     setTtsProvider(value);
     updateTiviSettings({ ttsProvider: value });
@@ -219,9 +224,33 @@ export function VoiceSelector({ provider: forcedProvider, backend: forcedBackend
     updateTiviSettings({ ttsBackend: value });
   }, []);
 
-  const handleOpenaiVoiceChange = useCallback((voice: string) => {
-    setOpenaiVoice(voice);
-    updateTiviSettings({ openaiVoice: voice });
+  const handleCloudVoiceChange = useCallback((newVoiceId: string) => {
+    const info = findVoice(newVoiceId);
+    setVoiceId(newVoiceId);
+    // Persist voice + provider together so the cloud TTS route stays
+    // consistent (server picks the adapter off ttsCloudProvider).
+    const updates: Partial<TiviSettings> = { openaiVoice: newVoiceId };
+    if (info && info.provider !== cloudProvider) {
+      setCloudProvider(info.provider);
+      updates.ttsCloudProvider = info.provider;
+    } else if (info) {
+      updates.ttsCloudProvider = info.provider;
+    }
+    updateTiviSettings(updates);
+  }, [cloudProvider]);
+
+  const handleCloudProviderChange = useCallback((_: any, value: TTSProvider | null) => {
+    if (!value || !VOICE_CATALOG[value]) return;
+    setCloudProvider(value);
+    // When user swaps provider, snap voice to the provider's first entry
+    // rather than leaving a stale cross-provider id in settings.
+    const first = listVoicesForProvider(value)[0];
+    const updates: Partial<TiviSettings> = { ttsCloudProvider: value };
+    if (first) {
+      setVoiceId(first.id);
+      updates.openaiVoice = first.id;
+    }
+    updateTiviSettings(updates);
   }, []);
 
   const handleOpenaiModelChange = useCallback((model: string) => {
@@ -259,20 +288,20 @@ export function VoiceSelector({ provider: forcedProvider, backend: forcedBackend
               TTS Provider
             </Typography>
             <ToggleButtonGroup
-              value={ttsProvider}
+              value={ttsProvider === 'openai' ? 'cloud' : ttsProvider}
               exclusive
               onChange={handleProviderChange}
               size="small"
               fullWidth
             >
-              <ToggleButton value="browser">Browser</ToggleButton>
-              <ToggleButton value="openai">OpenAI</ToggleButton>
+              <ToggleButton value="browser">Browser (WebSpeech)</ToggleButton>
+              <ToggleButton value="cloud">Cloud (Azure / OpenAI)</ToggleButton>
             </ToggleButtonGroup>
           </Box>
         )}
 
-        {ttsProvider === 'openai' ? (
-          /* ── OpenAI TTS Settings ── */
+        {(ttsProvider === 'openai' || ttsProvider === 'cloud') ? (
+          /* ── Cloud TTS Settings (Azure / OpenAI) ── */
           <>
             {/* TTS Backend Toggle — hidden when backend is forced */}
             {!forcedBackend && (
@@ -298,16 +327,39 @@ export function VoiceSelector({ provider: forcedProvider, backend: forcedBackend
             </Box>
             )}
 
+            {/* Cloud provider sub-toggle — driven by cortex's VOICE_CATALOG,
+                so adding an Azure/OpenAI/... adapter surfaces here for free. */}
+            {CLOUD_PROVIDERS.length > 1 && (
+              <Box>
+                <Typography variant="body2" gutterBottom sx={{ fontWeight: 500 }}>
+                  Cloud Provider
+                </Typography>
+                <ToggleButtonGroup
+                  value={cloudProvider}
+                  exclusive
+                  onChange={handleCloudProviderChange}
+                  size="small"
+                  fullWidth
+                >
+                  {CLOUD_PROVIDERS.map((p) => (
+                    <ToggleButton key={p} value={p} sx={{ textTransform: 'capitalize' }}>
+                      {p}
+                    </ToggleButton>
+                  ))}
+                </ToggleButtonGroup>
+              </Box>
+            )}
+
             {/* Voice Selection */}
             <Box>
               <Typography variant="body2" gutterBottom sx={{ fontWeight: 500 }}>
                 Voice
               </Typography>
               <Stack spacing={1}>
-                {OPENAI_VOICES.map((voice) => (
+                {cloudProviderVoices.map((v) => (
                   <Box
-                    key={voice}
-                    onClick={() => handleOpenaiVoiceChange(voice)}
+                    key={v.id}
+                    onClick={() => handleCloudVoiceChange(v.id)}
                     sx={{
                       display: 'flex',
                       alignItems: 'center',
@@ -315,14 +367,14 @@ export function VoiceSelector({ provider: forcedProvider, backend: forcedBackend
                       p: 1.5,
                       borderRadius: 1,
                       cursor: 'pointer',
-                      border: `1px solid ${voice === openaiVoice
+                      border: `1px solid ${v.id === voiceId
                         ? theme.palette.primary.main
                         : alpha(theme.palette.divider, 0.2)}`,
-                      background: voice === openaiVoice
+                      background: v.id === voiceId
                         ? alpha(theme.palette.primary.main, 0.08)
                         : 'transparent',
                       '&:hover': {
-                        background: voice === openaiVoice
+                        background: v.id === voiceId
                           ? alpha(theme.palette.primary.main, 0.12)
                           : alpha(theme.palette.action.hover, 0.04),
                       },
@@ -330,9 +382,9 @@ export function VoiceSelector({ provider: forcedProvider, backend: forcedBackend
                     }}
                   >
                     <Typography variant="body2">
-                      {OPENAI_VOICE_LABELS[voice] ?? voice}
+                      {formatVoiceLabel(v)}
                     </Typography>
-                    {voice === openaiVoice && (
+                    {v.id === voiceId && (
                       <CheckCircleIcon fontSize="small" color="primary" />
                     )}
                   </Box>
@@ -340,8 +392,9 @@ export function VoiceSelector({ provider: forcedProvider, backend: forcedBackend
               </Stack>
             </Box>
 
-            {/* Model Selection — hidden when model is forced */}
-            {!forcedModel && (
+            {/* Model Selection — OpenAI only (Azure model is fixed by the
+                adapter). Hidden when a model is forced. */}
+            {cloudProvider === 'openai' && !forcedModel && (
             <Box>
               <Typography variant="body2" gutterBottom sx={{ fontWeight: 500 }}>
                 Model
@@ -362,7 +415,9 @@ export function VoiceSelector({ provider: forcedProvider, backend: forcedBackend
             {/* Footer */}
             <Box sx={{ pt: 1, borderTop: `1px solid ${alpha(theme.palette.divider, 0.1)}` }}>
               <Typography variant="caption" color="text.secondary">
-                Voice: <strong>{openaiVoice}</strong> • Model: <strong>{openaiModel}</strong>
+                Voice: <strong>{voiceId}</strong>
+                {cloudProvider === 'openai' && <> • Model: <strong>{openaiModel}</strong></>}
+                {' '}• Provider: <strong style={{ textTransform: 'capitalize' }}>{cloudProvider}</strong>
               </Typography>
               <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
                 Backend: <strong>{ttsBackend === 'local' ? 'Local (OAAK)' : 'Firebase'}</strong>
