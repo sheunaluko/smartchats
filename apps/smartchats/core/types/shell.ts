@@ -56,6 +56,12 @@ export type ShellAuthState = {
 
 export type ShellSettingsState = {
   aiModel: string;
+  /** TTS provider id — used by `PresetChipStrip` to match the active preset.
+   *  Sourced from tivi settings' `ttsCloudProvider`. */
+  ttsProvider: string;
+  /** TTS voice id — provider-specific. Sourced from tivi settings'
+   *  `openaiVoice` (legacy field name; the value is provider-agnostic). */
+  ttsVoice: string;
   speechCooldownMs: number;
   playbackRate: number;
   colorMode: 'dark' | 'light';
@@ -89,6 +95,9 @@ export type ShellActions = {
 
   // Settings
   onModelChange: (model: string) => void;
+  /** Atomically switch (aiModel, ttsProvider, ttsVoice) to a named preset
+   *  from `AGENT_PRESETS`. Delegates to store.applyPreset. */
+  onSelectPreset: (presetId: string) => void;
   onSpeechCooldownChange: (ms: number) => void;
   onPlaybackRateChange: (rate: number) => void;
   onDesignPackChange: (id: string) => void;

@@ -6,14 +6,13 @@ import type { AuthUser } from 'smartchats-backend';
 import { Pause, Play, Save, History, Settings, Square, UserCheck, User as UserIcon } from 'lucide-react';
 import AudioVisualization from '../../components/AudioVisualization';
 import { Tooltip } from '../Tooltip';
-import { Select } from '../Select';
 
 import { Chip } from '../Chip';
 import { ControlGroup } from './ControlGroup';
 import { ToolbarButton } from './ToolbarButton';
 import { useSmartChatsStore } from '../../store/useSmartChatsStore';
 import { useTrackedClick } from '../../hooks/useTrackedClick';
-import { MODEL_REGISTRY } from 'cortex';
+import { PresetChipStrip } from '../../components/PresetChipStrip';
 
 
 type AppHeaderProps = {
@@ -23,8 +22,19 @@ type AppHeaderProps = {
   onTranscribeToggle: () => void;
   isSpeaking: boolean;
   onCancelSpeech: () => void;
+  /** Current LLM model id — passed through for `PresetChipStrip` to
+   *  match against `AGENT_PRESETS`. Individual model overrides live in
+   *  the settings drawer now. */
   aiModel: string;
-  onModelChange: (model: string) => void;
+  /** Currently-selected TTS provider (`'openai' | 'azure'`). Read from
+   *  tivi settings in the caller; used with `aiModel` + `ttsVoice` to
+   *  find the matching preset. */
+  ttsProvider: string;
+  /** Currently-selected TTS voice id (provider-specific). */
+  ttsVoice: string;
+  /** Atomically switch model + provider + voice via
+   *  `useSmartChatsStore.applyPreset`. */
+  onSelectPreset: (presetId: string) => void;
   onOpenSettings: () => void;
   onSaveSession: () => void;
   onOpenSessions: () => void;
@@ -66,7 +76,9 @@ export function AppHeader({
   isSpeaking,
   onCancelSpeech,
   aiModel,
-  onModelChange,
+  ttsProvider,
+  ttsVoice,
+  onSelectPreset,
   onOpenSettings,
   onSaveSession,
   onOpenSessions,
@@ -267,19 +279,15 @@ export function AppHeader({
             )}
           </div>
 
-          {/* 5. Model selector */}
-          <div className="w-[10rem] shrink-0">
-            <Select
-              value={aiModel}
-              onChange={onModelChange}
+          {/* 5. Preset chip strip — atomic (model, provider, voice) bundle
+              picker. Fine-grained per-axis overrides live in Settings. */}
+          <div className="shrink-0">
+            <PresetChipStrip
+              aiModel={aiModel}
+              ttsProvider={ttsProvider}
+              ttsVoice={ttsVoice}
+              onSelectPreset={onSelectPreset}
               disabled={started || conversationStarted}
-              size="sm"
-              options={Object.entries(MODEL_REGISTRY).map(([key, info]) => ({
-                value: key,
-                label: key,
-              }))}
-              aria-label="AI model"
-              className="w-full"
             />
           </div>
 

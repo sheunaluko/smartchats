@@ -47,7 +47,9 @@ export function DesktopFocusShell({ voice, ui, auth, settings, widgetConfig, wid
         isSpeaking={voice.isSpeaking}
         onCancelSpeech={actions.onCancelSpeech}
         aiModel={settings.aiModel}
-        onModelChange={actions.onModelChange}
+        ttsProvider={settings.ttsProvider}
+        ttsVoice={settings.ttsVoice}
+        onSelectPreset={actions.onSelectPreset}
         onOpenSettings={actions.onOpenSettings}
         onSaveSession={actions.onSaveSession}
         onOpenSessions={actions.onOpenSessions}

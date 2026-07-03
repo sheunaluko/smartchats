@@ -17,9 +17,11 @@ interface TopBarProps {
   isSpeaking: boolean;
   onCancelSpeech: () => void;
 
-  // Model
+  // Model + voice — surfaced together via preset chip strip.
   aiModel: string;
-  onModelChange: (model: string) => void;
+  ttsProvider: string;
+  ttsVoice: string;
+  onSelectPreset: (presetId: string) => void;
 
   // Settings
   onOpenSettings: () => void;
@@ -64,7 +66,9 @@ export const TopBar: React.FC<TopBarProps> = React.memo(({
   isSpeaking,
   onCancelSpeech,
   aiModel,
-  onModelChange,
+  ttsProvider,
+  ttsVoice,
+  onSelectPreset,
   onOpenSettings,
   onSaveSession,
   onOpenSessions,
@@ -91,7 +95,9 @@ export const TopBar: React.FC<TopBarProps> = React.memo(({
       isSpeaking={isSpeaking}
       onCancelSpeech={onCancelSpeech}
       aiModel={aiModel}
-      onModelChange={onModelChange}
+      ttsProvider={ttsProvider}
+      ttsVoice={ttsVoice}
+      onSelectPreset={onSelectPreset}
       onOpenSettings={onOpenSettings}
       onSaveSession={onSaveSession}
       onOpenSessions={onOpenSessions}

@@ -616,6 +616,8 @@ const Component: NextPage = (props: any) => {
     const handleTranscribeToggle = useCallback(() => orchestrator.setTranscribe(!useSmartChatsStore.getState().transcribe), [orchestrator.setTranscribe]);
     const handleCancelSpeech = useCallback(() => tiviRef.current.cancelSpeech(), []);
     const handleModelChange = useCallback((model: string) => store_updateSettings({ aiModel: model }), [store_updateSettings]);
+    const store_applyPreset = useSmartChatsStore(s => s.applyPreset);
+    const handleSelectPreset = useCallback((presetId: string) => store_applyPreset(presetId), [store_applyPreset]);
     const handleOpenSettings = useCallback(() => setSettingsOpen(true), []);
     const handleSaveSession = useCallback(async () => {
         await saveSession();
@@ -705,6 +707,12 @@ const Component: NextPage = (props: any) => {
         },
         settings: {
             aiModel: ai_model,
+            /** For PresetChipStrip's active-preset lookup. Provider is stored
+             *  in tivi settings as `ttsCloudProvider`; when the user has never
+             *  applied a preset, it may be undefined — default to 'openai' so
+             *  the "Legacy (OpenAI)" preset is the fallback match. */
+            ttsProvider: tiviSettings.ttsCloudProvider ?? 'openai',
+            ttsVoice: tiviSettings.openaiVoice ?? '',
             speechCooldownMs,
             playbackRate: tiviSettings.playbackRate,
             colorMode,
@@ -728,6 +736,7 @@ const Component: NextPage = (props: any) => {
             onTranscribeToggle: handleTranscribeToggle,
             onCancelSpeech: handleCancelSpeech,
             onModelChange: handleModelChange,
+            onSelectPreset: handleSelectPreset,
             onSpeechCooldownChange: handleSpeechCooldownChange,
             onPlaybackRateChange: handlePlaybackRateChange,
             onDesignPackChange: setDesignPack,
