@@ -168,6 +168,7 @@ const Component: NextPage = (props: any) => {
     // ── Store selectors ──
     const isAuthenticated = useSmartChatsStore(s => s.isAuthenticated);
     const ai_model = useSmartChatsStore(s => s.aiModel);
+    const store_applyPreset = useSmartChatsStore(s => s.applyPreset);
     const speechCooldownMs = useSmartChatsStore(s => s.speechCooldownMs);
     const sound_feedback_from_store = useSmartChatsStore(s => s.soundFeedback);
 
@@ -555,8 +556,16 @@ const Component: NextPage = (props: any) => {
             updateTiviSettings,
             setVizMotif,
             getCurrentMotif: () => motifId,
+            // Preset controls — the agent's set_preset tool routes through
+            // store.applyPreset for an atomic (model, provider, voice) swap.
+            applyPreset: store_applyPreset,
+            getCurrentPresetTriple: () => ({
+                aiModel: useSmartChatsStore.getState().aiModel,
+                ttsProvider: getTiviSettings().ttsCloudProvider ?? 'openai',
+                ttsVoice: getTiviSettings().openaiVoice ?? '',
+            }),
         };
-    }, [setDesignPack, setMode, toggleMode, colorMode, pairedPack.id, updateTiviSettings, setVizMotif, motifId]);
+    }, [setDesignPack, setMode, toggleMode, colorMode, pairedPack.id, updateTiviSettings, setVizMotif, motifId, store_applyPreset]);
 
     // ── Voice memo playback bridge for save_memo/play_memo functions ──
     useEffect(() => {
@@ -616,7 +625,6 @@ const Component: NextPage = (props: any) => {
     const handleTranscribeToggle = useCallback(() => orchestrator.setTranscribe(!useSmartChatsStore.getState().transcribe), [orchestrator.setTranscribe]);
     const handleCancelSpeech = useCallback(() => tiviRef.current.cancelSpeech(), []);
     const handleModelChange = useCallback((model: string) => store_updateSettings({ aiModel: model }), [store_updateSettings]);
-    const store_applyPreset = useSmartChatsStore(s => s.applyPreset);
     const handleSelectPreset = useCallback((presetId: string) => store_applyPreset(presetId), [store_applyPreset]);
     const handleOpenSettings = useCallback(() => setSettingsOpen(true), []);
     const handleSaveSession = useCallback(async () => {

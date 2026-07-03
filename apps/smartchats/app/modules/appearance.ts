@@ -1,11 +1,20 @@
 /**
- * Appearance module: set_design_pack, set_color_mode, set_voice
+ * Appearance module: set_design_pack, set_color_mode, set_preset, set_voice
  *
- * Gives the agent control over visual theme, dark/light mode, and TTS voice.
- * Uses window.__smartchats_appearance__ bridge exposed by app3.tsx.
+ * Gives the agent control over visual theme, dark/light mode, and its own
+ * TTS voice / model bundle. Uses window.__smartchats_appearance__ bridge
+ * exposed by app3.tsx.
+ *
+ * The voice/model API has two levels:
+ * - `set_preset(preset_id)` — the coarse handle. Atomically swaps the
+ *   whole (aiModel, ttsProvider, ttsVoice) triple. Prefer this when the
+ *   user says something like "sound snappier" / "be more accurate".
+ * - `set_voice(voice)` — the fine handle. Just changes the voice; the
+ *   model + provider follow the voice's catalog entry. Prefer this when
+ *   the user names a specific voice.
  */
 
-import { listAllVoices, findVoice } from 'cortex';
+import { listAllVoices, findVoice, AGENT_PRESETS } from 'cortex';
 
 declare var window: any;
 
@@ -25,20 +34,31 @@ const VOICE_LINE = AVAILABLE_VOICES
     .map((v) => `${v.id} [${v.provider}] (${v.description})`)
     .join(', ');
 
+const PRESET_IDS = AGENT_PRESETS.map((p) => p.id);
+const PRESET_LINE = AGENT_PRESETS
+    .map((p) => `${p.id} — ${p.description}`)
+    .join(' | ');
+
 const SYSTEM_MSG = `
 ## Appearance & Voice
 
-You can change the app's visual theme, dark/light mode, and your own speaking voice.
+You can change the app's visual theme, dark/light mode, and your own
+speaking voice / underlying model bundle.
 
 Available design packs: ${DESIGN_PACK_IDS.join(', ')}
 Available viz motifs: ${VIZ_MOTIF_IDS.join(', ')} (classic = standard charts, glass = frosted bars with blur, minimal = stripped-down scientific, retro = pixel/dot-matrix)
-Available voices: ${VOICE_LINE}
+Available presets (atomic model + voice bundles): ${PRESET_LINE}
+Available voices (fine-grained, changes voice only): ${VOICE_LINE}
 Color modes: dark, light
 
 Design packs control colors and tokens. Viz motifs control chart appearance/structure. They are independent — change either without affecting the other.
 
+For voice/model changes, prefer set_preset when the user's ask is about
+overall behavior ("be snappier", "be more accurate", "spend less"); use
+set_voice when the user names a specific voice.
+
 Use these when the user asks to change the look, theme, vibe, aesthetic, voice, or sound of the app.
-You can also proactively suggest a theme or voice change when it fits the conversation.
+You can also proactively suggest a theme, voice, or preset change when it fits the conversation.
 `;
 
 export function createAppearanceModule() {
@@ -105,7 +125,39 @@ export function createAppearanceModule() {
             },
             {
                 enabled: true,
-                description: `Change the TTS voice used when speaking to the user.`,
+                description: `Atomically switch the (LLM model, TTS provider, TTS voice) bundle to a named preset from AGENT_PRESETS. Prefer this over set_voice when the user's ask is about overall behavior ("snappier", "more accurate", "cheaper").`,
+                name: 'set_preset',
+                parameters: { preset_id: 'string' },
+                fn: async (ops: any) => {
+                    const { log } = ops.util;
+                    const { preset_id } = ops.params;
+
+                    const preset = AGENT_PRESETS.find((p) => p.id === preset_id);
+                    if (!preset) {
+                        return { error: `Invalid preset_id. Must be one of: ${PRESET_IDS.join(', ')}` };
+                    }
+
+                    log(`Applying preset: ${preset.id} (model=${preset.aiModel}, voice=${preset.ttsVoice} [${preset.ttsProvider}])`);
+                    const bridge = window?.__smartchats_appearance__;
+                    if (!bridge?.applyPreset) {
+                        return { error: 'Appearance bridge not available (applyPreset missing)' };
+                    }
+
+                    bridge.applyPreset(preset.id);
+                    return {
+                        success: true,
+                        preset_id: preset.id,
+                        ai_model: preset.aiModel,
+                        tts_provider: preset.ttsProvider,
+                        tts_voice: preset.ttsVoice,
+                        message: `Preset changed to ${preset.name}: ${preset.description}`,
+                    };
+                },
+                return_type: 'object',
+            },
+            {
+                enabled: true,
+                description: `Change the TTS voice used when speaking. Provider is inferred from the voice's catalog entry — Azure voice ids route to Azure automatically. Fine-grained; for overall behavior use set_preset.`,
                 name: 'set_voice',
                 parameters: { voice: 'string' },
                 fn: async (ops: any) => {
@@ -123,11 +175,20 @@ export function createAppearanceModule() {
                         return { error: 'Appearance bridge not available' };
                     }
 
-                    // NOTE: openaiVoice is the legacy tivi field name. Step 3
-                    // of the preset refactor introduces provider-aware voice
-                    // routing; until then set_voice still targets openaiVoice.
-                    bridge.updateTiviSettings({ openaiVoice: voice });
-                    return { success: true, voice, provider: voiceInfo.provider, description: voiceInfo.description, message: `Voice changed to ${voice}` };
+                    // Also update the routing provider so the cloud TTS layer
+                    // dispatches to the right adapter. openaiVoice remains the
+                    // legacy field name — the value is provider-agnostic.
+                    bridge.updateTiviSettings({
+                        openaiVoice: voice,
+                        ttsCloudProvider: voiceInfo.provider,
+                    });
+                    return {
+                        success: true,
+                        voice,
+                        provider: voiceInfo.provider,
+                        description: voiceInfo.description,
+                        message: `Voice changed to ${voice} (${voiceInfo.provider})`,
+                    };
                 },
                 return_type: 'object',
             },
