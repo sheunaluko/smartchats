@@ -8,7 +8,7 @@ export const appLifecycleFlow = defineWorkflow({
   steps: [
     // ── Setup ──
     { waitFor: 'state.agent !== null && state.aiModel !== ""', timeout: 10000 },
-    { action: 'updateSettings', args: [{ aiModel: 'gpt-5.2' }], wait: 500 },
+    { action: 'updateSettings', args: [{ aiModel: 'grok-4.20-0309-non-reasoning' }], wait: 500 },
     { action: 'saveSettings', args: [], timeout: 10000, wait: 500 },
     { waitFor: 'state.agent !== null && !state.llmRunning && state.settingsLoaded', timeout: 15000 },
     { action: 'clearChat', args: [], wait: 500 },

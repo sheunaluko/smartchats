@@ -7,13 +7,13 @@ import { defineWorkflow } from 'simi';
  * Two things it guarantees:
  *   1. Onboarding is marked `skipped` so the agent doesn't fire the explainer
  *      on first turn.
- *   2. The active model is pinned to `gpt-5.2` so tests don't inherit a model
+ *   2. The active model is pinned to `grok-4.20-0309-non-reasoning` so tests don't inherit a model
  *      from a previous run (Playwright's persistent profile keeps localStorage
  *      across tests — otherwise a prior `model_switch_flow` run can leave
  *      Opus/Gemini active, yielding provider-specific response quirks).
  *
  * Idempotent: onboarding action short-circuits when already skipped; model
- * update is a no-op when already gpt-5.2.
+ * update is a no-op when already grok-4.20-0309-non-reasoning.
  */
 export const completeOnboardingFlow = defineWorkflow({
   id: 'complete_onboarding',
@@ -30,8 +30,8 @@ export const completeOnboardingFlow = defineWorkflow({
     { action: 'completeOnboardingForTests', args: [], timeout: 30000 },
     { waitFor: 'state.onboardingTestComplete === true', timeout: 5000 },
     // Reset to baseline model so tests don't inherit prior-run state.
-    { action: 'updateSettings', args: [{ aiModel: 'gpt-5.2' }], wait: 200 },
+    { action: 'updateSettings', args: [{ aiModel: 'grok-4.20-0309-non-reasoning' }], wait: 200 },
     { action: 'saveSettings', args: [], timeout: 10000, wait: 200 },
-    { waitFor: 'state.aiModel === "gpt-5.2" && !state.llmRunning', timeout: 10000 },
+    { waitFor: 'state.aiModel === "grok-4.20-0309-non-reasoning" && !state.llmRunning', timeout: 10000 },
   ],
 });

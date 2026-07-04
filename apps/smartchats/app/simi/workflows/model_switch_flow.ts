@@ -11,7 +11,9 @@ export const modelSwitchFlow = defineWorkflow({
     // Wait for initialization
     { waitFor: 'state.agent !== null && state.aiModel !== ""', timeout: 10000 },
 
-    // ── Round 1: OpenAI (gpt-5.2) — cheapest, run first to conserve credits ──
+    // ── Round 1: OpenAI (gpt-5.2) — represents the OpenAI provider for the
+    //     cross-provider cycling test. Not the cheapest OpenAI model at
+    //     $1.75/$14 per M; kept for continuity with billing-models.spec.ts. ──
     { action: 'updateSettings', args: [{ aiModel: 'gpt-5.2' }], wait: 500 },
     { action: 'saveSettings', args: [], timeout: 10000, wait: 500 },
     { waitFor: 'state.agent !== null && !state.llmRunning && state.settingsLoaded', timeout: 15000 },
