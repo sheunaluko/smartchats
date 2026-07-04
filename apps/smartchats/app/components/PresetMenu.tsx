@@ -88,9 +88,29 @@ export const PresetMenu: React.FC<PresetMenuProps> = React.memo(({
     const triggerLabel = active?.name ?? 'Custom';
 
     const capabilitiesReport = useCapabilitiesStore((s) => s.report);
-    // Per-row availability lookups for the Model + Voice columns only.
-    // Presets are intentionally never grayed out — see the Presets column
-    // comment below for the rationale.
+    // Per-row availability lookups. Presets gray out when either provider
+    // (LLM or TTS) they'd apply isn't available. Custom is intentionally
+    // never grayed — it's a derived-state indicator, not an applier.
+    const presetLockInfo = useMemo(() => {
+        const out: Record<string, { locked: boolean; reason: string | null }> = {};
+        for (const p of AGENT_PRESETS) {
+            const info = MODEL_REGISTRY[p.aiModel];
+            const modelOk = info ? isModelAvailable(capabilitiesReport, info.provider) : true;
+            const voiceOk = isTtsProviderAvailable(capabilitiesReport, p.ttsProvider);
+            if (modelOk && voiceOk) {
+                out[p.id] = { locked: false, reason: null };
+            } else {
+                const missing = !modelOk
+                    ? missingProviderInfo(capabilitiesReport, 'llm', info?.provider ?? '')
+                    : missingProviderInfo(capabilitiesReport, 'tts', p.ttsProvider);
+                out[p.id] = {
+                    locked: true,
+                    reason: missing?.hint ?? 'Provider not configured.',
+                };
+            }
+        }
+        return out;
+    }, [capabilitiesReport]);
     const modelLockInfo = useCallback((mid: string) => {
         const info = MODEL_REGISTRY[mid];
         if (!info) return { locked: false, reason: null };
@@ -218,21 +238,25 @@ export const PresetMenu: React.FC<PresetMenuProps> = React.memo(({
                 >
                     <div className="grid grid-cols-3 divide-x divide-[var(--sc-separator)]">
                         {/* ── Presets column ─────────────────────────── */}
-                        {/* Presets never lock — clicking a preset whose
-                             providers aren't fully configured still applies
-                             the triple; the LLM + Voice columns below then
-                             show the locked selection with tooltip guidance. */}
+                        {/* Non-Custom preset rows lock when either of the
+                             preset's provider axes is missing. Custom is
+                             exempt — it's an indicator, not an applier. */}
                         <MenuColumn heading="Presets">
-                            {AGENT_PRESETS.map((p) => (
-                                <MenuItem
-                                    key={p.id}
-                                    label={p.name}
-                                    detail={p.description}
-                                    selected={active?.id === p.id}
-                                    onClick={() => handlePickPreset(p.id)}
-                                    disabled={disabled}
-                                />
-                            ))}
+                            {AGENT_PRESETS.map((p) => {
+                                const lock = presetLockInfo[p.id];
+                                return (
+                                    <MenuItem
+                                        key={p.id}
+                                        label={p.name}
+                                        detail={p.description}
+                                        selected={active?.id === p.id}
+                                        onClick={() => handlePickPreset(p.id)}
+                                        disabled={disabled}
+                                        locked={lock?.locked}
+                                        lockReason={lock?.reason ?? undefined}
+                                    />
+                                );
+                            })}
                             {/* Custom is a derived state indicator, not an
                                 applier — no click action, but rendered like
                                 a regular row so it doesn't read as disabled. */}
