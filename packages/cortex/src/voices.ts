@@ -72,7 +72,21 @@ export interface VoiceInfo {
  * fires the full TTS pipeline. Azure voices don't have ack caches
  * yet — set to `false` for now.
  */
+// Object.keys order determines display order in the client (VoiceSelector
+// + PresetMenu iterate via Object.keys). Azure is listed first so users
+// see the productionized default provider (Azure Ava = 'quality' + 'snappy')
+// at the top of the Voice column; OpenAI is the legacy fallback below.
 export const VOICE_CATALOG: Record<TTSProvider, VoiceInfo[]> = {
+    azure: [
+        { id: 'en-US-AvaMultilingualNeural',    displayName: 'Ava',    description: 'Warm, multilingual — voicebench favorite',       provider: 'azure', tags: ['female', 'multilingual', 'warm'],       hasAckCache: false },
+        { id: 'en-US-AndrewMultilingualNeural', displayName: 'Andrew', description: 'Confident, multilingual',                        provider: 'azure', tags: ['male', 'multilingual', 'confident'],    hasAckCache: false },
+        { id: 'en-US-EmmaMultilingualNeural',   displayName: 'Emma',   description: 'Friendly, multilingual',                         provider: 'azure', tags: ['female', 'multilingual', 'friendly'],   hasAckCache: false },
+        { id: 'en-US-BrianMultilingualNeural',  displayName: 'Brian',  description: 'Natural, multilingual',                          provider: 'azure', tags: ['male', 'multilingual', 'natural'],      hasAckCache: false },
+        { id: 'en-US-JennyNeural',              displayName: 'Jenny',  description: 'Professional, neutral',                          provider: 'azure', tags: ['female', 'professional'],              hasAckCache: false },
+        { id: 'en-US-GuyNeural',                displayName: 'Guy',    description: 'Friendly, neutral',                              provider: 'azure', tags: ['male', 'friendly'],                    hasAckCache: false },
+        { id: 'en-US-AriaNeural',               displayName: 'Aria',   description: 'Warm, articulate',                               provider: 'azure', tags: ['female', 'warm', 'articulate'],        hasAckCache: false },
+        { id: 'en-US-DavisNeural',              displayName: 'Davis',  description: 'Grounded, steady',                               provider: 'azure', tags: ['male', 'steady'],                      hasAckCache: false },
+    ],
     openai: [
         { id: 'alloy',   displayName: 'Alloy',   description: 'Neutral, balanced',        provider: 'openai', tags: ['neutral'],                     hasAckCache: true },
         { id: 'ash',     displayName: 'Ash',     description: 'Calm, measured',           provider: 'openai', tags: ['calm'],                        hasAckCache: false },
@@ -87,16 +101,6 @@ export const VOICE_CATALOG: Record<TTSProvider, VoiceInfo[]> = {
         { id: 'verse',   displayName: 'Verse',   description: 'Poetic, expressive',       provider: 'openai', tags: ['expressive'],                  hasAckCache: false },
         { id: 'marin',   displayName: 'Marin',   description: 'Bright, cheerful',         provider: 'openai', tags: ['bright', 'cheerful'],          hasAckCache: false },
         { id: 'cedar',   displayName: 'Cedar',   description: 'Grounded, natural',        provider: 'openai', tags: ['natural'],                     hasAckCache: false },
-    ],
-    azure: [
-        { id: 'en-US-AvaMultilingualNeural',    displayName: 'Ava',    description: 'Warm, multilingual — voicebench favorite',       provider: 'azure', tags: ['female', 'multilingual', 'warm'],       hasAckCache: false },
-        { id: 'en-US-AndrewMultilingualNeural', displayName: 'Andrew', description: 'Confident, multilingual',                        provider: 'azure', tags: ['male', 'multilingual', 'confident'],    hasAckCache: false },
-        { id: 'en-US-EmmaMultilingualNeural',   displayName: 'Emma',   description: 'Friendly, multilingual',                         provider: 'azure', tags: ['female', 'multilingual', 'friendly'],   hasAckCache: false },
-        { id: 'en-US-BrianMultilingualNeural',  displayName: 'Brian',  description: 'Natural, multilingual',                          provider: 'azure', tags: ['male', 'multilingual', 'natural'],      hasAckCache: false },
-        { id: 'en-US-JennyNeural',              displayName: 'Jenny',  description: 'Professional, neutral',                          provider: 'azure', tags: ['female', 'professional'],              hasAckCache: false },
-        { id: 'en-US-GuyNeural',                displayName: 'Guy',    description: 'Friendly, neutral',                              provider: 'azure', tags: ['male', 'friendly'],                    hasAckCache: false },
-        { id: 'en-US-AriaNeural',               displayName: 'Aria',   description: 'Warm, articulate',                               provider: 'azure', tags: ['female', 'warm', 'articulate'],        hasAckCache: false },
-        { id: 'en-US-DavisNeural',              displayName: 'Davis',  description: 'Grounded, steady',                               provider: 'azure', tags: ['male', 'steady'],                      hasAckCache: false },
     ],
 };
 

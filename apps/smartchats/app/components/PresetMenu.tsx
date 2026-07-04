@@ -88,29 +88,9 @@ export const PresetMenu: React.FC<PresetMenuProps> = React.memo(({
     const triggerLabel = active?.name ?? 'Custom';
 
     const capabilitiesReport = useCapabilitiesStore((s) => s.report);
-    // Per-row availability lookups. These are pure — safe to recompute on
-    // every render since the source arrays are small (4 presets, ~40 models
-    // and voices combined).
-    const presetLockInfo = useMemo(() => {
-        const out: Record<string, { locked: boolean; reason: string | null }> = {};
-        for (const p of AGENT_PRESETS) {
-            const info = MODEL_REGISTRY[p.aiModel];
-            const modelOk = info ? isModelAvailable(capabilitiesReport, info.provider) : true;
-            const voiceOk = isTtsProviderAvailable(capabilitiesReport, p.ttsProvider);
-            if (modelOk && voiceOk) {
-                out[p.id] = { locked: false, reason: null };
-            } else {
-                const missing = !modelOk
-                    ? missingProviderInfo(capabilitiesReport, 'llm', info?.provider ?? '')
-                    : missingProviderInfo(capabilitiesReport, 'tts', p.ttsProvider);
-                out[p.id] = {
-                    locked: true,
-                    reason: missing?.hint ?? 'Provider not configured.',
-                };
-            }
-        }
-        return out;
-    }, [capabilitiesReport]);
+    // Per-row availability lookups for the Model + Voice columns only.
+    // Presets are intentionally never grayed out — see the Presets column
+    // comment below for the rationale.
     const modelLockInfo = useCallback((mid: string) => {
         const info = MODEL_REGISTRY[mid];
         if (!info) return { locked: false, reason: null };
@@ -238,30 +218,31 @@ export const PresetMenu: React.FC<PresetMenuProps> = React.memo(({
                 >
                     <div className="grid grid-cols-3 divide-x divide-[var(--sc-separator)]">
                         {/* ── Presets column ─────────────────────────── */}
+                        {/* Presets never lock — clicking a preset whose
+                             providers aren't fully configured still applies
+                             the triple; the LLM + Voice columns below then
+                             show the locked selection with tooltip guidance. */}
                         <MenuColumn heading="Presets">
-                            {AGENT_PRESETS.map((p) => {
-                                const lock = presetLockInfo[p.id];
-                                return (
-                                    <MenuItem
-                                        key={p.id}
-                                        label={p.name}
-                                        detail={p.description}
-                                        selected={active?.id === p.id}
-                                        onClick={() => handlePickPreset(p.id)}
-                                        disabled={disabled}
-                                        locked={lock?.locked}
-                                        lockReason={lock?.reason ?? undefined}
-                                    />
-                                );
-                            })}
+                            {AGENT_PRESETS.map((p) => (
+                                <MenuItem
+                                    key={p.id}
+                                    label={p.name}
+                                    detail={p.description}
+                                    selected={active?.id === p.id}
+                                    onClick={() => handlePickPreset(p.id)}
+                                    disabled={disabled}
+                                />
+                            ))}
+                            {/* Custom is a derived state indicator, not an
+                                applier — no click action, but rendered like
+                                a regular row so it doesn't read as disabled. */}
                             <MenuItem
                                 key="__custom"
                                 label="Custom"
-                                detail="Set model + voice individually below."
+                                detail="Model + voice chosen individually."
                                 selected={active === null}
-                                onClick={() => { /* no-op — Custom is a derived state */ }}
-                                disabled
-                                subdued
+                                onClick={() => { /* no-op — derived state */ }}
+                                indicator
                             />
                         </MenuColumn>
 
@@ -339,15 +320,17 @@ type MenuItemProps = {
     selected: boolean;
     onClick: () => void;
     disabled?: boolean;
-    /** Muted rendering — for the Custom pseudo-row. */
-    subdued?: boolean;
     /** Provider not configured — gray out + block click + show reason tooltip. */
     locked?: boolean;
     /** Tooltip text shown on hover of a locked row (title attribute — used
      *  since Radix Tooltip on every row would be heavy). */
     lockReason?: string;
+    /** Non-actionable status row (e.g. Custom). Rendered like a regular row —
+     *  full text color, checkmark on select — but with no hover state or
+     *  pointer cursor, and clicks are a silent no-op. */
+    indicator?: boolean;
 };
-function MenuItem({ label, detail, selected, onClick, disabled, subdued, locked, lockReason }: MenuItemProps) {
+function MenuItem({ label, detail, selected, onClick, disabled, locked, lockReason, indicator }: MenuItemProps) {
     const effectivelyDisabled = disabled || locked;
     return (
         <button
@@ -355,18 +338,20 @@ function MenuItem({ label, detail, selected, onClick, disabled, subdued, locked,
             role="menuitemradio"
             aria-checked={selected}
             aria-disabled={effectivelyDisabled}
-            onClick={locked ? undefined : onClick}
+            onClick={locked || indicator ? undefined : onClick}
             disabled={disabled}
             title={locked ? lockReason : undefined}
             className={`
                 w-full text-left px-3 py-1.5 text-xs flex items-start gap-2
                 ${selected
                     ? 'bg-[color-mix(in_srgb,var(--sc-primary)_12%,transparent)] text-sc-primary'
-                    : subdued || locked
+                    : locked
                         ? 'text-sc-text-muted'
-                        : 'text-sc-text hover:bg-[var(--sc-surface-secondary)]'}
+                        : indicator
+                            ? 'text-sc-text'
+                            : 'text-sc-text hover:bg-[var(--sc-surface-secondary)]'}
                 ${locked ? 'opacity-55' : ''}
-                ${effectivelyDisabled ? 'cursor-not-allowed' : 'cursor-pointer'}
+                ${indicator ? 'cursor-default' : effectivelyDisabled ? 'cursor-not-allowed' : 'cursor-pointer'}
             `}
         >
             <span className="mt-0.5 shrink-0 w-3">
