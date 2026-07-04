@@ -5,6 +5,15 @@ import { getBackend } from '@/lib/backend';
 import { toast_toast } from '@/components/Toast';
 import { billingWorkflows } from '../../app/simi/billing_workflows';
 
+/** Fire-and-forget capabilities refresh; imported lazily to avoid a
+ *  circular dep between billing_store and capabilities_store. */
+function refreshCapabilities(): void {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    import('./capabilities_store').then((m) => {
+        m.useCapabilitiesStore.getState().refresh();
+    }).catch(() => { /* dev-only edge case */ });
+}
+
 type Tier = 'free' | 'intro' | 'basic' | 'pro' | 'max';
 
 interface BYOKeys {
@@ -280,6 +289,10 @@ export const useBillingStore = createInsightStore<BillingState>({
         const configured = await getBackend().keys.getConfigured();
         set({ byoKeys: configured as any });
       }
+      // Saving a key may unlock providers — re-probe so the PresetMenu
+      // un-grays without the user having to reload. Fire-and-forget.
+      // Imported lazily to avoid a circular store dep.
+      void refreshCapabilities();
     },
 
     deleteBYOKey: async (provider) => {
@@ -290,6 +303,7 @@ export const useBillingStore = createInsightStore<BillingState>({
         const configured = await getBackend().keys.getConfigured();
         set({ byoKeys: configured as any });
       }
+      void refreshCapabilities();
     },
   }),
 });

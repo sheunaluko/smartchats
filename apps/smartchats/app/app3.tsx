@@ -57,6 +57,7 @@ import { useAuth } from '@/lib/auth';
 import { useInsights } from '@/context/InsightsContext';
 import { useSmartChatsStore } from './store/useSmartChatsStore';
 import { useBillingStore } from '@/stores/billing_store';
+import { useCapabilitiesStore } from '@/stores/capabilities_store';
 import { toast_toast } from '@/components/Toast';
 
 import * as sandbox from "./src/sandbox"
@@ -125,6 +126,9 @@ const Component: NextPage = (props: any) => {
             useBillingStore.getState().fetchBalance();
         }
         useSmartChatsStore.getState().checkAuth();
+        // Fire the boot-time capabilities probe. Optimistic report is
+        // rendered until this resolves, so no PresetMenu flash.
+        useCapabilitiesStore.getState().fetchOnce();
     }, [authUser, backendCaps.billing]);
 
     // ── UI-only state ──

@@ -13,7 +13,7 @@
 
 import type { Router, Request, Response } from 'express';
 import express from 'express';
-import type { LLMProvider, BYOKeyPreviews } from 'smartchats-backend';
+import type { LLMProvider, BYOKeyPreviews, ProviderAvailability, ProvidersReport } from 'smartchats-backend';
 import { LLM_PROVIDERS } from 'smartchats-backend';
 import { queries } from 'smartchats-database';
 import type { ServerConfig } from '../config.js';
@@ -58,8 +58,99 @@ export async function resolveProviderKey(
     return null;
 }
 
+// ── Provider availability probe (feeds client PresetMenu gray-out) ─────
+//
+// For each provider we surface: (a) is a key resolvable right now, (b)
+// where from (env vs BYO DB), (c) the primary env var name + a
+// user-facing hint so the client can show "how do I enable this?"
+// tooltips without hardcoding paths.
+
+interface ProviderDescriptor {
+    /** Primary env var name — shown in the tooltip. */
+    envVar: string;
+    /** Hint text — references the smartchats CLI, which is the intended
+     *  configuration path for local users. */
+    hint: string;
+}
+
+const PROVIDER_DESCRIPTORS: Record<LLMProvider, ProviderDescriptor> = {
+    openai: {
+        envVar: 'OPENAI_API_KEY',
+        hint: "Run `smartchats config set OPENAI_API_KEY=…` or add via Settings → BYO Keys.",
+    },
+    anthropic: {
+        envVar: 'ANTHROPIC_API_KEY',
+        hint: "Run `smartchats config set ANTHROPIC_API_KEY=…` or add via Settings → BYO Keys.",
+    },
+    google: {
+        envVar: 'GEMINI_API_KEY',
+        hint: "Run `smartchats config set GEMINI_API_KEY=…` (or GOOGLE_API_KEY) or add via Settings → BYO Keys.",
+    },
+    xai: {
+        envVar: 'XAI_API_KEY',
+        hint: "Run `smartchats config set XAI_API_KEY=…` or add via Settings → BYO Keys.",
+    },
+    azure: {
+        envVar: 'AZURE_SPEECH_KEY',
+        hint: "Set AZURE_SPEECH_KEY + AZURE_SPEECH_REGION via `smartchats config set …`.",
+    },
+};
+
+/** Which providers can serve LLM requests. Excludes 'azure' — Azure is
+ *  TTS-only in this stack. */
+const LLM_KEY_PROVIDERS: readonly LLMProvider[] = ['openai', 'anthropic', 'google', 'xai'] as const;
+/** Which providers can serve TTS requests. */
+const TTS_KEY_PROVIDERS: readonly LLMProvider[] = ['openai', 'azure'] as const;
+
+async function probeProvider(
+    config: ServerConfig,
+    provider: LLMProvider,
+): Promise<ProviderAvailability> {
+    const desc = PROVIDER_DESCRIPTORS[provider];
+    const resolved = await resolveProviderKey(config, provider);
+    if (!resolved) {
+        return { provider, available: false, envVar: desc.envVar, hint: desc.hint };
+    }
+    // Azure additionally requires a region — a key alone isn't enough.
+    if (provider === 'azure' && !config.azure?.region) {
+        return {
+            provider,
+            available: false,
+            envVar: desc.envVar,
+            hint: 'AZURE_SPEECH_KEY is set but AZURE_SPEECH_REGION is missing.',
+        };
+    }
+    return {
+        provider,
+        available: true,
+        source: resolved.source === 'env' ? 'env' : 'byo',
+        envVar: desc.envVar,
+        hint: desc.hint,
+    };
+}
+
+export async function getProvidersReport(config: ServerConfig): Promise<ProvidersReport> {
+    const [llm, tts] = await Promise.all([
+        Promise.all(LLM_KEY_PROVIDERS.map((p) => probeProvider(config, p))),
+        Promise.all(TTS_KEY_PROVIDERS.map((p) => probeProvider(config, p))),
+    ]);
+    return { llm, tts };
+}
+
 export function keysRoutes(config: ServerConfig): Router {
     const r = express.Router();
+
+    // GET /keys/providers → runtime availability per LLM / TTS provider.
+    // Client PresetMenu calls this on boot + after every BYO save.
+    r.get('/providers', async (_req: Request, res: Response) => {
+        try {
+            const report = await getProvidersReport(config);
+            res.json(report);
+        } catch (err) {
+            routeLog.error(`/providers failed: ${(err as Error).message}`);
+            res.status(500).json({ error: (err as Error).message });
+        }
+    });
 
     // GET /keys → masked preview of USER-configured (DB) keys only.
     // Env vars participate in resolveProviderKey for LLM calls but are NOT

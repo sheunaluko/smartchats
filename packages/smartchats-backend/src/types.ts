@@ -57,6 +57,37 @@ export interface SmartChatsBackend {
 
   /** Aggregate health probe — feeds CI + onboarding diagnostics. */
   health(): Promise<HealthReport>;
+
+  /** Which LLM / TTS providers can actually serve requests given the
+   *  current server env + BYO DB state. Used by the client's PresetMenu
+   *  to gray out unavailable models / voices. Cheap enough to call on
+   *  boot + after every BYO save. */
+  providers(): Promise<ProvidersReport>;
+}
+
+// ============================================================================
+// Provider availability (runtime state — separate from static capabilities)
+// ============================================================================
+
+export interface ProviderAvailability {
+  provider: LLMProvider;
+  /** True iff a key resolves via env or BYO DB. */
+  available: boolean;
+  /** Where the resolved key came from — omitted when unavailable. */
+  source?: 'env' | 'byo';
+  /** The primary env var name for this provider (used in tooltips). */
+  envVar: string;
+  /** UI-facing hint for how to configure this provider — e.g.
+   *  `Run 'smartchats config set OPENAI_API_KEY=…' or set BYO in Settings.` */
+  hint: string;
+}
+
+export interface ProvidersReport {
+  /** LLM providers — subset of LLM_PROVIDERS that can serve chat requests. */
+  llm: ProviderAvailability[];
+  /** TTS providers — subset that can serve speech. Note that TTS 'openai'
+   *  uses the same key as LLM 'openai'; 'azure' is TTS-only. */
+  tts: ProviderAvailability[];
 }
 
 export interface HealthReport {

@@ -69,6 +69,7 @@ export {
     getPreset,
     getPresetOrDefault,
     findMatchingPreset,
+    resolvePresetIdForAvailability,
 } from './presets.js'
 export type { AgentPreset, TTSProvider } from './presets.js'
 

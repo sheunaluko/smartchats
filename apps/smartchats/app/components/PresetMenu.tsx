@@ -27,7 +27,7 @@
 
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronDown, Check } from 'lucide-react';
+import { ChevronDown, Check, Lock } from 'lucide-react';
 import {
     AGENT_PRESETS,
     findMatchingPreset,
@@ -36,6 +36,12 @@ import {
     type TTSProvider,
     type VoiceInfo,
 } from 'cortex';
+import {
+    useCapabilitiesStore,
+    isModelAvailable,
+    isTtsProviderAvailable,
+    missingProviderInfo,
+} from '@/stores/capabilities_store';
 
 type PresetMenuProps = {
     aiModel: string;
@@ -80,6 +86,45 @@ export const PresetMenu: React.FC<PresetMenuProps> = React.memo(({
         [aiModel, ttsProvider, ttsVoice],
     );
     const triggerLabel = active?.name ?? 'Custom';
+
+    const capabilitiesReport = useCapabilitiesStore((s) => s.report);
+    // Per-row availability lookups. These are pure — safe to recompute on
+    // every render since the source arrays are small (4 presets, ~40 models
+    // and voices combined).
+    const presetLockInfo = useMemo(() => {
+        const out: Record<string, { locked: boolean; reason: string | null }> = {};
+        for (const p of AGENT_PRESETS) {
+            const info = MODEL_REGISTRY[p.aiModel];
+            const modelOk = info ? isModelAvailable(capabilitiesReport, info.provider) : true;
+            const voiceOk = isTtsProviderAvailable(capabilitiesReport, p.ttsProvider);
+            if (modelOk && voiceOk) {
+                out[p.id] = { locked: false, reason: null };
+            } else {
+                const missing = !modelOk
+                    ? missingProviderInfo(capabilitiesReport, 'llm', info?.provider ?? '')
+                    : missingProviderInfo(capabilitiesReport, 'tts', p.ttsProvider);
+                out[p.id] = {
+                    locked: true,
+                    reason: missing?.hint ?? 'Provider not configured.',
+                };
+            }
+        }
+        return out;
+    }, [capabilitiesReport]);
+    const modelLockInfo = useCallback((mid: string) => {
+        const info = MODEL_REGISTRY[mid];
+        if (!info) return { locked: false, reason: null };
+        const ok = isModelAvailable(capabilitiesReport, info.provider);
+        if (ok) return { locked: false, reason: null };
+        const missing = missingProviderInfo(capabilitiesReport, 'llm', info.provider);
+        return { locked: true, reason: missing?.hint ?? 'Provider not configured.' };
+    }, [capabilitiesReport]);
+    const voiceLockInfo = useCallback((v: VoiceInfo) => {
+        const ok = isTtsProviderAvailable(capabilitiesReport, v.provider);
+        if (ok) return { locked: false, reason: null };
+        const missing = missingProviderInfo(capabilitiesReport, 'tts', v.provider);
+        return { locked: true, reason: missing?.hint ?? 'Provider not configured.' };
+    }, [capabilitiesReport]);
 
     // Compute popup position: centered horizontally on the trigger button
     // (so the middle column lines up with the trigger), placed just below
@@ -194,16 +239,21 @@ export const PresetMenu: React.FC<PresetMenuProps> = React.memo(({
                     <div className="grid grid-cols-3 divide-x divide-[var(--sc-separator)]">
                         {/* ── Presets column ─────────────────────────── */}
                         <MenuColumn heading="Presets">
-                            {AGENT_PRESETS.map((p) => (
-                                <MenuItem
-                                    key={p.id}
-                                    label={p.name}
-                                    detail={p.description}
-                                    selected={active?.id === p.id}
-                                    onClick={() => handlePickPreset(p.id)}
-                                    disabled={disabled}
-                                />
-                            ))}
+                            {AGENT_PRESETS.map((p) => {
+                                const lock = presetLockInfo[p.id];
+                                return (
+                                    <MenuItem
+                                        key={p.id}
+                                        label={p.name}
+                                        detail={p.description}
+                                        selected={active?.id === p.id}
+                                        onClick={() => handlePickPreset(p.id)}
+                                        disabled={disabled}
+                                        locked={lock?.locked}
+                                        lockReason={lock?.reason ?? undefined}
+                                    />
+                                );
+                            })}
                             <MenuItem
                                 key="__custom"
                                 label="Custom"
@@ -219,6 +269,7 @@ export const PresetMenu: React.FC<PresetMenuProps> = React.memo(({
                         <MenuColumn heading="Model">
                             {MODEL_IDS.map((mid) => {
                                 const info = MODEL_REGISTRY[mid];
+                                const lock = modelLockInfo(mid);
                                 return (
                                     <MenuItem
                                         key={mid}
@@ -227,6 +278,8 @@ export const PresetMenu: React.FC<PresetMenuProps> = React.memo(({
                                         selected={aiModel === mid}
                                         onClick={() => handlePickModel(mid)}
                                         disabled={disabled}
+                                        locked={lock.locked}
+                                        lockReason={lock.reason ?? undefined}
                                     />
                                 );
                             })}
@@ -239,16 +292,21 @@ export const PresetMenu: React.FC<PresetMenuProps> = React.memo(({
                                     <div className="px-3 pt-2 pb-1 text-[0.65rem] uppercase tracking-wider text-sc-text-muted">
                                         {group.label}
                                     </div>
-                                    {group.voices.map((v) => (
-                                        <MenuItem
-                                            key={v.id}
-                                            label={v.displayName}
-                                            detail={v.description}
-                                            selected={ttsVoice === v.id}
-                                            onClick={() => handlePickVoice(v.id)}
-                                            disabled={disabled}
-                                        />
-                                    ))}
+                                    {group.voices.map((v) => {
+                                        const lock = voiceLockInfo(v);
+                                        return (
+                                            <MenuItem
+                                                key={v.id}
+                                                label={v.displayName}
+                                                detail={v.description}
+                                                selected={ttsVoice === v.id}
+                                                onClick={() => handlePickVoice(v.id)}
+                                                disabled={disabled}
+                                                locked={lock.locked}
+                                                lockReason={lock.reason ?? undefined}
+                                            />
+                                        );
+                                    })}
                                 </React.Fragment>
                             ))}
                         </MenuColumn>
@@ -283,27 +341,40 @@ type MenuItemProps = {
     disabled?: boolean;
     /** Muted rendering — for the Custom pseudo-row. */
     subdued?: boolean;
+    /** Provider not configured — gray out + block click + show reason tooltip. */
+    locked?: boolean;
+    /** Tooltip text shown on hover of a locked row (title attribute — used
+     *  since Radix Tooltip on every row would be heavy). */
+    lockReason?: string;
 };
-function MenuItem({ label, detail, selected, onClick, disabled, subdued }: MenuItemProps) {
+function MenuItem({ label, detail, selected, onClick, disabled, subdued, locked, lockReason }: MenuItemProps) {
+    const effectivelyDisabled = disabled || locked;
     return (
         <button
             type="button"
             role="menuitemradio"
             aria-checked={selected}
-            onClick={onClick}
+            aria-disabled={effectivelyDisabled}
+            onClick={locked ? undefined : onClick}
             disabled={disabled}
+            title={locked ? lockReason : undefined}
             className={`
                 w-full text-left px-3 py-1.5 text-xs flex items-start gap-2
                 ${selected
                     ? 'bg-[color-mix(in_srgb,var(--sc-primary)_12%,transparent)] text-sc-primary'
-                    : subdued
+                    : subdued || locked
                         ? 'text-sc-text-muted'
                         : 'text-sc-text hover:bg-[var(--sc-surface-secondary)]'}
-                ${disabled ? 'cursor-default' : 'cursor-pointer'}
+                ${locked ? 'opacity-55' : ''}
+                ${effectivelyDisabled ? 'cursor-not-allowed' : 'cursor-pointer'}
             `}
         >
             <span className="mt-0.5 shrink-0 w-3">
-                {selected && <Check size={12} />}
+                {selected
+                    ? <Check size={12} />
+                    : locked
+                        ? <Lock size={10} className="text-sc-text-muted" />
+                        : null}
             </span>
             <span className="flex-1 min-w-0">
                 <span className="block font-medium truncate">{label}</span>

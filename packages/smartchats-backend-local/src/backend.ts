@@ -20,6 +20,7 @@ import type {
     BillingAPI,
     ToolsAPI,
     InsightsAPI,
+    ProvidersReport,
 } from 'smartchats-backend';
 import { BackendError } from 'smartchats-backend';
 import { jsonRequest } from './http.js';
@@ -80,6 +81,10 @@ export class LocalBackend implements SmartChatsBackend {
         this.billing = createBillingAPI(opts);
         this.tools = createToolsAPI(opts);
         this.insights = createInsightsAPI(opts);
+    }
+
+    async providers(): Promise<ProvidersReport> {
+        return jsonRequest<ProvidersReport>(this.opts, '/keys/providers');
     }
 
     async health(): Promise<HealthReport> {

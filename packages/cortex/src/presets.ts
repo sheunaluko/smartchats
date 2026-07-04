@@ -24,6 +24,8 @@
  * union (and the registry's TtsProviderId in llm-service/tts_providers/index.ts)
  * together when promoting a new adapter.
  */
+import { MODEL_REGISTRY } from './model_registry.js';
+
 export type TTSProvider = 'openai' | 'azure';
 
 export interface AgentPreset {
@@ -88,8 +90,46 @@ export const AGENT_PRESETS: AgentPreset[] = [
 ];
 
 /** System default — applied to new installs + any settings load that
- *  encounters an unknown / missing preset id. */
-export const DEFAULT_PRESET_ID = 'snappy';
+ *  encounters an unknown / missing preset id.
+ *
+ *  This is the *symbolic* default; local mode may not have keys for
+ *  every provider the default preset needs. Callers should route through
+ *  `resolvePresetIdForAvailability(DEFAULT_PRESET_ID, isProviderAvailable)`
+ *  and use the returned id for the actual apply — that walks presets in
+ *  declaration order and picks the first whose (model provider, tts
+ *  provider) are both available. */
+export const DEFAULT_PRESET_ID = 'quality';
+
+/**
+ * Given the intended default preset id and a runtime availability
+ * predicate, return the id of the first preset whose model provider +
+ * TTS provider are both available. If the preferred id is available it's
+ * returned unchanged; otherwise falls back to the first available preset
+ * in AGENT_PRESETS declaration order; if none are available, returns
+ * the preferred id anyway (so the user sees a locked preset explaining
+ * the missing provider, not an empty state).
+ *
+ * `isProviderAvailable(scope, provider)` is scoped by axis:
+ *   - `('llm', <model.provider>)`  — MODEL_REGISTRY.provider string
+ *     (note: 'gemini' for Google models; callers should map to 'google'
+ *     if their availability data uses LLMProvider naming)
+ *   - `('tts', <preset.ttsProvider>)` — 'openai' | 'azure'
+ */
+export function resolvePresetIdForAvailability(
+    preferredId: string,
+    isProviderAvailable: (scope: 'llm' | 'tts', provider: string) => boolean,
+): string {
+    const modelProviderOf = (p: AgentPreset): string =>
+        MODEL_REGISTRY[p.aiModel]?.provider ?? p.aiModel;
+    const isPresetAvailable = (p: AgentPreset): boolean =>
+        isProviderAvailable('llm', modelProviderOf(p)) &&
+        isProviderAvailable('tts', p.ttsProvider);
+
+    const preferred = _byId[preferredId];
+    if (preferred && isPresetAvailable(preferred)) return preferredId;
+    const first = AGENT_PRESETS.find(isPresetAvailable);
+    return first?.id ?? preferredId;
+}
 
 const _byId: Record<string, AgentPreset> = Object.fromEntries(
     AGENT_PRESETS.map((p) => [p.id, p]),
