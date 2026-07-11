@@ -10,7 +10,7 @@
  */
 
 import { embed_vector, getBackend } from '@/lib/backend';
-import { queries } from 'smartchats-database';
+import { queries, stringifyRecordId, parseRecordIdArg } from 'smartchats-database';
 import { getStartupLoaders } from '../lib/background_loaders';
 
 /** Fetch init instructions — reusable by prefetch and module fn */
@@ -115,7 +115,7 @@ export function createInitializationModule() {
                     const rows = response.rows
                     log('Init instruction created')
                     return rows.length > 0
-                        ? { created: true, id: rows[0]?.id != null ? String(rows[0].id) : null, content: content.trim(), category: cat }
+                        ? { created: true, id: stringifyRecordId(rows[0]?.id), content: content.trim(), category: cat }
                         : { created: false, error: 'No result from DB' }
                 },
                 return_type: 'object'
@@ -134,11 +134,9 @@ export function createInitializationModule() {
                 },
                 fn: async (ops: any) => {
                     const { log } = ops.util
-                    const { id, content, category } = ops.params
-
-                    if (!id) {
-                        return { error: 'id is required' }
-                    }
+                    const { content, category } = ops.params
+                    const id = parseRecordIdArg(ops.params.id)
+                    if (!id) return { error: 'id must be a non-empty string' }
 
                     const patch: Record<string, unknown> = {}
                     let embedding: unknown | undefined
@@ -183,11 +181,8 @@ export function createInitializationModule() {
                 },
                 fn: async (ops: any) => {
                     const { log } = ops.util
-                    const { id } = ops.params
-
-                    if (!id) {
-                        return { error: 'id is required' }
-                    }
+                    const id = parseRecordIdArg(ops.params.id)
+                    if (!id) return { error: 'id must be a non-empty string' }
 
                     log(`Deleting init instruction: ${id}`)
                     await getBackend().data.query(queries.deleteInitInstruction(id))

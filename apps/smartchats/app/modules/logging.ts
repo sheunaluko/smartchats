@@ -20,7 +20,7 @@
  */
 
 import { embed_vector, getBackend } from '@/lib/backend';
-import { queries } from 'smartchats-database';
+import { queries, stringifyRecordId, parseRecordIdArg } from 'smartchats-database';
 import { getUserTimezone, nowEventTime, getCurrentLocalDate } from './system';
 import { getStartupLoaders } from '../lib/background_loaders';
 
@@ -160,7 +160,7 @@ export function createLoggingModule() {
                         // A new category may have been introduced; bust the
                         // log_categories cache so get_log_categories surfaces it.
                         getStartupLoaders()?.log_categories.reset()
-                        return { saved: true, id: rows[0]?.id != null ? String(rows[0].id) : null, category: cat }
+                        return { saved: true, id: stringifyRecordId(rows[0]?.id), category: cat }
                     }
                     return { saved: false, error: 'No result from DB' }
                 },
@@ -182,9 +182,9 @@ export function createLoggingModule() {
                 },
                 fn: async (ops: any) => {
                     const { log } = ops.util
-                    const { id, text, category, date, time } = ops.params
-
-                    if (!id) return { error: 'id is required' }
+                    const { text, category, date, time } = ops.params
+                    const id = parseRecordIdArg(ops.params.id)
+                    if (!id) return { error: 'id must be a non-empty string' }
 
                     const patch: {
                         content?: string
@@ -253,9 +253,8 @@ export function createLoggingModule() {
                 },
                 fn: async (ops: any) => {
                     const { log } = ops.util
-                    const { id } = ops.params
-
-                    if (!id) return { error: 'id is required' }
+                    const id = parseRecordIdArg(ops.params.id)
+                    if (!id) return { error: 'id must be a non-empty string' }
 
                     log(`delete_log: ${id}`)
                     const response = await getBackend().data.query(queries.deleteLog(id)) as any

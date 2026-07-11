@@ -29,7 +29,7 @@
 
 import { getUserTimezone, nowEventTime } from "./system"
 import { getBackend } from '@/lib/backend';
-import { queries } from 'smartchats-database';
+import { queries, stringifyRecordId, parseRecordIdArg } from 'smartchats-database';
 import { getStartupLoaders } from '../lib/background_loaders';
 
 // Event-time bundle helpers live in ./system (nowEventTime / eventTimeAt).
@@ -389,7 +389,7 @@ export function createTodosModule() {
                             // get_todos_context (and any UI that reads via the
                             // same path) sees the new row.
                             getStartupLoaders()?.todos_context.reset()
-                            return { saved: true, id: rows[0]?.id != null ? String(rows[0].id) : null, title: title.trim(), priority: priority || 'medium', due_date: dueTs, recurrence: recurrence || null }
+                            return { saved: true, id: stringifyRecordId(rows[0]?.id), title: title.trim(), priority: priority || 'medium', due_date: dueTs, recurrence: recurrence || null }
                         }
                         return { saved: false, error: 'No result from DB' }
                     } catch (error: any) {
@@ -415,9 +415,9 @@ export function createTodosModule() {
                 },
                 fn: async (ops: any) => {
                     const { log, event } = ops.util
-                    const { id, action, note, updates, new_due_date, new_recurrence } = ops.params
-
-                    if (!id) return { error: 'id is required' }
+                    const { action, note, updates, new_due_date, new_recurrence } = ops.params
+                    const id = parseRecordIdArg(ops.params.id)
+                    if (!id) return { error: 'id must be a non-empty string' }
                     if (!action) return { error: 'action is required' }
 
                     // Helper: invalidate the loader cache + refresh the todo

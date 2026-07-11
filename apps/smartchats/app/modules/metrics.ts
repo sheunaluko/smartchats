@@ -6,7 +6,7 @@
 
 import { getUserTimezone, eventTimeAt, getCurrentLocalDate } from "./system"
 import { getBackend } from '@/lib/backend';
-import { queries } from 'smartchats-database';
+import { queries, parseRecordIdArg } from 'smartchats-database';
 import type { MetricsQuerySpec, MetricsTimeFilterCtx } from 'smartchats-database';
 import { getStartupLoaders } from '../lib/background_loaders';
 
@@ -1216,9 +1216,9 @@ export function createMetricsModule() {
                 },
                 fn: async (ops: any) => {
                     const { log } = ops.util
-                    const { id, value, category, note, source_text } = ops.params
-
-                    if (!id) return { error: 'id is required' }
+                    const { value, category, note, source_text } = ops.params
+                    const id = parseRecordIdArg(ops.params.id)
+                    if (!id) return { error: 'id must be a non-empty string' }
 
                     const patch: { value?: number; category?: string; note?: string | null; source_text?: string } = {}
                     if (value !== undefined && value !== null) patch.value = Number(value)
@@ -1252,9 +1252,8 @@ export function createMetricsModule() {
                 },
                 fn: async (ops: any) => {
                     const { log } = ops.util
-                    const { id } = ops.params
-
-                    if (!id) return { error: 'id is required' }
+                    const id = parseRecordIdArg(ops.params.id)
+                    if (!id) return { error: 'id must be a non-empty string' }
 
                     log(`delete_metric: ${id}`)
                     const response = await getBackend().data.query(queries.deleteMetric(id)) as any

@@ -22,6 +22,9 @@
 // Wire types (vendor-neutral)
 export type { QuerySpec, AuditFields, EventTimeFields } from './types.js';
 
+// Record-id helpers used at the LLM tool-call boundary.
+export { stringifyRecordId, parseRecordIdArg } from './id.js';
+
 // Query builders (re-exported from ./queries for direct top-level access)
 export * from './queries/index.js';
 

@@ -15,7 +15,7 @@
  */
 
 import { embed_vector, getBackend } from '@/lib/backend';
-import { queries } from 'smartchats-database';
+import { queries, stringifyRecordId } from 'smartchats-database';
 import { nowEventTime } from './system';
 import { saveBlob, readBlob, getDeviceId } from '../lib/voice_memo_storage';
 import { get_audio_stream } from '@lab-components/tivi/lib/tsw/web_audio';
@@ -152,7 +152,7 @@ export function createVoiceMemosModule() {
                     )) as any;
 
                     const rows = response.rows;
-                    const memo_id = rows.length > 0 && rows[0]?.id != null ? String(rows[0].id) : null;
+                    const memo_id = rows.length > 0 ? stringifyRecordId(rows[0]?.id) : null;
 
                     feedback.success();
                     // addInsightEvent writes directly to insights_events. The
