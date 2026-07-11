@@ -127,7 +127,39 @@ payload: {
 }
 ```
 
-**Permissive at write, structured at read.** `kind` and `source` are both free-form strings — no enum, no coordination required to ship a new kind. `severity` IS a fixed enum (analyzer renders severity buckets consistently across kinds). No `status` field — issue events are point-in-time; handled-state lives in the triage layer (`data/triage/handled.json`) same as for the error analyzer.
+**Permissive at write, structured at read.** `kind` and `source` are both free-form strings — no enum, no coordination required to ship a new kind. `severity` IS a fixed enum (analyzer renders severity buckets consistently across kinds). No `status` field on the issue event itself — status changes are separate append-only events (see next section).
+
+## Status-change event convention (`issue_status_change` / `error_status_change`)
+
+Triage state is DB-native — marking an issue kind or error signature as fixed / wontfix / investigating is itself an append-only event on `insights_events`. Latest event per target wins. Written by `scripts/triage_mark.ts` (or `sm triage mark`), joined at read-time by `queryIssues` / `queryErrors`.
+
+Two event types, one per target-identifier shape:
+
+```ts
+// event_type: 'issue_status_change'  — target is issue kind
+payload: {
+  issue_kind: string,          // e.g. 'todo_id_serialization_malformed'
+  status: 'fixed' | 'wontfix' | 'investigating',
+  fixed_at?: string,           // ISO — required when status='fixed'
+  fixed_in_commit?: string,    // sha
+  notes?: string,
+  marked_by?: string,
+}
+
+// event_type: 'error_status_change'  — target is 16-hex signature hash
+payload: {
+  signature_hash: string,      // sha256(signature).slice(0, 16)
+  signature_preview: string,   // for human-readable audit output
+  status: 'fixed' | 'wontfix' | 'investigating',
+  fixed_at?, fixed_in_commit?, notes?, marked_by?,
+}
+```
+
+Schema + build helpers in `smartchats-common/src/issues/types.ts` (`ISSUE_STATUS_CHANGE_EVENT_TYPE`, `ERROR_STATUS_CHANGE_EVENT_TYPE`, `buildIssueStatusChangePayload`, `buildErrorStatusChangePayload`). Direct write path in `smartchats-database/src/queries/insights.ts` (`insertInsightEvent`).
+
+**Regression detection.** The analyzer attaches `handled?: { status, fixed_at, ..., regression }` to each row. `regression` is `true` when the target's `last_seen` is strictly newer than `fixed_at` — i.e. the same issue/error fired again after we claimed the fix. Fixed-and-quiet rows sink to the bottom + are hidden by default in the `audit:*` CLI output; regressions always surface.
+
+**Not to be confused with** the legacy bundle-based handled-state at `data/triage/handled.json`, which the pre-DB `session_triage_errors` script writes. That file was migrated once via `npm run migrate:handled-json-to-db`; new marks go through the DB path. Both flows use a different signature hashing (bundle-side hashes the full error message; DB-side hashes `event_type:short_message`), so state doesn't cross-populate.
 
 ### Current emitters
 

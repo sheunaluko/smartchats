@@ -196,7 +196,10 @@ liveMonitor({
 
 Polling latency ~5s by default. Sub-second push (SurrealDB `LIVE SELECT`) is a future upgrade behind the same external API.
 
-### Cross-session error triage (the autonomous-fix-loop driver)
+### Cross-session error triage (legacy bundle-based workflow)
+
+> **Note:** this is the pre-DB workflow. Day-to-day errors + issues triage now runs through `sm audit errors` / `sm audit issues` against `insights_events` directly, with marks written by `sm triage mark`. See the analysis_db README for the current shape. The bundle-based workflow below is kept for the rich per-signature `.md` report format and for offline triage from downloaded bundles.
+
 
 `analyze:errors` is per-bundle. The triage layer merges errors **across all bundles in a directory** by signature so the same failure appearing in 10 sessions becomes one report covering all of them.
 
@@ -251,7 +254,9 @@ npm run triage:mark -- <target> --unmark
 npm run triage:mark -- --list
 ```
 
-The next `triage:errors` run reads the updated state and applies the new status. Commit `data/triage/handled.json` so the team shares the same "what we've done" history.
+The next `triage:errors` run reads the updated state and applies the new status.
+
+**Historical note.** The `handled.json` file is gitignored, so its contents are per-operator. On 2026-07-11 the 5 existing entries were migrated to DB `error_status_change` events via `npm run migrate:handled-json-to-db`, and new marks now go through the DB path (`sm triage mark` / `npm run triage:mark -- --issue-kind ...` / `--signature-hash ...`). The bundle-based flow still writes to `handled.json` when invoked with a report path — but its state doesn't cross-populate with the DB audit views (they use different signature hashing).
 
 ## Adding a new analysis module
 

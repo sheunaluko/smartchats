@@ -12,6 +12,11 @@
  * sources will proliferate; the kind histogram is the right primary axis.
  */
 import type { Client } from 'smartchats-database';
+import {
+    ISSUE_STATUS_CHANGE_EVENT_TYPE,
+    type IssueStatusChangePayload,
+    type TriageStatus,
+} from 'smartchats-common';
 
 import { type BaseFilter, buildFilterClause, combineWhere } from './_query_helpers.js';
 import { type FormatOpts, renderRows } from './_format.js';
@@ -45,6 +50,24 @@ export interface IssueKindRow {
     sample_event_id: string;
     first_seen: string;
     last_seen: string;
+    /**
+     * Latest triage status for this kind (from `issue_status_change` events).
+     * Absent when no mark has been filed. `regression` is true when the mark
+     * is 'fixed' but at least one issue occurrence post-dates `fixed_at`.
+     */
+    handled?: IssueStatusMark;
+}
+
+/** Row-attached triage status for an issue kind. Derived from latest event. */
+export interface IssueStatusMark {
+    status: TriageStatus;
+    fixed_at?: string;
+    fixed_in_commit?: string;
+    notes?: string;
+    marked_at: string;   // event.timestamp
+    marked_by?: string;
+    /** True when this kind's `last_seen` occurrence is newer than `fixed_at`. */
+    regression: boolean;
 }
 
 export interface IssuesResult {
@@ -175,25 +198,38 @@ export async function queryIssues(client: Client, args: IssuesArgs): Promise<Iss
         }
     }
 
+    // Pull latest triage marks (independent of the time window — a fix from
+    // months ago should still mask a recent recurrence, until it regresses).
+    const marks = await queryLatestIssueStatusMarks(client, [...byKind.keys()]);
+
     const out: IssueKindRow[] = [...byKind.values()]
-        .map((a) => ({
-            kind: a.kind,
-            count: a.count,
-            info_count: a.info_count,
-            warning_count: a.warning_count,
-            error_count: a.error_count,
-            distinct_sessions: a.sessions.size,
-            distinct_users: a.users.size,
-            sample_source: a.sample_source,
-            sample_summary: a.sample_summary,
-            sample_session_id: a.sample_session_id,
-            sample_event_id: a.sample_event_id,
-            first_seen: a.first_seen,
-            last_seen: a.last_seen,
-        }))
+        .map((a) => {
+            const handled = attachIssueMark(marks.get(a.kind), a.last_seen);
+            return {
+                kind: a.kind,
+                count: a.count,
+                info_count: a.info_count,
+                warning_count: a.warning_count,
+                error_count: a.error_count,
+                distinct_sessions: a.sessions.size,
+                distinct_users: a.users.size,
+                sample_source: a.sample_source,
+                sample_summary: a.sample_summary,
+                sample_session_id: a.sample_session_id,
+                sample_event_id: a.sample_event_id,
+                first_seen: a.first_seen,
+                last_seen: a.last_seen,
+                ...(handled ? { handled } : {}),
+            };
+        })
         .sort((a, b) => {
             // Errors first, then by count desc. Reviewers want to see error-
-            // severity items at the top regardless of frequency.
+            // severity items at the top regardless of frequency. Fixed rows
+            // (non-regression) sink to the bottom regardless of severity.
+            const aFixedQuiet = a.handled?.status === 'fixed' && !a.handled.regression;
+            const bFixedQuiet = b.handled?.status === 'fixed' && !b.handled.regression;
+            if (aFixedQuiet && !bFixedQuiet) return 1;
+            if (!aFixedQuiet && bFixedQuiet) return -1;
             if (a.error_count > 0 && b.error_count === 0) return -1;
             if (a.error_count === 0 && b.error_count > 0) return 1;
             return b.count - a.count;
@@ -208,13 +244,80 @@ export async function queryIssues(client: Client, args: IssuesArgs): Promise<Iss
 }
 
 // ──────────────────────────────────────────────────────────────────────────
+// Status-mark helpers
+// ──────────────────────────────────────────────────────────────────────────
+
+/**
+ * Pull the LATEST `issue_status_change` event per kind. Restricted to the
+ * kinds actually in play so we don't drag the whole marks table when a
+ * time-windowed audit shows only 10 rows.
+ *
+ * Note: NOT time-windowed on the marks themselves — a mark from months ago
+ * should still mask a recent occurrence (that's the whole point of the
+ * fix flag). Regression is signaled by comparing `last_seen` (issue) to
+ * `fixed_at` (mark) at the row level.
+ */
+export async function queryLatestIssueStatusMarks(
+    client: Client,
+    kinds: string[],
+): Promise<Map<string, IssueStatusMark>> {
+    const out = new Map<string, IssueStatusMark>();
+    if (kinds.length === 0) return out;
+
+    const sql = `
+        SELECT event_id, timestamp, payload
+        FROM insights_events
+        WHERE event_type = $eventType AND payload.issue_kind IN $kinds
+        ORDER BY timestamp DESC
+    `;
+    const raw = (await client.runQuery({
+        query: sql,
+        variables: { eventType: ISSUE_STATUS_CHANGE_EVENT_TYPE, kinds },
+    })) as unknown[];
+    const rows = Array.isArray(raw[0]) ? (raw[0] as Array<Record<string, unknown>>) : [];
+
+    // First row per kind wins (ORDER BY timestamp DESC).
+    for (const r of rows) {
+        const payload = (r.payload ?? {}) as IssueStatusChangePayload;
+        const kind = payload.issue_kind;
+        if (!kind || out.has(kind)) continue;
+        out.set(kind, {
+            status: payload.status,
+            fixed_at: payload.fixed_at,
+            fixed_in_commit: payload.fixed_in_commit,
+            notes: payload.notes,
+            marked_at: String(r.timestamp ?? ''),
+            marked_by: payload.marked_by,
+            regression: false, // decided per-row in attachIssueMark
+        });
+    }
+    return out;
+}
+
+/** Attach the mark to a histogram row, computing regression against last_seen. */
+function attachIssueMark(
+    mark: IssueStatusMark | undefined,
+    lastSeen: string,
+): IssueStatusMark | undefined {
+    if (!mark) return undefined;
+    if (mark.status !== 'fixed' || !mark.fixed_at) return { ...mark, regression: false };
+    // A row post-dating fixed_at means the issue kind fired again after
+    // we claimed it was fixed — surface as regression so it doesn't hide.
+    const regression = Boolean(lastSeen) && lastSeen > mark.fixed_at;
+    return { ...mark, regression };
+}
+
+// ──────────────────────────────────────────────────────────────────────────
 // Formatter
 // ──────────────────────────────────────────────────────────────────────────
 
 export function formatIssues(result: IssuesResult, opts: FormatOpts = {}): string {
     const format = opts.format ?? 'text';
 
-    const rows: Record<string, unknown>[] = result.rows.map((r) => ({ ...r }));
+    const rows: Record<string, unknown>[] = result.rows.map((r) => ({
+        ...r,
+        handled: r.handled ? formatIssueHandledBadge(r.handled) : '',
+    }));
 
     const columns = [
         'kind', 'count',
@@ -222,7 +325,7 @@ export function formatIssues(result: IssuesResult, opts: FormatOpts = {}): strin
         'distinct_sessions', 'distinct_users',
         'sample_source', 'sample_summary',
         'first_seen', 'last_seen',
-        'sample_session_id',
+        'sample_session_id', 'handled',
     ];
 
     // When the histogram is short (≤ 5 rows — typical for the 4-hourly
@@ -238,6 +341,13 @@ export function formatIssues(result: IssuesResult, opts: FormatOpts = {}): strin
 
     const header = `total issues: ${result.total_issues}   distinct kinds: ${result.distinct_kinds}`;
     return `${header}\n${body}`;
+}
+
+/** One-cell badge: "fixed@abc123" / "wontfix" / "REGRESSION!fixed@abc123". */
+function formatIssueHandledBadge(m: IssueStatusMark): string {
+    const commit = m.fixed_in_commit ? `@${m.fixed_in_commit.slice(0, 7)}` : '';
+    const base = `${m.status}${commit}`;
+    return m.regression ? `REGRESSION!${base}` : base;
 }
 
 // ──────────────────────────────────────────────────────────────────────────

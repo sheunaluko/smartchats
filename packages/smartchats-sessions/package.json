@@ -26,6 +26,7 @@
     "analyze:summary": "tsx scripts/session_summary.ts",
     "triage:errors": "tsx scripts/session_triage_errors.ts",
     "triage:mark": "tsx scripts/triage_mark.ts",
+    "migrate:handled-json-to-db": "tsx scripts/migrate_handled_json_to_db.ts",
     "audit:cost": "tsx scripts/audit_cost.ts",
     "audit:slow-calls": "tsx scripts/audit_slow_calls.ts",
     "audit:function-calls": "tsx scripts/audit_function_calls.ts",
@@ -38,6 +39,7 @@
     "monitor": "tsx scripts/monitor.ts"
   },
   "dependencies": {
+    "smartchats-common": "*",
     "smartchats-database": "*",
     "cortex": "*"
   },

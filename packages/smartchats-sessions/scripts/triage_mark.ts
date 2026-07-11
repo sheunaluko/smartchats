@@ -32,6 +32,14 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSy
 import { execSync } from 'node:child_process';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createClient, insertInsightEvent } from 'smartchats-database';
+import {
+    buildErrorStatusChangePayload,
+    buildIssueStatusChangePayload,
+    ERROR_STATUS_CHANGE_EVENT_TYPE,
+    ISSUE_STATUS_CHANGE_EVENT_TYPE,
+    type TriageStatus,
+} from 'smartchats-common';
 import {
     emptyHandledState,
     signatureHash,
@@ -43,26 +51,56 @@ import { parseArgs, die } from './_cli_lib.js';
 
 const USAGE = `Usage: triage_mark <target> [options]
 
-Target (auto-detected):
-  • path/to/<NN>_<slug>.md  — extracts signature from the file
-  • slug                     — looks in --triage-root for the latest match
-  • 16-char hex hash         — direct (only with --unmark / --list)
+Two backing stores. The DB-native modes are the current path — they write
+an append-only status-change event that both audit:issues and audit:errors
+join on. The legacy JSON-file mode remains for the bundle-based errors
+workflow (session_triage_errors + report .md files).
 
-Options:
+DB-native (current):
+  --issue-kind <k>            Mark an issue kind (from audit:issues).
+  --signature-hash <hex>      Mark an error signature (from audit:errors).
+                              Pair with --signature-preview so audit output
+                              can show a human-readable snippet.
+
+Legacy (bundle-based errors):
+  <target>: path/to/<NN>_<slug>.md, slug (searches --triage-root), or
+            16-char hex (only with --unmark / --list).
+
+Common options:
   --status fixed|wontfix|investigating
-  --commit <sha>          fixed_in_commit (recommended for status=fixed)
+  --commit <sha>            fixed_in_commit (recommended for status=fixed)
   --notes <text>
-  --fixed-at <when>       ISO datetime or shorthand (7d, 24h, …); default = now
-  --triage-root <dir>     default ./triage
-  --state <path>          default <repo>/data/triage/handled.json or
-                                  $SMARTCHATS_TRIAGE_STATE_FILE
-  --unmark                remove the entry
-  --list                  list all entries
+  --fixed-at <when>         ISO datetime or shorthand (7d, 24h, …); default = now
+  --signature-preview <s>   Only used with --signature-hash — the truncated
+                            signature the audit output should display.
+
+Legacy-only options:
+  --triage-root <dir>       Default ./triage
+  --state <path>            Legacy state file (default <repo>/data/triage/handled.json
+                            or $SMARTCHATS_TRIAGE_STATE_FILE)
+  --unmark                  Remove the legacy entry
+  --list                    List legacy entries
+
+DB connection (used by DB-native modes, same env-var scheme as audit:*):
+  --url, --ns, --db, --user-cred, --password
+  SMARTCHATS_SESSION_URL / _NS / _DB / _USER / _PASSWORD env aliases.
+
+Examples:
+  # DB-native — mark an issue kind fixed against local AIO
+  npm run triage:mark -- --issue-kind todo_id_serialization_malformed \\
+                         --status fixed --commit 3be82ca
+
+  # DB-native — mark an error signature (hash from audit:errors output)
+  sm triage:mark --signature-hash 1bd2a2061a87e8e6 \\
+                 --signature-preview "SurrealDB: Incorrect arguments..." \\
+                 --status fixed --commit 500dd5d --cloud
   -h, --help
 `;
 
 const VALUED = new Set([
     '--status', '--commit', '--notes', '--fixed-at', '--triage-root', '--state',
+    '--issue-kind', '--signature-hash', '--signature-preview',
+    '--url', '--ns', '--namespace', '--db', '--database', '--user-cred', '--password',
 ]);
 
 function defaultStatePath(): string {
@@ -150,10 +188,136 @@ function listEntries(state: HandledState): void {
     }
 }
 
+// ── DB-native path (issues + errors, current mechanism) ──────────────────
+
+function validateStatus(v: string | undefined): TriageStatus {
+    if (v !== 'fixed' && v !== 'wontfix' && v !== 'investigating') {
+        die(`--status must be one of: fixed, wontfix, investigating`);
+    }
+    return v;
+}
+
+/** RFC-3339-ish random id, mirrors InsightsClient's shape. */
+function makeEventId(): string {
+    return `evt_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+async function markInDatabase(
+    kind: { type: 'issue'; issueKind: string } | {
+        type: 'error';
+        signatureHash: string;
+        signaturePreview: string;
+    },
+    status: TriageStatus,
+    values: Record<string, string>,
+    urlLabel: string,
+): Promise<void> {
+    const nowIso = new Date().toISOString();
+    const fixedAtIso = values['--fixed-at']
+        ? new Date(parseTimeSpec(values['--fixed-at'])).toISOString()
+        : (status === 'fixed' ? nowIso : undefined);
+    const notes = values['--notes'];
+    const commit = values['--commit'];
+    const markedBy = gitWhoami();
+
+    let event_type: string;
+    let payload: Record<string, unknown>;
+    let targetLabel: string;
+    if (kind.type === 'issue') {
+        event_type = ISSUE_STATUS_CHANGE_EVENT_TYPE;
+        payload = buildIssueStatusChangePayload({
+            issue_kind: kind.issueKind,
+            status,
+            fixed_at: fixedAtIso,
+            fixed_in_commit: commit,
+            notes,
+            marked_by: markedBy,
+        }) as unknown as Record<string, unknown>;
+        targetLabel = `issue kind '${kind.issueKind}'`;
+    } else {
+        event_type = ERROR_STATUS_CHANGE_EVENT_TYPE;
+        payload = buildErrorStatusChangePayload({
+            signature_hash: kind.signatureHash,
+            signature_preview: kind.signaturePreview,
+            status,
+            fixed_at: fixedAtIso,
+            fixed_in_commit: commit,
+            notes,
+            marked_by: markedBy,
+        }) as unknown as Record<string, unknown>;
+        targetLabel = `error signature ${kind.signatureHash}`;
+    }
+
+    const client = createClient({
+        url: values['--url'] ?? process.env.SMARTCHATS_SESSION_URL ?? 'ws://localhost:8000/rpc',
+        namespace: values['--ns'] ?? values['--namespace'] ?? process.env.SMARTCHATS_SESSION_NS ?? 'production',
+        database: values['--db'] ?? values['--database'] ?? process.env.SMARTCHATS_SESSION_DB ?? 'main',
+        auth: {
+            username: values['--user-cred'] ?? process.env.SMARTCHATS_SESSION_USER ?? 'root',
+            password: values['--password'] ?? process.env.SMARTCHATS_SESSION_PASSWORD ?? 'root',
+        },
+    });
+    try {
+        await client.connect();
+    } catch (err) {
+        die(`connect failed (${urlLabel}): ${(err as Error).message}`);
+    }
+    try {
+        const spec = insertInsightEvent({
+            event_type,
+            event_id: makeEventId(),
+            payload,
+            timestamp: nowIso,
+        });
+        await client.runQuery(spec);
+        process.stderr.write(
+            `Marked ${targetLabel} as ${status}` +
+                (status === 'fixed' && fixedAtIso ? ` (fixed_at=${fixedAtIso})` : '') +
+                (commit ? `, commit=${commit}` : '') +
+                ` → ${urlLabel}\n`,
+        );
+    } finally {
+        await client.close?.();
+    }
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────
 
 const args = parseArgs(process.argv, VALUED);
 if (args.flags.has('-h') || args.flags.has('--help')) die(USAGE, 0);
+
+// DB-native mode is opt-in via --issue-kind or --signature-hash. The
+// legacy JSON path only kicks in when neither is present, so existing
+// bundle-based triage:mark <report.md> invocations still work.
+const issueKind = args.values['--issue-kind'];
+const signatureHashArg = args.values['--signature-hash'];
+if (issueKind || signatureHashArg) {
+    const status = validateStatus(args.values['--status']);
+    const urlLabel = args.values['--url'] ?? process.env.SMARTCHATS_SESSION_URL ?? 'ws://localhost:8000/rpc';
+    if (issueKind && signatureHashArg) {
+        die(`Pass only one of --issue-kind or --signature-hash, not both.`);
+    }
+    if (issueKind) {
+        await markInDatabase({ type: 'issue', issueKind }, status, args.values, urlLabel);
+    } else {
+        const signaturePreview = args.values['--signature-preview'] ?? '';
+        if (!signaturePreview) {
+            process.stderr.write(
+                `Warning: --signature-preview omitted. Audit output will show an empty preview column.\n`,
+            );
+        }
+        if (!/^[a-f0-9]{16}$/i.test(signatureHashArg!)) {
+            die(`--signature-hash must be a 16-char hex string, got: ${signatureHashArg}`);
+        }
+        await markInDatabase(
+            { type: 'error', signatureHash: signatureHashArg!.toLowerCase(), signaturePreview },
+            status,
+            args.values,
+            urlLabel,
+        );
+    }
+    process.exit(0);
+}
 
 const statePath = args.values['--state'] ?? process.env.SMARTCHATS_TRIAGE_STATE_FILE ?? defaultStatePath();
 const state = loadState(statePath);

@@ -167,6 +167,10 @@ export { buildRawQuery, NonReadOnlyQueryError } from './raw.js';
 // Health probes
 export { probeTableExists } from './health.js';
 
+// Insights events (direct write path for admin scripts)
+export type { InsertInsightEventArgs } from './insights.js';
+export { insertInsightEvent } from './insights.js';
+
 // BYO API keys (local self-hosted)
 export { getByoKey, upsertByoKey, deleteByoKey } from './byo_keys.js';
 

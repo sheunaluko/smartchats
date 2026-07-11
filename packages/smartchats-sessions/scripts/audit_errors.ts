@@ -32,6 +32,10 @@ const USAGE = `Usage: audit_errors [options]
   --app, --user, --session Dimensional filters
   --limit <n>              Default 50
   --message-chars <n>      Default 80
+  --show-fixed             Include signatures marked fixed via triage:mark
+                           whose last_seen is at/before fixed_at. Default:
+                           hide. Regressions (last_seen > fixed_at) always
+                           surface regardless of this flag.
   --format <fmt>           text | table | json | csv | markdown
   --out <path>
   --url, --ns, --db, --user-cred, --password
@@ -46,6 +50,7 @@ interface CliArgs {
     session?: string;
     limit: number;
     messageChars: number;
+    showFixed: boolean;
     format: OutputFormat;
     out?: string;
     url: string;
@@ -60,6 +65,7 @@ function parseArgs(argv: string[]): CliArgs | null {
         since: '7d',
         limit: 50,
         messageChars: 80,
+        showFixed: false,
         format: 'text',
         url: process.env.SMARTCHATS_SESSION_URL ?? 'ws://localhost:8000/rpc',
         namespace: process.env.SMARTCHATS_SESSION_NS ?? 'production',
@@ -88,6 +94,7 @@ function parseArgs(argv: string[]): CliArgs | null {
             case '--session':       a.session = next(); break;
             case '--limit':         a.limit = Math.max(1, parseInt(next(), 10) || 50); break;
             case '--message-chars': a.messageChars = Math.max(20, parseInt(next(), 10) || 80); break;
+            case '--show-fixed':    a.showFixed = true; break;
             case '--format':        a.format = next() as OutputFormat; break;
             case '--out':           a.out = next(); break;
             case '--url':           a.url = next(); break;
@@ -134,6 +141,12 @@ const result = await queryErrors(client, {
     limit: args.limit,
     messageChars: args.messageChars,
 });
+
+if (!args.showFixed) {
+    result.rows = result.rows.filter(
+        (r) => !(r.handled?.status === 'fixed' && !r.handled.regression),
+    );
+}
 
 const text = formatErrorsDb(result, { format: args.format });
 

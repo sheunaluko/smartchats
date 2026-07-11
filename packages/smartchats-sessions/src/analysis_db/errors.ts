@@ -18,7 +18,13 @@
  * exploding when each instance of "fetch failed: ..." has a different URL.
  */
 import type { Client } from 'smartchats-database';
+import {
+    ERROR_STATUS_CHANGE_EVENT_TYPE,
+    type ErrorStatusChangePayload,
+    type TriageStatus,
+} from 'smartchats-common';
 
+import { signatureHash } from '../analysis/triage_errors.js';
 import { type BaseFilter, buildFilterClause, combineWhere } from './_query_helpers.js';
 import { type FormatOpts, renderRows } from './_format.js';
 
@@ -28,6 +34,8 @@ import { type FormatOpts, renderRows } from './_format.js';
 
 export interface ErrorSignatureRow {
     signature: string;
+    /** 16-hex sha256 of `signature`. Stable id for triage marking. */
+    signature_hash: string;
     /** Where this error came from. */
     source: 'function_error' | 'top_level_error';
     /** Function name if function_error; event_type otherwise. */
@@ -43,6 +51,23 @@ export interface ErrorSignatureRow {
     /** Sample session_id pointing at a representative occurrence. */
     sample_session_id: string;
     sample_event_id: string;
+    /**
+     * Latest triage status for this signature (from `error_status_change`
+     * events). Absent when unmarked. `regression=true` when the mark is
+     * 'fixed' but `last_seen > fixed_at`.
+     */
+    handled?: ErrorStatusMark;
+}
+
+/** Row-attached triage status for an error signature. Derived from latest event. */
+export interface ErrorStatusMark {
+    status: TriageStatus;
+    fixed_at?: string;
+    fixed_in_commit?: string;
+    notes?: string;
+    marked_at: string;
+    marked_by?: string;
+    regression: boolean;
 }
 
 export interface ErrorsResult {
@@ -93,8 +118,14 @@ export async function queryErrors(client: Client, args: ErrorsArgs): Promise<Err
     }
 
     // ── Pass 2: top-level error event types ─────────────────────────────
+    // Exclude `error_status_change` explicitly — it's a triage-metadata
+    // event that happens to contain the word "error" in its name, but it
+    // documents a decision *about* an error, not an error occurrence.
     if (args.source !== 'function_error') {
-        const whereErr = combineWhere(f.where, `string::contains(event_type, 'error')`);
+        const whereErr = combineWhere(
+            f.where,
+            `string::contains(event_type, 'error') AND event_type != '${ERROR_STATUS_CHANGE_EVENT_TYPE}'`,
+        );
         const sql = `
             SELECT event_id, session_id, user_id, timestamp, event_type, payload
             FROM insights_events
@@ -183,21 +214,38 @@ export async function queryErrors(client: Client, args: ErrorsArgs): Promise<Err
         bumpAcc(a, ts, session_id, user_id, event_id);
     }
 
-    const rows: ErrorSignatureRow[] = [...bySig.values()]
-        .map((a) => ({
-            signature: a.signature,
-            source: a.source,
-            name: a.name,
-            message: a.message,
-            count: a.count,
-            distinct_sessions: a.sessions.size,
-            distinct_users: a.users.size,
-            first_seen: a.first_seen,
-            last_seen: a.last_seen,
-            sample_session_id: a.sample_session_id,
-            sample_event_id: a.sample_event_id,
-        }))
-        .sort((a, b) => b.count - a.count);
+    // Build rows + attach signature_hash; then fetch marks for those hashes.
+    const preRows = [...bySig.values()].map((a) => ({
+        signature: a.signature,
+        signature_hash: signatureHash(a.signature),
+        source: a.source,
+        name: a.name,
+        message: a.message,
+        count: a.count,
+        distinct_sessions: a.sessions.size,
+        distinct_users: a.users.size,
+        first_seen: a.first_seen,
+        last_seen: a.last_seen,
+        sample_session_id: a.sample_session_id,
+        sample_event_id: a.sample_event_id,
+    }));
+    const marks = await queryLatestErrorStatusMarks(
+        client,
+        preRows.map((r) => r.signature_hash),
+    );
+    const rows: ErrorSignatureRow[] = preRows
+        .map<ErrorSignatureRow>((r) => {
+            const handled = attachErrorMark(marks.get(r.signature_hash), r.last_seen);
+            return handled ? { ...r, handled } : r;
+        })
+        .sort((a, b) => {
+            // Fixed-and-quiet signatures sink to the bottom.
+            const aQuiet = a.handled?.status === 'fixed' && !a.handled.regression;
+            const bQuiet = b.handled?.status === 'fixed' && !b.handled.regression;
+            if (aQuiet && !bQuiet) return 1;
+            if (!aQuiet && bQuiet) return -1;
+            return b.count - a.count;
+        });
 
     const total = rows.reduce((s, r) => s + r.count, 0);
     return {
@@ -207,6 +255,62 @@ export async function queryErrors(client: Client, args: ErrorsArgs): Promise<Err
         executions_scanned: executions.length,
         top_level_scanned: topLevel.length,
     };
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Status-mark helpers
+// ──────────────────────────────────────────────────────────────────────────
+
+/**
+ * Pull the LATEST `error_status_change` event per signature_hash. Not
+ * time-windowed on marks themselves — a fix from months ago should still
+ * mask a recent recurrence. Regression is signaled per-row via
+ * last_seen > fixed_at.
+ */
+export async function queryLatestErrorStatusMarks(
+    client: Client,
+    signatureHashes: string[],
+): Promise<Map<string, ErrorStatusMark>> {
+    const out = new Map<string, ErrorStatusMark>();
+    if (signatureHashes.length === 0) return out;
+
+    const sql = `
+        SELECT event_id, timestamp, payload
+        FROM insights_events
+        WHERE event_type = $eventType AND payload.signature_hash IN $hashes
+        ORDER BY timestamp DESC
+    `;
+    const raw = (await client.runQuery({
+        query: sql,
+        variables: { eventType: ERROR_STATUS_CHANGE_EVENT_TYPE, hashes: signatureHashes },
+    })) as unknown[];
+    const rows = Array.isArray(raw[0]) ? (raw[0] as Array<Record<string, unknown>>) : [];
+
+    for (const r of rows) {
+        const payload = (r.payload ?? {}) as ErrorStatusChangePayload;
+        const hash = payload.signature_hash;
+        if (!hash || out.has(hash)) continue;
+        out.set(hash, {
+            status: payload.status,
+            fixed_at: payload.fixed_at,
+            fixed_in_commit: payload.fixed_in_commit,
+            notes: payload.notes,
+            marked_at: String(r.timestamp ?? ''),
+            marked_by: payload.marked_by,
+            regression: false,
+        });
+    }
+    return out;
+}
+
+function attachErrorMark(
+    mark: ErrorStatusMark | undefined,
+    lastSeen: string,
+): ErrorStatusMark | undefined {
+    if (!mark) return undefined;
+    if (mark.status !== 'fixed' || !mark.fixed_at) return { ...mark, regression: false };
+    const regression = Boolean(lastSeen) && lastSeen > mark.fixed_at;
+    return { ...mark, regression };
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -226,18 +330,28 @@ export function formatErrors(result: ErrorsResult, opts: FormatOpts = {}): strin
         first_seen: r.first_seen,
         last_seen: r.last_seen,
         sample_session_id: r.sample_session_id,
+        signature_hash: r.signature_hash,
+        handled: r.handled ? formatHandledBadge(r.handled) : '',
     }));
 
     const columns = [
         'source', 'name', 'message',
         'count', 'distinct_sessions', 'distinct_users',
         'first_seen', 'last_seen', 'sample_session_id',
+        'signature_hash', 'handled',
     ];
     const body = renderRows(rows, { ...opts, columns });
     if (format === 'json' || format === 'csv') return body;
 
     const header = `total errors: ${result.total_errors}   distinct signatures: ${result.rows.length}   (execs scanned: ${result.executions_scanned}, top-level: ${result.top_level_scanned})`;
     return `${header}\n${body}`;
+}
+
+/** Short one-cell rendering: "fixed@abc123" / "wontfix" / "REGRESSION!fixed@abc123". */
+function formatHandledBadge(m: ErrorStatusMark): string {
+    const commit = m.fixed_in_commit ? `@${m.fixed_in_commit.slice(0, 7)}` : '';
+    const base = `${m.status}${commit}`;
+    return m.regression ? `REGRESSION!${base}` : base;
 }
 
 // ──────────────────────────────────────────────────────────────────────────

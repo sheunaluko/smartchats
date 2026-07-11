@@ -42,6 +42,11 @@ const USAGE = `Usage: audit_issues [options]
   --since, --until         Time window (default --since '30d').
   --app, --user, --session Dimensional filters.
   --limit <n>              Default 50.
+  --show-fixed             Include kinds marked fixed via triage:mark whose
+                           last_seen is at/before fixed_at. Default: hide
+                           these rows to keep the histogram noise-free.
+                           Regressions (last_seen > fixed_at) always surface
+                           regardless of this flag.
   --format <fmt>           text | table | json | csv | markdown
   --out <path>
   --url, --ns, --db, --user-cred, --password
@@ -52,6 +57,7 @@ interface CliArgs {
     severity?: 'info' | 'warning' | 'error';
     detail: boolean;
     fullSummary: boolean;
+    showFixed: boolean;
     since: string;
     until?: string;
     app?: string;
@@ -71,6 +77,7 @@ function parseArgs(argv: string[]): CliArgs | null {
     const a: CliArgs = {
         detail: false,
         fullSummary: false,
+        showFixed: false,
         since: '30d',
         limit: 50,
         format: 'text',
@@ -88,6 +95,7 @@ function parseArgs(argv: string[]): CliArgs | null {
             case '--kind':       a.kind = next(); break;
             case '--detail':     a.detail = true; break;
             case '--full-summary': a.fullSummary = true; break;
+            case '--show-fixed':  a.showFixed = true; break;
             case '--severity': {
                 const v = next();
                 if (v !== 'info' && v !== 'warning' && v !== 'error') {
@@ -150,14 +158,25 @@ const queryArgs = {
     limit: args.limit,
 };
 
-const text = args.detail
-    ? formatIssueDetails(await queryIssueDetails(client, queryArgs), { format: args.format })
-    : formatIssues(await queryIssues(client, queryArgs), {
+let text: string;
+if (args.detail) {
+    text = formatIssueDetails(await queryIssueDetails(client, queryArgs), { format: args.format });
+} else {
+    const result = await queryIssues(client, queryArgs);
+    // Hide fixed rows by default (unless they've regressed — attach handled
+    // marks the regression flag when last_seen > fixed_at).
+    if (!args.showFixed) {
+        result.rows = result.rows.filter(
+            (r) => !(r.handled?.status === 'fixed' && !r.handled.regression),
+        );
+    }
+    text = formatIssues(result, {
         format: args.format,
         // Explicit --full-summary disables truncation; otherwise formatter
         // auto-untruncates when row count is small.
         ...(args.fullSummary ? { truncate: 100_000 } : {}),
     });
+}
 
 if (args.out) {
     writeFileSync(args.out, text + '\n');

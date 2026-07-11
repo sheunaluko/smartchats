@@ -95,3 +95,104 @@ export const ISSUE_EVENT_TYPE = 'issue';
 export function isValidSeverity(v: unknown): v is IssueSeverity {
     return v === 'info' || v === 'warning' || v === 'error';
 }
+
+// ──────────────────────────────────────────────────────────────────────────
+// Triage status marks — DB-native handled-state
+//
+// Marking an issue kind or an error signature as fixed / wontfix /
+// investigating is itself a point-in-time observation, so it goes on
+// `insights_events` as a normal event row rather than a mutable side
+// table. Latest event per target wins. Append-only preserves history
+// (mark fixed → later mark investigating → back to fixed is all visible).
+//
+// Two parallel event types because the target-identifier shape differs:
+//   • issues target a kind (stable snake_case string)
+//   • errors target a signature_hash (16-hex, from the DB analyzer)
+// ──────────────────────────────────────────────────────────────────────────
+
+export type TriageStatus = 'fixed' | 'wontfix' | 'investigating';
+
+export function isValidTriageStatus(v: unknown): v is TriageStatus {
+    return v === 'fixed' || v === 'wontfix' || v === 'investigating';
+}
+
+/** Payload of an `event_type: 'issue_status_change'` row. */
+export interface IssueStatusChangePayload {
+    /** The issue kind being marked. */
+    issue_kind: string;
+    status: TriageStatus;
+    /** ISO datetime — required when status='fixed' (drives regression detection). */
+    fixed_at?: string;
+    /** Commit sha that introduced the fix. */
+    fixed_in_commit?: string;
+    /** Free-form notes. */
+    notes?: string;
+    /** Optional whoami output at mark time. */
+    marked_by?: string;
+}
+
+/** Payload of an `event_type: 'error_status_change'` row. */
+export interface ErrorStatusChangePayload {
+    /** 16-hex signature hash (matches DB analyzer's row key). */
+    signature_hash: string;
+    /** Truncated raw signature — surfaces in audit output for human-readability. */
+    signature_preview: string;
+    status: TriageStatus;
+    fixed_at?: string;
+    fixed_in_commit?: string;
+    notes?: string;
+    marked_by?: string;
+}
+
+export const ISSUE_STATUS_CHANGE_EVENT_TYPE = 'issue_status_change';
+export const ERROR_STATUS_CHANGE_EVENT_TYPE = 'error_status_change';
+
+interface BuildStatusChangeArgs {
+    status: TriageStatus;
+    fixed_at?: string;
+    fixed_in_commit?: string;
+    notes?: string;
+    marked_by?: string;
+}
+
+export function buildIssueStatusChangePayload(
+    args: BuildStatusChangeArgs & { issue_kind: string },
+): IssueStatusChangePayload {
+    if (!isValidTriageStatus(args.status)) {
+        throw new Error(`buildIssueStatusChangePayload: invalid status: ${String(args.status)}`);
+    }
+    const issue_kind = String(args.issue_kind ?? '').trim();
+    if (!issue_kind) throw new Error('buildIssueStatusChangePayload: issue_kind is required');
+    if (args.status === 'fixed' && !args.fixed_at) {
+        throw new Error('buildIssueStatusChangePayload: fixed_at is required when status=fixed');
+    }
+    const p: IssueStatusChangePayload = { issue_kind, status: args.status };
+    if (args.fixed_at) p.fixed_at = args.fixed_at;
+    if (args.fixed_in_commit) p.fixed_in_commit = args.fixed_in_commit;
+    if (args.notes) p.notes = args.notes;
+    if (args.marked_by) p.marked_by = args.marked_by;
+    return p;
+}
+
+export function buildErrorStatusChangePayload(
+    args: BuildStatusChangeArgs & { signature_hash: string; signature_preview: string },
+): ErrorStatusChangePayload {
+    if (!isValidTriageStatus(args.status)) {
+        throw new Error(`buildErrorStatusChangePayload: invalid status: ${String(args.status)}`);
+    }
+    const signature_hash = String(args.signature_hash ?? '').trim();
+    if (!signature_hash) throw new Error('buildErrorStatusChangePayload: signature_hash is required');
+    if (args.status === 'fixed' && !args.fixed_at) {
+        throw new Error('buildErrorStatusChangePayload: fixed_at is required when status=fixed');
+    }
+    const p: ErrorStatusChangePayload = {
+        signature_hash,
+        signature_preview: String(args.signature_preview ?? '').trim(),
+        status: args.status,
+    };
+    if (args.fixed_at) p.fixed_at = args.fixed_at;
+    if (args.fixed_in_commit) p.fixed_in_commit = args.fixed_in_commit;
+    if (args.notes) p.notes = args.notes;
+    if (args.marked_by) p.marked_by = args.marked_by;
+    return p;
+}

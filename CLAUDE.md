@@ -17,7 +17,8 @@ Node 24+ (current Active LTS through April 2028 — bumped from `>=20` on 2026-0
 | Smoke-test the full launch flow | `smartchats launch --test` |
 | Type-check + build everything | `bin/preflight` or `npx smartchats-test` |
 | Export a session for analysis | `bin/save_session smartchats` |
-| Triage errors across sessions | `cd packages/smartchats-sessions && npm run triage:errors` |
+| Triage errors / issues (day-to-day) | `sm audit errors --cloud` / `sm audit issues --cloud`; mark handled via `sm triage mark ...` |
+| Triage errors from downloaded session bundles (legacy) | `cd packages/smartchats-sessions && npm run triage:errors` |
 | Audit cost / errors / users / etc. against the live DB | `cd packages/smartchats-sessions && npm run audit:<concern>` (cost / errors / slow-calls / function-calls / function-args / users / context-growth / issues) |
 | Watch any of the above live in a terminal | `cd packages/smartchats-sessions && npm run monitor -- <analyzer>` |
 | Add a new `issue` kind the agent can file | call `report_issue` in `apps/smartchats/app/modules/issues.ts` — `kind` is free-form, no enum to update |
@@ -99,21 +100,48 @@ Levels:
 
 ## Session triage
 
-Built day-to-day debugging workflow. Pull session bundles, analyze, triage cross-session, mark fixed/wontfix/investigating:
+Two systems, both live in `packages/smartchats-sessions/`:
+
+### DB-native (current)
+
+Reads `insights_events` directly from a running DB (local AIO or cloud). Same-shape queries for errors + issues + cost + slow-calls + etc.:
 
 ```bash
-bin/save_session smartchats                              # one session → JSON bundle
+sm audit errors  --cloud --since 7d          # error signature histogram
+sm audit issues  --cloud --since 30d         # filed-issue kind histogram
+sm audit function-calls --cloud              # ... 8 concerns available
+sm monitor errors --cloud                    # live-polling variant
+```
+
+**Marking handled**: `sm triage mark` writes an `issue_status_change` or `error_status_change` event on `insights_events`. Append-only, latest per target wins. Regressions (occurrence post-dating `fixed_at`) auto re-surface.
+
+```bash
+sm triage mark --issue-kind todo_id_serialization_malformed \
+               --status fixed --commit <sha> --cloud
+sm triage mark --signature-hash 1bd2a2061a87e8e6 \
+               --signature-preview "SurrealDB: Incorrect..." \
+               --status fixed --commit <sha> --cloud
+```
+
+Both `audit issues` and `audit errors` hide fixed rows by default; pass `--show-fixed` to include them. Regressions never hide.
+
+### Legacy: bundle-based
+
+Pre-DB workflow. Downloads session bundles, produces `.md` reports per signature, marks via a local `handled.json`. Kept for the rich `.md` report format (per-session code + user inputs + thoughts):
+
+```bash
+bin/save_session smartchats                          # one session → JSON bundle
 cd packages/smartchats-sessions
-npm run find-sessions -- --has-error --since 7d           # discovery (local AIO)
-npm run analyze:summary  -- <bundle.json>                  # per-session
+npm run find-sessions -- --has-error --since 7d       # discovery (local AIO)
+npm run analyze:summary  -- <bundle.json>              # per-session
 npm run analyze:errors   -- <bundle.json>
-npm run triage:errors                                      # cross-session, deduped by signature
+npm run triage:errors                                  # cross-session, deduped
 npm run triage:mark -- <report-path> --status fixed --commit <sha>
 ```
 
-Triage state lives at `data/triage/handled.json`. See `packages/smartchats-sessions/README.md` § Cross-session error triage for full workflow.
+Legacy handled-state at `data/triage/handled.json` (gitignored). Migrated once to DB via `npm run migrate:handled-json-to-db` — the file remains for historical reference. The bundle-based flow's handled-state is *not* joined with the DB audit views, and vice-versa (they use different signature-hashing).
 
-DB-side complement: `packages/smartchats-sessions/src/analysis_db/` exposes the same monitoring questions (cost / errors / function calls / user activity / context growth / structured `issue` events filed by the agent's `report_issue` tool) as `audit:*` scripts that query the live `insights_events` table — no bundle round-trip. `npm run monitor` wraps any of them in a polling loop for live terminal-watch. See [`packages/smartchats-sessions/src/analysis_db/README.md`](packages/smartchats-sessions/src/analysis_db/README.md) for the module list + Issue event convention.
+DB-side module list: [`packages/smartchats-sessions/src/analysis_db/README.md`](packages/smartchats-sessions/src/analysis_db/README.md).
 
 ## Auto-loaded per-directory CLAUDE.md
 
