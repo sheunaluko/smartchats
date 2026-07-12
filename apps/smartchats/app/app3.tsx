@@ -73,6 +73,7 @@ import { useChatMode } from "./hooks/useChatMode"
 import { DesktopDefaultShell } from "./shells/DesktopDefaultShell"
 import { DesktopFocusShell } from "./shells/DesktopFocusShell"
 import { ClaudeMobileShellV2 } from "./shells/ClaudeMobileShellV2"
+import { BuildStamp } from "./components/BuildStamp"
 import { SailShell } from "./sail/SailShell"
 import type { ShellProps } from "../core/types/shell"
 import type { WidgetRenderProps } from "./components/FullscreenWidget"
@@ -839,7 +840,12 @@ const Component: NextPage = (props: any) => {
         };
     }, [activeShell]);
 
-    return <ActiveShell {...shellProps} />;
+    return (
+        <>
+            <ActiveShell {...shellProps} />
+            <BuildStamp />
+        </>
+    );
 }
 
 export default Component;

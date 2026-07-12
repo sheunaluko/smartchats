@@ -20,6 +20,37 @@ const nextConfig = {
   // natively as same-origin routes — one binary, one port, no Next.js
   // runtime to ship.
   output: 'export',
+  // Build-time constants baked into the client bundle. NEXT_PUBLIC_* prefix
+  // makes them addressable from browser code via process.env. Evaluated at
+  // build time — the resulting bundle carries the timestamp/sha of THIS
+  // build. Used by <BuildStamp/> in the app footer.
+  env: {
+    NEXT_PUBLIC_BUILD_DATE: new Date().toISOString(),
+    NEXT_PUBLIC_BUILD_SHA: (process.env.VERCEL_GIT_COMMIT_SHA || '').slice(0, 7),
+  },
+  async redirects() {
+    // Canonicalize /blog on the apex smartchats.ai → blog.smartchats.ai.
+    // Host-conditional so preview hosts (dev.smartchats.ai, any *.vercel.app)
+    // never redirect — critical for testing blog changes on preview.
+    return [
+      { source: '/blog',
+        has: [{ type: 'host', value: 'smartchats.ai' }],
+        destination: 'https://blog.smartchats.ai',
+        permanent: true },
+      { source: '/blog/',
+        has: [{ type: 'host', value: 'smartchats.ai' }],
+        destination: 'https://blog.smartchats.ai',
+        permanent: true },
+      { source: '/blog/:slug',
+        has: [{ type: 'host', value: 'smartchats.ai' }],
+        destination: 'https://blog.smartchats.ai/:slug',
+        permanent: true },
+      { source: '/blog/:slug/',
+        has: [{ type: 'host', value: 'smartchats.ai' }],
+        destination: 'https://blog.smartchats.ai/:slug',
+        permanent: true },
+    ];
+  },
   async rewrites() {
     const rules = [];
 
@@ -36,10 +67,29 @@ const nextConfig = {
       destination: `http://${localHost}:${localPort}/local-api/:path*`,
     });
 
+    // blog.smartchats.ai is aliased to the same deployment; serve blog
+    // content when the host matches. Placed BEFORE the generic rewrites
+    // so blog.smartchats.ai/foo maps to _site/blog/foo/index.html and
+    // doesn't fall through to the generic / → _site/index.html rule.
+    // Preview builds ignore these rules (host doesn't match).
+    rules.push(
+      { source: '/',
+        has: [{ type: 'host', value: 'blog.smartchats.ai' }],
+        destination: '/_site/blog/index.html' },
+      { source: '/:slug',
+        has: [{ type: 'host', value: 'blog.smartchats.ai' }],
+        destination: '/_site/blog/:slug/index.html' },
+      { source: '/:slug/',
+        has: [{ type: 'host', value: 'blog.smartchats.ai' }],
+        destination: '/_site/blog/:slug/index.html' },
+    );
+
     // Embedded apps/site (static export). prebuild:site copies
     // apps/site/out/ → public/_site/. Map user-facing URLs to those
     // static files so the landing + docs live on the same Vercel
-    // deployment as the app (no zones / no second project).
+    // deployment as the app (no zones / no second project). The /blog
+    // rules here keep working on preview hosts (dev.*, vercel.app);
+    // the redirect above only fires on apex smartchats.ai.
     rules.push(
       { source: '/', destination: '/_site/index.html' },
       { source: '/docs', destination: '/_site/docs/index.html' },

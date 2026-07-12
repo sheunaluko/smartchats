@@ -962,6 +962,7 @@ export default function LandingPage() {
               <a href="#why" className="hover:text-white transition-colors">Why now</a>
               <a href="#founder" className="hover:text-white transition-colors">Founder</a>
               <a href="/docs" className="hover:text-white transition-colors">Docs</a>
+              <a href="https://blog.smartchats.ai" className="hover:text-white transition-colors">Blog</a>
             </div>
 
             <div className="flex items-center gap-3">
@@ -1404,6 +1405,7 @@ export default function LandingPage() {
             <a href="#architecture" className="hover:text-white/80 transition-colors">architecture</a>
             <a href="#founder" className="hover:text-white/80 transition-colors">founder</a>
             <a href="/docs" className="hover:text-white/80 transition-colors">docs</a>
+            <a href="https://blog.smartchats.ai" className="hover:text-white/80 transition-colors">blog</a>
             <a
               href="https://github.com/sheunaluko/smartchats"
               target="_blank"

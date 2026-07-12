@@ -38,10 +38,55 @@ function copyMatching(srcDir, destDir, predicate) {
     }
 }
 
+// Directories/files inside apps/site that don't affect the build output
+// (build artifacts, deps, IDE metadata). Anything else counts as source.
+const SITE_STALE_IGNORES = new Set([
+    'out', 'node_modules', '.next', '.turbo', '.git', '.DS_Store',
+]);
+
+/**
+ * Newest mtime under `dir`, walking recursively but skipping known
+ * build/output dirs. Returns 0 if the tree is empty.
+ */
+function newestMtimeMs(dir) {
+    let newest = 0;
+    for (const entry of readdirSync(dir)) {
+        if (SITE_STALE_IGNORES.has(entry)) continue;
+        if (entry.endsWith('.tsbuildinfo')) continue;
+        const p = join(dir, entry);
+        let st;
+        try { st = statSync(p); } catch { continue; }
+        if (st.isDirectory()) {
+            const sub = newestMtimeMs(p);
+            if (sub > newest) newest = sub;
+        } else if (st.isFile()) {
+            if (st.mtimeMs > newest) newest = st.mtimeMs;
+        }
+    }
+    return newest;
+}
+
+/**
+ * True when apps/site sources are newer than the last successful build
+ * output. Compares against out/index.html mtime — a fresh build always
+ * rewrites that, so it's a reliable "last built at" marker.
+ */
+function siteIsStale(siteOut) {
+    const marker = join(siteOut, 'index.html');
+    if (!existsSync(marker)) return true;
+    const builtMs = statSync(marker).mtimeMs;
+    const sourceMs = newestMtimeMs(SITE_DIR);
+    return sourceMs > builtMs;
+}
+
 function prebuildSite() {
     const siteOut = join(SITE_DIR, 'out');
     if (!existsSync(siteOut)) {
         step('apps/site/out missing — building apps/site');
+        execSync('npm run build', { cwd: SITE_DIR, stdio: 'inherit' });
+    } else if (siteIsStale(siteOut)) {
+        step('apps/site sources newer than out/ — rebuilding');
+        rmTree(siteOut);
         execSync('npm run build', { cwd: SITE_DIR, stdio: 'inherit' });
     } else {
         step('reusing existing apps/site/out');
