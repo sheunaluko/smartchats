@@ -22,9 +22,31 @@ export type { TTSCallFn, TTSStreamCallFn, TTSSpeechQueueConfig, QueueEntryStatus
 export { createLocalTtsCallFn, createFirebaseTtsCallFn } from './tts_backends';
 export type { FirebaseTtsCallable } from './tts_backends';
 
-// TTS Acknowledgements
+// TTS Acknowledgements (deprecated — see ./ack for v2 module)
 export { preloadAcknowledgements, getAckBuffer, getAckBufferByText, clearAckCache, isAckCacheLoaded, getLoadedVoice, getLoadedSpeed, quantizeSpeed, ACK_TYPES, OPENAI_VOICES, ACK_SPOKEN_TEXT, CACHED_SPEEDS } from './tts_acknowledgements';
 export type { AckType, OpenAIVoice } from './tts_acknowledgements';
+
+// Ack sibling SM — used when semanticEndpointing produces INCOMPLETE decisions
+// to play a random backchannel ("ok" / "mmhmm" / "yea") without perturbing
+// the main turn-commit SM. See src/lib/ack/.
+export {
+  ACK_PHRASES,
+  warmAcksForVoice,
+  getRandomAck,
+  clearAckCache as clearAckSmCache,
+  clearAckCacheForVoice,
+  isVoiceWarm,
+  getAckCacheSnapshot,
+  createAckRuntime,
+} from './ack';
+export type {
+  AckPhrase,
+  AckSMState,
+  AckSMInput,
+  AckSMHandlers,
+  AckSMOptions,
+  AckSMRuntime,
+} from './ack';
 
 // Semantic endpointing state machine (Smart Turn v3 integration)
 export {

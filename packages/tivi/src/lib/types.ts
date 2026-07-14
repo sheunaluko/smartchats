@@ -11,6 +11,7 @@ import type {
   TiviSMState,
   TiviSMCause,
 } from './sm';
+import type { AckPhrase } from './ack';
 
 /**
  * Recognition modes for TIVI:
@@ -209,6 +210,33 @@ export interface UseTiviOptions {
    * behavior.
    */
   onPredictorDecision?: (decision: PredictorDecision) => void;
+
+  // ─── Ack sibling SM (backchannel acknowledgements) ────────────────
+  //
+  // When the endpoint predictor returns INCOMPLETE, the sibling AckSM
+  // picks a random cached ack ("ok" / "mmhmm" / "yea") for the current
+  // voice and plays it via the existing ttsCallFn pipeline. Requires the
+  // cache to be warmed beforehand via `warmAcksForVoice(...)` — typically
+  // fired from app code on voice-selector change.
+
+  /**
+   * Voice id for ack lookup. Should match the voice used to warm the ack
+   * cache. When null/undefined, the AckSM skips playback with reason
+   * 'cache_cold'.
+   */
+  ackVoiceId?: string | null;
+
+  /**
+   * Enable ack playback. When false, INCOMPLETE decisions are logged but
+   * no ack is played. Default: true.
+   */
+  enableAcks?: boolean;
+
+  /** Fires when an ack is played. */
+  onAckPlayed?: (info: { phrase: AckPhrase; voice_id: string }) => void;
+
+  /** Fires when an INCOMPLETE arrives but no ack is played (why). */
+  onAckSkipped?: (info: { reason: 'cache_cold' | 'currently_playing' }) => void;
 }
 
 export interface UseTiviReturn {

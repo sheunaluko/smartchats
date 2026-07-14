@@ -44,7 +44,7 @@ import { useDesignPack } from '../core/DesignPackContext';
 import { useVizMotif } from '../core/VizMotifContext';
 import { listDesignPacks } from '../core/theme-packs';
 
-import { useTivi, createSmartTurnPredictor, createShadowPredictor, warmup_smart_turn } from "@lab-components/tivi/lib/index"
+import { useTivi, createSmartTurnPredictor, createShadowPredictor, warmup_smart_turn, warmAcksForVoice } from "@lab-components/tivi/lib/index"
 import { backendTtsCallFn, backendTtsStreamFn, warmupBackendTts } from '@/lib/tts_caller';
 import { setTtsQueueRef, setTtsServerTimingCallback, setLlmServerTimingCallback, setLlmClientTimingCallback } from '@/lib/llm_caller';
 import { getBackend } from '@/lib/backend';
@@ -322,6 +322,21 @@ const Component: NextPage = (props: any) => {
         endpointPredictor,
         redemptionMs: tiviSettings.redemptionMs,
         maxAwaitCommitMs: tiviSettings.maxAwaitCommitMs,
+        ackVoiceId: tiviSettings.openaiVoice,
+        enableAcks: tiviSettings.semanticEndpointing !== 'off',
+        onAckPlayed: (info) => {
+            insightsClient.current?.addEvent?.('ack_played', {
+                app: 'smartchats',
+                phrase: info.phrase,
+                voice_id: info.voice_id,
+            }, { tags: ['voice', 'ack'] });
+        },
+        onAckSkipped: (info) => {
+            insightsClient.current?.addEvent?.('ack_skipped', {
+                app: 'smartchats',
+                reason: info.reason,
+            }, { tags: ['voice', 'ack'] });
+        },
         onPredictorDecision: (decision) => {
             // Emit shape used by both shadow and gate modes; downstream
             // analysis filters on `shadow: true|false`.
@@ -497,6 +512,35 @@ const Component: NextPage = (props: any) => {
         log('LLM caller: ttsQueue registered (voice mode available)');
         return () => setTtsQueueRef(null);
     }, [tivi.ttsQueue]);
+
+    // ── Warm ack cache when voice changes ──
+    // Fires 3 TTS calls in parallel ("ok", "mmhmm", "yea") for the newly-
+    // selected voice, decodes to AudioBuffers, stores in-memory. On the
+    // next semantic-endpointing INCOMPLETE decision, one of the cached
+    // buffers plays instantly with no TTS spin-up latency. Skips when
+    // semantic endpointing is off (nothing will use the cache).
+    useEffect(() => {
+        if (tiviSettings.semanticEndpointing === 'off') return;
+        const voice = tiviSettings.openaiVoice;
+        const model = tiviSettings.openaiModel;
+        if (!voice || !model) return;
+        const start = performance.now();
+        warmAcksForVoice(voice, backendTtsCallFn, model).then(() => {
+            const duration_ms = Math.round(performance.now() - start);
+            insightsClient.current?.addEvent?.('ack_cache_warmed', {
+                app: 'smartchats',
+                voice_id: voice,
+                model,
+                duration_ms,
+            }, { duration_ms, tags: ['voice', 'ack', 'warmup'] });
+        }).catch((err) => {
+            insightsClient.current?.addEvent?.('ack_cache_warm_error', {
+                app: 'smartchats',
+                voice_id: voice,
+                error: err?.message || String(err),
+            }, { tags: ['voice', 'ack', 'error'] });
+        });
+    }, [tiviSettings.openaiVoice, tiviSettings.openaiModel, tiviSettings.semanticEndpointing]);
 
     // Wire server-timing callback through llm_caller so server-emitted
     // tts_server_timing NDJSON events become insights events. Only fires

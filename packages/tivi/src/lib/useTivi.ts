@@ -15,6 +15,7 @@ import { createTTSSpeechQueue } from './tts_queue';
 import { getTiviSettings } from './settings';
 import { createLocalTtsCallFn, createFirebaseTtsCallFn } from './tts_backends';
 import { createRuntime, type TiviSMRuntime } from './sm';
+import { createAckRuntime, type AckSMRuntime } from './ack';
 
 const log = logger.get_logger({ id: 'tivi' });
 const THROTTLE_MS = 20; // Only update audio power every 20ms
@@ -111,11 +112,16 @@ export function useTivi(options: UseTiviOptions): UseTiviReturn {
   // Semantic endpointing runtime — instantiated in startListening when
   // `endpointPredictor` is provided; nullish otherwise.
   const smRuntimeRef = useRef<TiviSMRuntime | null>(null);
+  const ackRuntimeRef = useRef<AckSMRuntime | null>(null);
   const endpointPredictorRef = useRef(endpointPredictor);
   const maxAwaitCommitMsRef = useRef(maxAwaitCommitMs);
   const onStateChangeRef = useRef(onStateChange);
   const onPredictorDecisionRef = useRef(onPredictorDecision);
   const onTranscriptionRef = useRef(onTranscription);
+  const ackVoiceRef = useRef<string | null>(options.ackVoiceId ?? null);
+  const enableAcksRef = useRef<boolean>(options.enableAcks !== false);
+  const onAckPlayedRef = useRef(options.onAckPlayed);
+  const onAckSkippedRef = useRef(options.onAckSkipped);
   const ttsQueueRef = useRef<ReturnType<typeof createTTSSpeechQueue> | null>(null);
   const onQueueStateChangeRef = useRef(onQueueStateChange);
   const onQueueFirstUtteranceRef = useRef(onQueueFirstUtterance);
@@ -156,6 +162,22 @@ export function useTivi(options: UseTiviOptions): UseTiviReturn {
   useEffect(() => {
     onTranscriptionRef.current = onTranscription;
   }, [onTranscription]);
+
+  useEffect(() => {
+    ackVoiceRef.current = options.ackVoiceId ?? null;
+  }, [options.ackVoiceId]);
+
+  useEffect(() => {
+    enableAcksRef.current = options.enableAcks !== false;
+  }, [options.enableAcks]);
+
+  useEffect(() => {
+    onAckPlayedRef.current = options.onAckPlayed;
+  }, [options.onAckPlayed]);
+
+  useEffect(() => {
+    onAckSkippedRef.current = options.onAckSkipped;
+  }, [options.onAckSkipped]);
 
   useEffect(() => {
     onQueueStateChangeRef.current = onQueueStateChange;
@@ -279,10 +301,14 @@ export function useTivi(options: UseTiviOptions): UseTiviReturn {
       recognitionRef.current?.stop();
       recognitionActiveRef.current = false;
 
-      // Tear down semantic endpointing runtime
+      // Tear down semantic endpointing runtime + ack sibling
       if (smRuntimeRef.current) {
         smRuntimeRef.current.stop();
         smRuntimeRef.current = null;
+      }
+      if (ackRuntimeRef.current) {
+        ackRuntimeRef.current.stop();
+        ackRuntimeRef.current = null;
       }
 
       // Clear pending pause timeout
@@ -472,6 +498,25 @@ export function useTivi(options: UseTiviOptions): UseTiviReturn {
       // smRuntimeRef stays null and useTivi behaves like it did pre-SM.
       if (endpointPredictorRef.current) {
         smRuntimeRef.current?.stop();
+        ackRuntimeRef.current?.stop();
+
+        // Instantiate the sibling AckSM (backchannel "ok"/"mmhmm"/"yea").
+        // Its playback path is the same ttsQueue.speakCached the app uses
+        // for greetings — ensures voice/echo-cancellation stay consistent.
+        ackRuntimeRef.current = createAckRuntime({
+          getVoiceId: () => ackVoiceRef.current,
+          handlers: {
+            playCached: (buffer) => {
+              ttsQueueRef.current?.speakCached(buffer);
+            },
+            cancel: () => {
+              ttsQueueRef.current?.cancel();
+            },
+            onAckPlayed: (info) => onAckPlayedRef.current?.(info),
+            onAckSkipped: (info) => onAckSkippedRef.current?.(info),
+          },
+        });
+
         smRuntimeRef.current = createRuntime({
           predictor: endpointPredictorRef.current,
           config: { maxAwaitCommitMs: maxAwaitCommitMsRef.current },
@@ -481,9 +526,19 @@ export function useTivi(options: UseTiviOptions): UseTiviReturn {
             },
             onStateChange: (from, to, cause) => {
               onStateChangeRef.current?.(from, to, cause);
+              // On user resuming speech (state → RECORDING via SPEECH_START),
+              // cancel any in-flight ack — the user is talking again.
+              if (to === 'RECORDING' && cause === 'vad.SPEECH_START') {
+                ackRuntimeRef.current?.dispatch('CANCEL');
+              }
             },
             onPredictorDecision: (decision) => {
               onPredictorDecisionRef.current?.(decision);
+            },
+            onEmitIncomplete: (decision) => {
+              if (enableAcksRef.current && !decision.shadow) {
+                ackRuntimeRef.current?.dispatch('INCOMPLETE');
+              }
             },
           },
           verbose,
@@ -669,10 +724,14 @@ export function useTivi(options: UseTiviOptions): UseTiviReturn {
     // Stop speech recognition
     recognitionRef.current?.stop();
 
-    // Tear down semantic endpointing runtime
+    // Tear down semantic endpointing runtime + ack sibling
     if (smRuntimeRef.current) {
       smRuntimeRef.current.stop();
       smRuntimeRef.current = null;
+    }
+    if (ackRuntimeRef.current) {
+      ackRuntimeRef.current.stop();
+      ackRuntimeRef.current = null;
     }
 
     // Clear pending pause timeout
