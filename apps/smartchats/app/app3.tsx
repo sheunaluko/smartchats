@@ -285,15 +285,18 @@ const Component: NextPage = (props: any) => {
     const onSpeechRecognitionErrorRef = useRef<(info: { code: string; message: string }) => void>(() => {});
 
     // ── Smart Turn v3 endpoint predictor ──
-    // Wrapped in ShadowPredictor for Phase 2: model runs on every VAD
-    // speech-end but decisions are TELEMETRY ONLY — the SM treats every
-    // shadow decision as INCOMPLETE, so today's behavior is unchanged for
-    // the user. Analyze `smart_turn_shadow_decision` events to decide when
-    // to flip off shadow mode (see Phase 3 rollout in v2 report).
-    const endpointPredictor = useMemo(
-        () => createShadowPredictor(createSmartTurnPredictor()),
-        [],
-    );
+    // Behavior is driven by tiviSettings.semanticEndpointing:
+    //   'off'    → no predictor; VAD's raw silence tail decides commit (legacy)
+    //   'shadow' → model runs on every VAD speech-end but decisions are
+    //              telemetry only (user-visible behavior unchanged)
+    //   'gate'   → model actually gates commit. Pair with a small redemptionMs.
+    const endpointPredictor = useMemo(() => {
+        if (tiviSettings.semanticEndpointing === 'off') return undefined;
+        const base = createSmartTurnPredictor();
+        return tiviSettings.semanticEndpointing === 'shadow'
+            ? createShadowPredictor(base)
+            : base;
+    }, [tiviSettings.semanticEndpointing]);
 
     // ── Tivi ──
     const tivi = useTivi({
@@ -315,15 +318,20 @@ const Component: NextPage = (props: any) => {
         onQueueDrain: (info) => onQueueDrainRef.current(info),
         onTtsPlaybackTiming: (event) => onTtsPlaybackTimingRef.current(event),
         onSpeechRecognitionError: (info) => onSpeechRecognitionErrorRef.current(info),
-        // Semantic endpointing (Smart Turn v3) — Phase 2 shadow-mode telemetry.
+        // Semantic endpointing (Smart Turn v3).
         endpointPredictor,
+        redemptionMs: tiviSettings.redemptionMs,
+        maxAwaitCommitMs: tiviSettings.maxAwaitCommitMs,
         onPredictorDecision: (decision) => {
-            insightsClient.current?.addEvent?.('smart_turn_shadow_decision', {
+            // Emit shape used by both shadow and gate modes; downstream
+            // analysis filters on `shadow: true|false`.
+            insightsClient.current?.addEvent?.('smart_turn_decision', {
                 app: 'smartchats',
                 probability: decision.probability,
                 complete: decision.complete,
                 latency_ms: decision.latency_ms,
                 shadow: decision.shadow ?? false,
+                mode: tiviSettings.semanticEndpointing,
             }, { duration_ms: decision.latency_ms, tags: ['voice', 'eot', 'smart_turn'] });
         },
     });

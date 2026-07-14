@@ -48,6 +48,25 @@ export interface TiviSettings {
    *  ONCE; subsequent loads respect their post-migration choice.
    *  See useSmartChatsStore.loadSettings for the migration trigger. */
   preset_v1_applied: boolean;
+
+  // ─── Semantic endpointing (Smart Turn v3) ──────────────────────────
+  //
+  // `off`    — no predictor; VAD's raw silence tail decides commit (legacy)
+  // `shadow` — predictor runs on every VAD speech-end but decisions are
+  //            telemetry-only. Behavior identical to `off`.
+  // `gate`   — predictor's decision actually gates commit. Pair with a
+  //            small `redemptionMs` (100–200ms) to see latency wins.
+  semanticEndpointing: 'off' | 'shadow' | 'gate';
+
+  /** VAD redemption tail in ms (silence duration before speech-end fires).
+   *  Default 1400. When semanticEndpointing is 'gate', consider shrinking
+   *  to ~150 so the predictor does the actual gating. */
+  redemptionMs: number;
+
+  /** Safety timeout in the AWAITING_COMMIT SM state — if the predictor
+   *  doesn't return by this time, commit anyway with the best-available
+   *  transcript. Default 1400. */
+  maxAwaitCommitMs: number;
 }
 
 export type TiviSettingsKey = keyof TiviSettings;
@@ -80,6 +99,9 @@ export const TIVI_DEFAULTS: Readonly<TiviSettings> = {
   aiPreset: 'snappy',
   ttsCloudProvider: 'azure',
   preset_v1_applied: false,
+  semanticEndpointing: 'shadow',
+  redemptionMs: 1400,
+  maxAwaitCommitMs: 1400,
 };
 
 /** TTS models that are no longer valid — auto-migrated to current default on load */

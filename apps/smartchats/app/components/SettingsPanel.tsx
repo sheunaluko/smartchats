@@ -355,6 +355,53 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = React.memo(({
             />
           </div>
 
+          {/* Semantic Endpointing (Smart Turn v3) */}
+          <div className="mt-3">
+            <Select
+              value={tiviParams.semanticEndpointing}
+              onChange={(value) => onTiviParamsChange({ semanticEndpointing: value as TiviSettings['semanticEndpointing'] })}
+              disabled={isListening}
+              label="Semantic Endpointing (Smart Turn v3)"
+              options={[
+                { value: 'off', label: 'Off (silence-only)' },
+                { value: 'shadow', label: 'Shadow (telemetry only)' },
+                { value: 'gate', label: 'Gate (fires on model decision)' },
+              ]}
+            />
+          </div>
+
+          {/* Redemption tail — the silence duration before VAD emits speech-end.
+              When Gate mode is on, shrink this so the model does the actual
+              gating; today's default 1400ms keeps behavior legacy. */}
+          <div className="mt-3">
+            <Slider
+              value={tiviParams.redemptionMs}
+              min={100}
+              max={2000}
+              step={50}
+              onChange={(value) => onTiviParamsChange({ redemptionMs: value })}
+              disabled={isListening}
+              label={`Redemption Tail: ${tiviParams.redemptionMs}ms`}
+            />
+          </div>
+
+          {/* Safety commit timeout — how long the SM waits in AWAITING_COMMIT
+              for a predictor answer before firing anyway. Only matters when
+              Semantic Endpointing is 'gate' or 'shadow'. */}
+          {tiviParams.semanticEndpointing !== 'off' && (
+            <div className="mt-3">
+              <Slider
+                value={tiviParams.maxAwaitCommitMs}
+                min={500}
+                max={3000}
+                step={100}
+                onChange={(value) => onTiviParamsChange({ maxAwaitCommitMs: value })}
+                disabled={isListening}
+                label={`Predictor Safety Timeout: ${tiviParams.maxAwaitCommitMs}ms`}
+              />
+            </div>
+          )}
+
           {/* Power Threshold - only show for responsive mode */}
           {tiviParams.mode === 'responsive' && (
             <div className="mt-3">
