@@ -5,6 +5,12 @@
 import { MutableRefObject } from 'react';
 import type { TTSCallFn, TTSStreamCallFn, QueueEntryStatus } from './tts_queue';
 import type { FirebaseTtsCallable } from './tts_backends';
+import type {
+  EndpointPredictor,
+  PredictorDecision,
+  TiviSMState,
+  TiviSMCause,
+} from './sm';
 
 /**
  * Recognition modes for TIVI:
@@ -158,6 +164,51 @@ export interface UseTiviOptions {
    *  can emit a typed insights event. The existing onError callback also
    *  fires alongside this — onSpeechRecognitionError is the structured form. */
   onSpeechRecognitionError?: (info: { code: string; message: string }) => void;
+
+  // ─── Semantic endpointing (Smart Turn v3 integration) ─────────────
+  //
+  // When `endpointPredictor` is provided, a small state machine takes
+  // over the transcription-commit decision: on VAD speech-end, the audio
+  // buffer is handed to the predictor, and `onTranscription` fires when
+  // the predictor returns COMPLETE (or a safety timeout expires). If a
+  // WebSpeech FINAL result arrives before the predictor decides, that
+  // wins the race and commits immediately.
+  //
+  // When `endpointPredictor` is absent (default), tivi behaves exactly
+  // as prior versions — the SM is not instantiated at all.
+
+  /** Predictor for semantic endpointing (e.g. Smart Turn v3). Optional. */
+  endpointPredictor?: EndpointPredictor;
+
+  /**
+   * Safety timeout in the AWAITING_COMMIT SM state. If the predictor
+   * hasn't returned by this time, commit anyway with the best-available
+   * transcript. Default: 1400.
+   */
+  maxAwaitCommitMs?: number;
+
+  /**
+   * Override the VAD redemption tail (silence duration before speech-end
+   * fires). Default: 1400ms. When a predictor is present, callers may want
+   * to shrink this (e.g. 100–200ms) so the predictor decides sooner.
+   */
+  redemptionMs?: number;
+
+  /**
+   * Preferred alias for `enableInterruption`. When both are provided,
+   * `enableBargeIn` wins. Semantics unchanged.
+   */
+  enableBargeIn?: boolean;
+
+  /** Fires on every SM state transition. Diagnostic + telemetry hook. */
+  onStateChange?: (from: TiviSMState, to: TiviSMState, cause: TiviSMCause) => void;
+
+  /**
+   * Fires for every predictor decision (including shadow-mode). Used for
+   * telemetry — plug into insights_events for A/B analysis of endpointing
+   * behavior.
+   */
+  onPredictorDecision?: (decision: PredictorDecision) => void;
 }
 
 export interface UseTiviReturn {

@@ -25,3 +25,26 @@ export type { FirebaseTtsCallable } from './tts_backends';
 // TTS Acknowledgements
 export { preloadAcknowledgements, getAckBuffer, getAckBufferByText, clearAckCache, isAckCacheLoaded, getLoadedVoice, getLoadedSpeed, quantizeSpeed, ACK_TYPES, OPENAI_VOICES, ACK_SPOKEN_TEXT, CACHED_SPEEDS } from './tts_acknowledgements';
 export type { AckType, OpenAIVoice } from './tts_acknowledgements';
+
+// Semantic endpointing state machine (Smart Turn v3 integration)
+export {
+  createRuntime as createSMRuntime,
+  reduce as reduceSM,
+  bestTranscript,
+  INITIAL_SM_CONTEXT,
+} from './sm';
+export type {
+  EndpointPredictor,
+  PredictorWarmup,
+  PredictorDecision,
+  TiviSMState,
+  TiviSMCause,
+  TiviSMInput,
+  TiviSMEffect,
+  TiviSMContext,
+  ReducerResult,
+  ReducerConfig,
+  TiviSMRuntime,
+  RuntimeOptions,
+  RuntimeEffectHandlers,
+} from './sm';

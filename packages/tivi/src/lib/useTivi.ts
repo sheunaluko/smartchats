@@ -14,6 +14,7 @@ import { SpeechRecognitionManager } from './speech-recognition';
 import { createTTSSpeechQueue } from './tts_queue';
 import { getTiviSettings } from './settings';
 import { createLocalTtsCallFn, createFirebaseTtsCallFn } from './tts_backends';
+import { createRuntime, type TiviSMRuntime } from './sm';
 
 const log = logger.get_logger({ id: 'tivi' });
 const THROTTLE_MS = 20; // Only update audio power every 20ms
@@ -33,6 +34,7 @@ export function useTivi(options: UseTiviOptions): UseTiviReturn {
     powerThreshold = 0.01,
     prerollMs = 0,
     enableInterruption = true,
+    enableBargeIn,
     ttsCallFn: externalTtsCallFn,
     ttsStreamCallFn,
     firebaseTtsCallable,
@@ -42,7 +44,18 @@ export function useTivi(options: UseTiviOptions): UseTiviReturn {
     onQueueDrain,
     onTtsPlaybackTiming,
     onSpeechRecognitionError,
+    // Semantic endpointing (Smart Turn v3 integration).
+    endpointPredictor,
+    maxAwaitCommitMs = 1400,
+    redemptionMs = 1400,
+    onStateChange,
+    onPredictorDecision,
   } = options;
+
+  // enableBargeIn is the preferred alias for enableInterruption; when both
+  // are provided, enableBargeIn wins.
+  const effectiveEnableInterruption =
+    typeof enableBargeIn === 'boolean' ? enableBargeIn : enableInterruption;
 
   // Auto-resolve ttsCallFn based on settings and props
   const settings = getTiviSettings();
@@ -94,7 +107,15 @@ export function useTivi(options: UseTiviOptions): UseTiviReturn {
   const isSpeakingRef = useRef(false);
   const isListeningRef = useRef(false);
   const powerThresholdRef = useRef(powerThreshold);
-  const enableInterruptionRef = useRef(enableInterruption);
+  const enableInterruptionRef = useRef(effectiveEnableInterruption);
+  // Semantic endpointing runtime — instantiated in startListening when
+  // `endpointPredictor` is provided; nullish otherwise.
+  const smRuntimeRef = useRef<TiviSMRuntime | null>(null);
+  const endpointPredictorRef = useRef(endpointPredictor);
+  const maxAwaitCommitMsRef = useRef(maxAwaitCommitMs);
+  const onStateChangeRef = useRef(onStateChange);
+  const onPredictorDecisionRef = useRef(onPredictorDecision);
+  const onTranscriptionRef = useRef(onTranscription);
   const ttsQueueRef = useRef<ReturnType<typeof createTTSSpeechQueue> | null>(null);
   const onQueueStateChangeRef = useRef(onQueueStateChange);
   const onQueueFirstUtteranceRef = useRef(onQueueFirstUtterance);
@@ -113,8 +134,28 @@ export function useTivi(options: UseTiviOptions): UseTiviReturn {
   }, [powerThreshold]);
 
   useEffect(() => {
-    enableInterruptionRef.current = enableInterruption;
-  }, [enableInterruption]);
+    enableInterruptionRef.current = effectiveEnableInterruption;
+  }, [effectiveEnableInterruption]);
+
+  useEffect(() => {
+    endpointPredictorRef.current = endpointPredictor;
+  }, [endpointPredictor]);
+
+  useEffect(() => {
+    maxAwaitCommitMsRef.current = maxAwaitCommitMs;
+  }, [maxAwaitCommitMs]);
+
+  useEffect(() => {
+    onStateChangeRef.current = onStateChange;
+  }, [onStateChange]);
+
+  useEffect(() => {
+    onPredictorDecisionRef.current = onPredictorDecision;
+  }, [onPredictorDecision]);
+
+  useEffect(() => {
+    onTranscriptionRef.current = onTranscription;
+  }, [onTranscription]);
 
   useEffect(() => {
     onQueueStateChangeRef.current = onQueueStateChange;
@@ -238,6 +279,12 @@ export function useTivi(options: UseTiviOptions): UseTiviReturn {
       recognitionRef.current?.stop();
       recognitionActiveRef.current = false;
 
+      // Tear down semantic endpointing runtime
+      if (smRuntimeRef.current) {
+        smRuntimeRef.current.stop();
+        smRuntimeRef.current = null;
+      }
+
       // Clear pending pause timeout
       if (pauseRecognitionTimeoutRef.current) {
         clearTimeout(pauseRecognitionTimeoutRef.current);
@@ -254,7 +301,17 @@ export function useTivi(options: UseTiviOptions): UseTiviReturn {
       const text = e.detail;
       log(`Final transcription: ${text}`);
       setTranscription((prev) => (prev ? `${prev} ${text}` : text).trim());
-      onTranscription?.(text);
+
+      if (smRuntimeRef.current) {
+        // Semantic endpointing active: route FINAL through the SM. It may
+        // commit immediately (STT beat predictor race) or store the final
+        // for later. Either way, the SM's EMIT_TRANSCRIPTION effect handler
+        // is what invokes onTranscription — so we do NOT fire it here.
+        smRuntimeRef.current.dispatch({ channel: 'stt', kind: 'FINAL', text });
+      } else {
+        // No predictor: preserve prior behavior.
+        onTranscription?.(text);
+      }
     };
 
     const handleInterim = (e: CustomEvent) => {
@@ -263,6 +320,11 @@ export function useTivi(options: UseTiviOptions): UseTiviReturn {
       const text = e.detail;
       if (verbose) log(`Interim transcription: ${text}`);
       setInterimResult(text);
+
+      // Interim tokens feed the SM's "best-available transcript" join
+      // — required so a predictor-COMPLETE decision can commit on the
+      // latest interim even when WebSpeech hasn't finalized yet.
+      smRuntimeRef.current?.dispatch({ channel: 'stt', kind: 'INTERIM', text });
     };
 
     window.addEventListener('tivi_speech_recognition_result', handleTranscription as EventListener);
@@ -406,6 +468,28 @@ export function useTivi(options: UseTiviOptions): UseTiviReturn {
       // Log the VAD parameters being used
       log(`VAD params: pos=${positiveSpeechThreshold}, neg=${negativeSpeechThreshold}, minSpeechStart=${minSpeechStartMs}ms`);
 
+      // Spin up the turn-commit SM if a predictor was provided. When absent,
+      // smRuntimeRef stays null and useTivi behaves like it did pre-SM.
+      if (endpointPredictorRef.current) {
+        smRuntimeRef.current?.stop();
+        smRuntimeRef.current = createRuntime({
+          predictor: endpointPredictorRef.current,
+          config: { maxAwaitCommitMs: maxAwaitCommitMsRef.current },
+          handlers: {
+            onEmitTranscription: (text: string) => {
+              onTranscriptionRef.current?.(text);
+            },
+            onStateChange: (from, to, cause) => {
+              onStateChangeRef.current?.(from, to, cause);
+            },
+            onPredictorDecision: (decision) => {
+              onPredictorDecisionRef.current?.(decision);
+            },
+          },
+          verbose,
+        });
+      }
+
       // Enable VAD and get audio components
       const { vad, audioContext, analyserNode, stream } = await enable_vad({
         onSpeechStart: async () => {
@@ -418,6 +502,10 @@ export function useTivi(options: UseTiviOptions): UseTiviReturn {
             pauseRecognitionTimeoutRef.current = null;
             log('Cancelled pending recognition pause (user speaking again)');
           }
+
+          // Feed the SM even while imperative barge-in path runs — SM
+          // needs SPEECH_START to reset its commit state.
+          smRuntimeRef.current?.dispatch({ channel: 'vad', kind: 'SPEECH_START' });
 
           // If TTS is speaking and interruption is enabled, interrupt it
           if ((tts.isSpeaking() || ttsQueueRef.current?.isPlaying()) && enableInterruptionRef.current) {
@@ -446,6 +534,10 @@ export function useTivi(options: UseTiviOptions): UseTiviReturn {
         onSpeechEnd: (audio: Float32Array) => {
           if (!isMountedRef.current) return;
           log(`VAD detected speech end, audio length: ${audio.length}`);
+
+          // Feed the SM. If a predictor is wired, this triggers the
+          // AWAITING_COMMIT flow (invokes predictor). If not, no-op.
+          smRuntimeRef.current?.dispatch({ channel: 'vad', kind: 'SPEECH_END', audio });
 
           // Guarded mode only: Pause recognition after delay
           if (modeRef.current === 'guarded') {
@@ -483,7 +575,7 @@ export function useTivi(options: UseTiviOptions): UseTiviReturn {
 
         positiveSpeechThreshold,
         negativeSpeechThreshold,
-        redemptionMs: 1400,
+        redemptionMs,
         preSpeechPadMs: 2000,
         minSpeechStartMs,
       });
@@ -551,7 +643,7 @@ export function useTivi(options: UseTiviOptions): UseTiviReturn {
       setError(errorMsg);
       onError?.(err instanceof Error ? err : new Error(errorMsg));
     }
-  }, [onError, onInterrupt, language, verbose, positiveSpeechThreshold, negativeSpeechThreshold, minSpeechStartMs, mode, prerollMs, startPowerMonitoring, teardownPreroll]);
+  }, [onError, onInterrupt, language, verbose, positiveSpeechThreshold, negativeSpeechThreshold, minSpeechStartMs, mode, prerollMs, redemptionMs, startPowerMonitoring, teardownPreroll]);
 
   const stopListening = useCallback(() => {
     log('Stopping listening...');
@@ -576,6 +668,12 @@ export function useTivi(options: UseTiviOptions): UseTiviReturn {
 
     // Stop speech recognition
     recognitionRef.current?.stop();
+
+    // Tear down semantic endpointing runtime
+    if (smRuntimeRef.current) {
+      smRuntimeRef.current.stop();
+      smRuntimeRef.current = null;
+    }
 
     // Clear pending pause timeout
     if (pauseRecognitionTimeoutRef.current) {
@@ -647,7 +745,7 @@ export function useTivi(options: UseTiviOptions): UseTiviReturn {
     speechProbRef, // VAD speech probability ref
     error,
     mode, // Current recognition mode
-    enableInterruption, // Whether TTS interruption is enabled
+    enableInterruption: effectiveEnableInterruption, // Whether TTS interruption is enabled (respects enableBargeIn alias)
 
     // Actions
     startListening,
