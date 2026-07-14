@@ -10,6 +10,8 @@ let onnxInitialized = false;
 let ort: any = null;
 let cachedSilero: any = null;
 let sileroLoadPromise: Promise<any> | null = null;
+let cachedSmartTurn: any = null;
+let smartTurnLoadPromise: Promise<any> | null = null;
 
 // Dynamically import ONNX runtime (only on client side)
 async function getOnnxRuntime() {
@@ -79,6 +81,73 @@ export async function warmup_vad(): Promise<{
   }
   try {
     await get_silero_session();
+    return {
+      duration_ms: Math.round(performance.now() - start),
+      ok: true,
+      cached: false,
+    };
+  } catch (err: any) {
+    return {
+      duration_ms: Math.round(performance.now() - start),
+      ok: false,
+      cached: false,
+      error: err?.message || String(err),
+    };
+  }
+}
+
+/**
+ * Load the Smart Turn v3 (v3.2 CPU int8) endpoint-classifier ONNX
+ * session. Mirrors get_silero_session's caching pattern; the session is
+ * read-only + safe to share. Consumers should preserve their own
+ * per-call state (e.g. mel-spec inputs) rather than mutating the session.
+ *
+ * Model file: apps/smartchats/public/onnx/smart-turn-v3.2-cpu.onnx (~8.3 MB).
+ * License: BSD-2-Clause (pipecat-ai/smart-turn-v3).
+ */
+export async function get_smart_turn_session() {
+  if (cachedSmartTurn) return cachedSmartTurn;
+  if (smartTurnLoadPromise) return smartTurnLoadPromise;
+  smartTurnLoadPromise = (async () => {
+    const ortRuntime = await getOnnxRuntime();
+    log('Loading Smart Turn v3 session');
+    const session = await ortRuntime.InferenceSession.create(
+      '/onnx/smart-turn-v3.2-cpu.onnx',
+      {
+        executionProviders: ['wasm'],
+        graphOptimizationLevel: 'all',
+        executionMode: 'sequential',
+      },
+    );
+    log('Smart Turn v3 session loaded');
+    cachedSmartTurn = session;
+    return session;
+  })();
+  try {
+    return await smartTurnLoadPromise;
+  } finally {
+    smartTurnLoadPromise = null;
+  }
+}
+
+/**
+ * Pre-load the Smart Turn v3 model. Idempotent. Never throws — failures
+ * are captured in the returned object so the caller can emit
+ * instrumentation without try/catch. Mirrors warmup_vad() shape so callers
+ * can treat it identically in a Promise.allSettled parallel warmup fan.
+ */
+export async function warmup_smart_turn(): Promise<{
+  duration_ms: number;
+  ok: boolean;
+  cached: boolean;
+  error?: string;
+}> {
+  const start = performance.now();
+  if (cachedSmartTurn) {
+    return { duration_ms: 0, ok: true, cached: true };
+  }
+  try {
+    await get_smart_turn_session();
     return {
       duration_ms: Math.round(performance.now() - start),
       ok: true,

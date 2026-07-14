@@ -25,6 +25,7 @@ interface BootSnapshot {
   tts: BootProbeResult | null;
   vad: BootProbeResult | null;
   prefetch: BootProbeResult | null;
+  smart_turn: BootProbeResult | null;
   /** Click T0 of the most recent voice_session_start, or null between sessions. */
   voiceSessionStartTime: number | null;
   /** True when the current voice session began cold (any probe missing/failed). */
@@ -39,6 +40,7 @@ const snapshot: BootSnapshot = {
   tts: null,
   vad: null,
   prefetch: null,
+  smart_turn: null,
   voiceSessionStartTime: null,
   voiceSessionCold: false,
 };
@@ -50,7 +52,7 @@ export function markApp3Mounted(): void {
 }
 
 export function recordProbe(
-  name: 'runner' | 'tts' | 'vad' | 'prefetch',
+  name: 'runner' | 'tts' | 'vad' | 'prefetch' | 'smart_turn',
   result: BootProbeResult,
 ): void {
   snapshot[name] = result;

@@ -22,3 +22,5 @@ export { INITIAL_SM_CONTEXT } from './types';
 export { reduce, bestTranscript } from './reducer';
 export { createRuntime } from './runtime';
 export type { RuntimeOptions, RuntimeEffectHandlers, TiviSMRuntime } from './runtime';
+export { createSmartTurnPredictor, createShadowPredictor } from './predictors';
+export type { SmartTurnPredictorOptions } from './predictors';

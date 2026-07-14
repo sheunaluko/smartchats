@@ -44,7 +44,7 @@ import { useDesignPack } from '../core/DesignPackContext';
 import { useVizMotif } from '../core/VizMotifContext';
 import { listDesignPacks } from '../core/theme-packs';
 
-import { useTivi } from "@lab-components/tivi/lib/index"
+import { useTivi, createSmartTurnPredictor, createShadowPredictor, warmup_smart_turn } from "@lab-components/tivi/lib/index"
 import { backendTtsCallFn, backendTtsStreamFn, warmupBackendTts } from '@/lib/tts_caller';
 import { setTtsQueueRef, setTtsServerTimingCallback, setLlmServerTimingCallback, setLlmClientTimingCallback } from '@/lib/llm_caller';
 import { getBackend } from '@/lib/backend';
@@ -284,6 +284,17 @@ const Component: NextPage = (props: any) => {
     const onTtsPlaybackTimingRef = useRef<(event: any) => void>(() => {});
     const onSpeechRecognitionErrorRef = useRef<(info: { code: string; message: string }) => void>(() => {});
 
+    // ── Smart Turn v3 endpoint predictor ──
+    // Wrapped in ShadowPredictor for Phase 2: model runs on every VAD
+    // speech-end but decisions are TELEMETRY ONLY — the SM treats every
+    // shadow decision as INCOMPLETE, so today's behavior is unchanged for
+    // the user. Analyze `smart_turn_shadow_decision` events to decide when
+    // to flip off shadow mode (see Phase 3 rollout in v2 report).
+    const endpointPredictor = useMemo(
+        () => createShadowPredictor(createSmartTurnPredictor()),
+        [],
+    );
+
     // ── Tivi ──
     const tivi = useTivi({
         verbose: tiviSettings.verbose,
@@ -304,6 +315,17 @@ const Component: NextPage = (props: any) => {
         onQueueDrain: (info) => onQueueDrainRef.current(info),
         onTtsPlaybackTiming: (event) => onTtsPlaybackTimingRef.current(event),
         onSpeechRecognitionError: (info) => onSpeechRecognitionErrorRef.current(info),
+        // Semantic endpointing (Smart Turn v3) — Phase 2 shadow-mode telemetry.
+        endpointPredictor,
+        onPredictorDecision: (decision) => {
+            insightsClient.current?.addEvent?.('smart_turn_shadow_decision', {
+                app: 'smartchats',
+                probability: decision.probability,
+                complete: decision.complete,
+                latency_ms: decision.latency_ms,
+                shadow: decision.shadow ?? false,
+            }, { duration_ms: decision.latency_ms, tags: ['voice', 'eot', 'smart_turn'] });
+        },
     });
 
     const tiviRef = useRef(tivi);
@@ -376,7 +398,7 @@ const Component: NextPage = (props: any) => {
         const client = insightsClient.current;
 
         const timedProbe = async (
-            name: 'runner' | 'tts' | 'vad' | 'prefetch',
+            name: 'runner' | 'tts' | 'vad' | 'prefetch' | 'smart_turn',
             event_type: string,
             run: () => Promise<Record<string, any> | void>,
         ) => {
@@ -427,6 +449,11 @@ const Component: NextPage = (props: any) => {
                     const result = await tiviRef.current.warmupVAD();
                     return { cached: result.cached };
                 }),
+            timedProbe('smart_turn', 'smart_turn_warmup_complete',
+                async () => {
+                    const result = await warmup_smart_turn();
+                    return { cached: result.cached, ok: result.ok, error: result.error };
+                }),
         ];
 
         Promise.allSettled(probes).then(() => {
@@ -441,6 +468,7 @@ const Component: NextPage = (props: any) => {
                     tts_warmup_ms: snap.tts?.duration_ms ?? null,
                     vad_warmup_ms: snap.vad?.duration_ms ?? null,
                     prefetch_ms: snap.prefetch?.duration_ms ?? null,
+                    smart_turn_warmup_ms: snap.smart_turn?.duration_ms ?? null,
                 },
                 all_probes_ok: !!(snap.runner?.ok && snap.tts?.ok && snap.vad?.ok && snap.prefetch?.ok),
             }, { duration_ms: total_duration_ms, tags: ['boot', 'latency'] });

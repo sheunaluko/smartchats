@@ -13,7 +13,7 @@
 // Run via: `node scripts/prebuild.mjs <subcommand>` (the npm scripts in
 // apps/smartchats/package.json shell out to this).
 
-import { existsSync, mkdirSync, rmSync, cpSync, readdirSync, copyFileSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, rmSync, cpSync, readdirSync, copyFileSync, statSync, writeFileSync } from 'node:fs';
 import { execSync } from 'node:child_process';
 import { join, dirname, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -36,6 +36,46 @@ function copyMatching(srcDir, destDir, predicate) {
         if (!statSync(src).isFile()) continue;
         copyFileSync(src, join(destDir, basename(entry)));
     }
+}
+
+// Fetches Pipecat's Smart Turn v3.2 CPU int8 ONNX model from HuggingFace
+// (~8.3 MB, BSD-2). Cached across prebuild runs — skip download when the
+// file already exists at the destination. Uses Node's built-in fetch so
+// it works on all platforms without requiring curl. Non-fatal on network
+// errors: prints a warning + continues; the runtime will surface a load
+// error via smart_turn_warmup_complete telemetry.
+const SMART_TURN_URL = 'https://huggingface.co/pipecat-ai/smart-turn-v3/resolve/main/smart-turn-v3.2-cpu.onnx';
+
+async function fetchSmartTurnModelAsync(destPath) {
+    if (existsSync(destPath)) {
+        step(`smart-turn-v3.2-cpu.onnx already cached at ${destPath}`);
+        return;
+    }
+    step(`fetching smart-turn-v3.2-cpu.onnx from HuggingFace…`);
+    try {
+        const res = await fetch(SMART_TURN_URL);
+        if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
+        const buf = Buffer.from(await res.arrayBuffer());
+        ensureDir(dirname(destPath));
+        writeFileSync(destPath, buf);
+        step(`wrote ${buf.byteLength} bytes → ${destPath}`);
+    } catch (err) {
+        console.warn(`> prebuild: WARNING — smart-turn model fetch failed: ${err.message}`);
+        console.warn(`> prebuild: semantic endpointing will fail to warm up at runtime.`);
+    }
+}
+
+// Sync wrapper — top-level await isn't available in the top-level of this
+// file's flow, but the caller (prebuildAssets) itself isn't async. We defer
+// via a Promise resolution; downstream steps that depend on the file (none
+// today) would need to await it. For the current pipeline this is fine
+// because the fetch runs concurrently with the remaining cleanup.
+let _smartTurnFetchPromise = null;
+function fetchSmartTurnModel(destPath) {
+    _smartTurnFetchPromise = fetchSmartTurnModelAsync(destPath);
+}
+async function awaitSmartTurnFetch() {
+    if (_smartTurnFetchPromise) await _smartTurnFetchPromise;
 }
 
 // Directories/files inside apps/site that don't affect the build output
@@ -109,6 +149,12 @@ function prebuildAssets() {
     step(`copying vad-web/silero_vad_v5.onnx → ${onnxDest}`);
     copyFileSync(vadSrc, join(onnxDest, 'silero_vad_v5.onnx'));
 
+    // Smart Turn v3 (Pipecat) — 8.3 MB int8 endpoint classifier from HuggingFace.
+    // Not shipped via npm — fetched into public/onnx/ so onnxruntime-web can
+    // load it at runtime alongside silero. BSD-2 licensed. Cached across
+    // prebuild runs to avoid re-downloading.
+    fetchSmartTurnModel(join(onnxDest, 'smart-turn-v3.2-cpu.onnx'));
+
     ensureDir(libDest);
     step(`copying graphology + sigma → ${libDest}`);
     copyFileSync(
@@ -155,12 +201,14 @@ function cleanupOnnx() {
 }
 
 const cmd = process.argv[2];
-switch (cmd) {
-    case 'site':         prebuildSite(); break;
-    case 'assets':       prebuildAssets(); cleanupOnnx(); break;
-    case 'cleanup-onnx': cleanupOnnx(); break;
-    case 'all':          prebuildSite(); prebuildAssets(); cleanupOnnx(); break;
-    default:
-        console.error('Usage: node scripts/prebuild.mjs <site|assets|cleanup-onnx|all>');
-        process.exit(1);
-}
+(async () => {
+    switch (cmd) {
+        case 'site':         prebuildSite(); break;
+        case 'assets':       prebuildAssets(); cleanupOnnx(); await awaitSmartTurnFetch(); break;
+        case 'cleanup-onnx': cleanupOnnx(); break;
+        case 'all':          prebuildSite(); prebuildAssets(); cleanupOnnx(); await awaitSmartTurnFetch(); break;
+        default:
+            console.error('Usage: node scripts/prebuild.mjs <site|assets|cleanup-onnx|all>');
+            process.exit(1);
+    }
+})();
