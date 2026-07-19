@@ -499,6 +499,24 @@ const Component: NextPage = (props: any) => {
             // this point get their own trace_ids (e.g. voice_session_start
             // opens its own chain).
             client?.endChain?.();
+
+            // Post-boot: fire the deferred installed_apps load so:
+            //   (a) Simi tests observe state.installedApps within their timeouts
+            //   (b) the launcher widget mounts with data if the user opens it
+            // Deferred out of the boot critical path in v2 refactor — users
+            // who never touch apps pay nothing during the click→first-audio
+            // window, and users who do just pay the price when the LLM
+            // actually asks. See modules/app_launcher.ts:ensureAppsLoaded.
+            import('./modules/app_launcher').then(({ ensureAppsLoaded }) => {
+                const t0 = performance.now();
+                ensureAppsLoaded().then((installs) => {
+                    client?.addEvent?.('installed_apps_post_boot', {
+                        app: 'smartchats',
+                        duration_ms: Math.round(performance.now() - t0),
+                        count: installs.length,
+                    }, { tags: ['boot', 'apps'] });
+                }).catch(() => {});
+            });
         });
     }, [authUser, COR]);
 

@@ -22,21 +22,94 @@ import {
 import { DEFAULT_GRANTS, filterGrantedFunctions } from "../lib/permissions"
 import { AppSandbox } from "../lib/app_sandbox"
 import type { AppManifest, AppInstall, AppPermission, LoadedApp, SerializedAppFunction } from '../../core/types/app'
-import { getBackend } from '@/lib/backend';
+import { getBackend, embed_vector } from '@/lib/backend';
+import { seedBuiltinApps } from '../apps/builtin_apps'
+import { useSmartChatsStore } from '../store/useSmartChatsStore'
 
 // ── Closure State ──
 let activeApp: LoadedApp | null = null
 let activeSandbox: AppSandbox | null = null
 let installedApps: AppInstall[] = []
 
-/** Hydrate the in-module installedApps cache from a resolved loader value.
- *  Called from the installed_apps loader's onResolve. Without this hook,
- *  the trailing `installed:` state in the agent's system context reports
- *  "none" on first turn and the LLM hedges on re-activation. */
-export function hydrateAppLauncherInstalls(items: any[]): void {
-    if (Array.isArray(items)) {
-        installedApps = items.map((x: any) => x.install).filter(Boolean)
+// ── Lazy loader (was: installed_apps background loader) ──
+//
+// The installed-apps fetch used to fire unconditionally at boot as one of
+// the 7 background loaders — 1 + N + 5-10 queries every time, even for
+// users who never touch apps. It's now deferred to first use: seedBuiltins,
+// listInstalls, and per-manifest gets fire lazily behind a memoized promise.
+//
+// Consumers who NEED apps loaded — the LLM's `list_apps` / `activate_app`
+// tool calls, the launcher widget on mount — call ensureAppsLoaded() and
+// await it. The onResolve side effects (store update, agent context
+// injection, module-cache hydrate) fire on the first resolve.
+//
+// app3.tsx also triggers this after boot_complete on a low-priority timer
+// so Simi tests still observe state.installedApps within their timeouts.
+
+let _appsLoadPromise: Promise<AppInstall[]> | null = null
+
+async function loadInstalledAppsOnce(): Promise<AppInstall[]> {
+    try {
+        await seedBuiltinApps(embed_vector).catch(() => null)
+        const installs = await listInstalls()
+        const items = await Promise.all(installs.map(async (i) => ({
+            install: i,
+            manifest: await getApp(i.app_id).catch(() => null),
+        })))
+        const valid = items.filter((x: any) => x.manifest !== null)
+
+        // Hydrate module-level cache used by beforeBuild()'s state summary.
+        installedApps = valid.map((x: any) => x.install)
+
+        // Populate the store (UI subscribers: launcher widget, Simi workflows).
+        const cache: Record<string, any> = {}
+        for (const x of valid) cache[x.install.app_id] = x.manifest
+        useSmartChatsStore.setState({
+            installedApps: valid.map((x: any) => x.install),
+            appManifestCache: cache,
+        })
+
+        // Inject a summary into the agent's user_data_input if the agent is
+        // ready. Mirrors the effect of the old installed_apps loader's
+        // onResolve: gives the LLM lightweight metadata (id/name/description
+        // /icon) without the manifest HTML/code bloat.
+        const agent = useSmartChatsStore.getState().agent
+        if (agent) {
+            const summaries = valid.map((x: any) => ({
+                id: x.manifest.id,
+                name: x.manifest.name,
+                description: x.manifest.description,
+                icon: x.manifest.icon,
+            }))
+            try { agent.add_user_data_input({ installed_apps: summaries }, 'bg_installed_apps') } catch {}
+        }
+
+        return valid.map((x: any) => x.install)
+    } catch {
+        return []
     }
+}
+
+/**
+ * Ensure installed_apps are loaded exactly once. Second/subsequent calls
+ * dedupe to the same in-flight promise. On successful resolve, populates
+ * the app_launcher module cache + store + returns installs.
+ *
+ * Callers who need the manifest cache too can read
+ * useSmartChatsStore.getState().appManifestCache after this resolves.
+ */
+export function ensureAppsLoaded(): Promise<AppInstall[]> {
+    if (!_appsLoadPromise) _appsLoadPromise = loadInstalledAppsOnce()
+    return _appsLoadPromise
+}
+
+/**
+ * Reset the lazy-load cache. Called by explicit install/uninstall paths
+ * (or admin tools) that mutate the underlying registry so the next
+ * ensureAppsLoaded() re-fetches instead of returning stale state.
+ */
+export function resetAppsLoadCache(): void {
+    _appsLoadPromise = null
 }
 
 // Exported for orchestrator input routing

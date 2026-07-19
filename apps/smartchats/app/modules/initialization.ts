@@ -12,11 +12,13 @@
 import { embed_vector, getBackend } from '@/lib/backend';
 import { queries, stringifyRecordId, parseRecordIdArg } from 'smartchats-database';
 import { getStartupLoaders } from '../lib/background_loaders';
+import { getStartupContextBatch, resetStartupContextBatch } from '../lib/startup_context_batch';
 
-/** Fetch init instructions — reusable by prefetch and module fn */
+/** Fetch init instructions — reusable by prefetch and module fn.
+ *  Backed by the shared startup context batch (see startup_context_batch.ts)
+ *  so init/procedural/log-categories share a single multi-statement query. */
 export async function fetchInitInstructions(): Promise<any[]> {
-    const response = await getBackend().data.query(queries.getInitInstructions()) as any
-    return response.rows
+    return (await getStartupContextBatch()).init;
 }
 
 // ── Prefetch startup data ────────────────────────────────────────────────────
@@ -113,6 +115,7 @@ export function createInitializationModule() {
                         embedding,
                     })) as any
                     const rows = response.rows
+                    resetStartupContextBatch()
                     log('Init instruction created')
                     return rows.length > 0
                         ? { created: true, id: stringifyRecordId(rows[0]?.id), content: content.trim(), category: cat }
@@ -164,6 +167,7 @@ export function createInitializationModule() {
 
                     const response = await getBackend().data.query(spec) as any
                     const rows = response.rows
+                    resetStartupContextBatch()
                     log('Init instruction updated')
                     return { updated: true, id, result: rows[0] || null }
                 },
@@ -186,6 +190,7 @@ export function createInitializationModule() {
 
                     log(`Deleting init instruction: ${id}`)
                     await getBackend().data.query(queries.deleteInitInstruction(id))
+                    resetStartupContextBatch()
                     log('Init instruction deleted')
                     return { deleted: true, id }
                 },

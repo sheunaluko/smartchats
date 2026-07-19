@@ -1539,18 +1539,13 @@ export const useSmartChatsStore = createInsightStore<SmartChatsState>({
     },
 
     async seedAndLoadApps() {
-      // Thin wrapper: delegate to the installed_apps loader so a
-      // single fetch is shared between this action (called by Simi
-      // workflows) and the app3 background prefetch. If a fetch is
-      // already in flight from prefetch(), this awaits the same
-      // promise — no duplicate roundtrip.
-      const loaders = getStartupLoaders();
-      if (!loaders) {
-        log('seedAndLoadApps: loaders not yet initialized — skipping (page not mounted)');
-        return;
-      }
-      log('seedAndLoadApps: delegating to installed_apps loader');
-      await loaders.installed_apps.get();
+      // Delegates to the lazy-loaded apps primitive (was: installed_apps
+      // background loader, moved to modules/app_launcher.ts:ensureAppsLoaded
+      // as part of the startup-waterfall consolidation). Simi workflows that
+      // wait for state.installedApps.length > 0 call this to force the load.
+      log('seedAndLoadApps: awaiting ensureAppsLoaded');
+      const { ensureAppsLoaded } = await import('../modules/app_launcher');
+      await ensureAppsLoaded();
       log('seedAndLoadApps: done');
     },
 

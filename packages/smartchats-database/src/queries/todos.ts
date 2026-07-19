@@ -83,6 +83,39 @@ export function getLastCompletion(args: { parentId: string }): QuerySpec {
 }
 
 /**
+ * Batch fetch: all completion records for a list of parent todos, filtered
+ * by a real-UTC time window. Used by `fetchTodosContext` to eliminate the
+ * N+1 pattern where each recurring todo previously fired its own
+ * `getCompletionsInPeriod` query. Caller groups the returned rows by
+ * `parent_id` client-side.
+ *
+ * The window filter is inclusive of `start` and `end`; matches
+ * `getCompletionsInPeriod` semantics. When `start`/`end` are omitted,
+ * returns all completions for the given parents (used by interval-mode
+ * recurrence which cares about the most recent completion, not a window).
+ */
+export function getCompletionsForTodos(args: {
+    parentIds: string[];
+    start?: string;
+    end?: string;
+}): QuerySpec {
+    const variables: Record<string, unknown> = { pids: args.parentIds };
+    let where = `WHERE type = 'todo_completion' AND parent_id IN $pids`;
+    if (args.start) {
+        where += ' AND ts >= <datetime> $start';
+        variables.start = args.start;
+    }
+    if (args.end) {
+        where += ' AND ts <= <datetime> $end';
+        variables.end = args.end;
+    }
+    return {
+        query: `SELECT * FROM user_data ${where} ORDER BY ts DESC`,
+        variables,
+    };
+}
+
+/**
  * Fetch a single todo (or any user_data record) by its full record id
  * (e.g. `user_data:abc123`). Returns the row.
  */

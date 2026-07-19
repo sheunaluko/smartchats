@@ -210,7 +210,12 @@ function getRecurrenceTarget(recurrence: any): number | undefined {
 
 // ── Fetch context ────────────────────────────────────────────────────────────
 
-/** Fetch todos context (summary) — reusable by prefetch and module fn */
+/** Fetch todos context (summary) — reusable by prefetch and module fn.
+ *  Was: 1 + N queries (one query per recurring todo for completions).
+ *  Now: 2 queries — all active todos, then all completions for all
+ *  recurring todos in one batch. Per-todo period filtering happens
+ *  client-side. Trade-off: pulls all recent completions in one payload
+ *  (bounded by frequency × active-time per todo — typically small). */
 export async function fetchTodosContext(): Promise<{
     overdue: any[];
     due_today: any[];
@@ -230,6 +235,24 @@ export async function fetchTodosContext(): Promise<{
     const response = await getBackend().data.query(queries.getAllActiveTodos()) as any
     const todos = response.rows
 
+    // Batch-fetch completions for every recurring todo in one query
+    // (N+1 elimination). Non-recurring todos have no completion records
+    // that matter to context so we skip them.
+    const recurringTodos = todos.filter((t: any) => t.data?.recurrence?.freq)
+    const recurringIds = recurringTodos.map((t: any) => t.id)
+    const completionsByParent = new Map<string, any[]>()
+    if (recurringIds.length > 0) {
+        const cRes = await getBackend().data.query(queries.getCompletionsForTodos({
+            parentIds: recurringIds,
+        })) as any
+        for (const c of cRes.rows) {
+            const pid = c.parent_id
+            const list = completionsByParent.get(pid)
+            if (list) list.push(c)
+            else completionsByParent.set(pid, [c])
+        }
+    }
+
     const overdue: any[] = []
     const due_today: any[] = []
     const upcoming_7d: any[] = []
@@ -243,19 +266,23 @@ export async function fetchTodosContext(): Promise<{
 
         // Evaluate recurrence
         if (recurrence && recurrence.freq) {
+            const allCompletions = completionsByParent.get(todo.id) ?? []
             const bounds = getPeriodBounds(recurrence, now, tz)
-            let completions: any[] = []
+            let completions: any[]
             if (bounds) {
-                const cRes = await getBackend().data.query(queries.getCompletionsInPeriod({
-                    parentId: todo.id,
-                    start: bounds.start.toISOString(),
-                    end: bounds.end.toISOString(),
-                })) as any
-                completions = cRes.rows
+                // Window-based recurrence — client-side filter on ts range
+                const startMs = bounds.start.getTime()
+                const endMs = bounds.end.getTime()
+                completions = allCompletions.filter((c: any) => {
+                    const t = new Date(c.ts ?? c.timestamp).getTime()
+                    return t >= startMs && t <= endMs
+                })
             } else if (recurrence.freq === 'interval') {
-                // For interval, just get the most recent completion
-                const cRes = await getBackend().data.query(queries.getLastCompletion({ parentId: todo.id })) as any
-                completions = cRes.rows
+                // Interval-based — take only the most recent completion.
+                // getCompletionsForTodos returns ORDER BY ts DESC, so first is latest.
+                completions = allCompletions.length > 0 ? [allCompletions[0]] : []
+            } else {
+                completions = []
             }
 
             if (isDue(recurrence, completions, now, tz)) {

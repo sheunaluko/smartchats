@@ -10,12 +10,19 @@
 import { embed_vector, getBackend } from '@/lib/backend';
 import { queries, stringifyRecordId, parseRecordIdArg } from 'smartchats-database';
 import { getStartupLoaders } from '../lib/background_loaders';
+import { getStartupContextBatch, resetStartupContextBatch } from '../lib/startup_context_batch';
 
-/** Fetch all procedural instructions — reusable by prefetch and module fn */
+/** Fetch all procedural instructions — reusable by prefetch and module fn.
+ *  Backed by the shared startup context batch. Passing a category filter
+ *  bypasses the batch (falls through to the direct query) since the batch
+ *  fetches the unfiltered set. */
 export async function fetchProceduralInstructions(category?: string): Promise<any[]> {
-    const cat = category ? category.toLowerCase().trim() : undefined
-    const response = await getBackend().data.query(queries.getProceduralInstructions({ category: cat })) as any
-    return response.rows
+    if (category) {
+        const cat = category.toLowerCase().trim();
+        const response = await getBackend().data.query(queries.getProceduralInstructions({ category: cat })) as any;
+        return response.rows;
+    }
+    return (await getStartupContextBatch()).procedural;
 }
 
 // ── System message ───────────────────────────────────────────────────────────
@@ -109,6 +116,7 @@ export function createProceduralInstructionsModule() {
                         embedding,
                     })) as any
                     const rows = response.rows
+                    resetStartupContextBatch()
                     log('Procedural instruction created')
                     return rows.length > 0
                         ? { created: true, id: stringifyRecordId(rows[0]?.id), content: content.trim(), category: cat }
@@ -161,6 +169,7 @@ export function createProceduralInstructionsModule() {
 
                     const response = await getBackend().data.query(spec) as any
                     const rows = response.rows
+                    resetStartupContextBatch()
                     log('Procedural instruction updated')
                     return { updated: true, id, result: rows[0] || null }
                 },
@@ -183,6 +192,7 @@ export function createProceduralInstructionsModule() {
 
                     log(`Deleting procedural instruction: ${id}`)
                     await getBackend().data.query(queries.deleteProceduralInstruction(id))
+                    resetStartupContextBatch()
                     log('Procedural instruction deleted')
                     return { deleted: true, id }
                 },

@@ -28,13 +28,8 @@ import { fetchProceduralInstructions } from '../../modules/procedural_instructio
 import { fetchMetricsContext } from '../../modules/metrics';
 import { fetchLogCategories } from '../../modules/logging';
 import { fetchTodosContext } from '../../modules/todos';
-import { listInstalls, getApp } from '../../modules/app_registry';
-import { seedBuiltinApps } from '../../apps/builtin_apps';
 import { hydrateOnboardingFromKG } from '../../modules/onboarding';
-import { hydrateAppLauncherInstalls } from '../../modules/app_launcher';
 import { search_knowledge_deep } from '../../graph_utils';
-import { embed_vector } from '@/lib/backend';
-import { useSmartChatsStore } from '../../store/useSmartChatsStore';
 
 const log = logger.get_logger({ id: 'bg_loaders' });
 
@@ -54,7 +49,10 @@ export interface StartupLoaders {
     log_categories: BackgroundLoader<any[]>;
     init_instructions: BackgroundLoader<any[]>;
     procedural_instructions: BackgroundLoader<any[]>;
-    installed_apps: BackgroundLoader<any[]>;
+    // installed_apps intentionally REMOVED — deferred to lazy-load via
+    // `ensureAppsLoaded()` in modules/app_launcher.ts. Fired post-boot by
+    // app3.tsx so Simi tests still observe state.installedApps within their
+    // timeouts. Users who never touch apps pay zero for this.
 }
 
 /** Fire prefetch() on every loader. Idempotent (loaders dedupe themselves). */
@@ -143,56 +141,6 @@ export function createStartupLoaders(deps: StartupLoaderDeps): StartupLoaders {
             id: 'procedural_instructions',
             fetch: () => fetchProceduralInstructions().catch(() => []),
             onResolve: injector(deps, 'procedural_instructions'),
-            insights: i,
-        }),
-
-        // Apps: seed builtins (idempotent), list installs, hydrate manifests.
-        // Resolves with the structured items so the onResolve can populate
-        // both the store (UI subscribes to installedApps) AND the agent
-        // context (summaries only — full manifests with HTML/code stay in
-        // the appManifestCache).
-        installed_apps: createBackgroundLoader<any[]>({
-            id: 'installed_apps',
-            fetch: async () => {
-                try {
-                    await seedBuiltinApps(embed_vector).catch(() => null);
-                    const installs = await listInstalls();
-                    const items = await Promise.all(installs.map(async (i) => ({
-                        install: i,
-                        manifest: await getApp(i.app_id).catch(() => null),
-                    })));
-                    return items.filter((x: any) => x.manifest !== null);
-                } catch {
-                    // Match the catch-and-default pattern of every other
-                    // loader: a backend rejection (auth, network) shouldn't
-                    // surface as an unhandled BackgroundLoader rejection.
-                    return [];
-                }
-            },
-            onResolve: (items) => {
-                const installs = items.map((x: any) => x.install);
-                const cache: Record<string, any> = {};
-                for (const x of items) cache[x.install.app_id] = x.manifest;
-                useSmartChatsStore.setState({ installedApps: installs, appManifestCache: cache });
-
-                // app_launcher.ts maintains its own installs cache for routing.
-                // Was previously hydrated via a module-load prefetchStartup side
-                // effect; now shares this loader's single fetch.
-                hydrateAppLauncherInstalls(items);
-
-                const agent = deps.agent();
-                if (!agent) {
-                    log('onResolve(installed_apps): agent not yet ready — context injection skipped');
-                    return;
-                }
-                const summaries = items.map((x: any) => ({
-                    id: x.manifest.id,
-                    name: x.manifest.name,
-                    description: x.manifest.description,
-                    icon: x.manifest.icon,
-                }));
-                agent.add_user_data_input({ installed_apps: summaries }, 'bg_installed_apps');
-            },
             insights: i,
         }),
     };

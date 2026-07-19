@@ -23,23 +23,22 @@ import { embed_vector, getBackend } from '@/lib/backend';
 import { queries, stringifyRecordId, parseRecordIdArg } from 'smartchats-database';
 import { getUserTimezone, nowEventTime, getCurrentLocalDate } from './system';
 import { getStartupLoaders } from '../lib/background_loaders';
+import { getStartupContextBatch, resetStartupContextBatch } from '../lib/startup_context_batch';
 
-/** Fetch log categories with counts — reusable by prefetch and module fn */
+/** Fetch log categories with counts — reusable by prefetch and module fn.
+ *  Backed by the shared startup context batch so init/procedural/log-categories
+ *  share a single multi-statement query at boot. */
 export async function fetchLogCategories(): Promise<any[]> {
-    const [response, preparedRes] = await Promise.all([
-        getBackend().data.query(queries.getLogCategories()) as any,
-        getBackend().data.query(queries.getPreparedLogCategories()).catch(() => []) as any,
-    ])
-    const categories = response.rows
-    const prepared = preparedRes.rows
+    const batch = await getStartupContextBatch();
+    const categories = batch.log_categories.slice();
     // Merge prepared categories that don't yet have actual entries
-    const existing = new Set(categories.map((c: any) => c.category))
-    for (const p of prepared) {
+    const existing = new Set(categories.map((c: any) => c.category));
+    for (const p of batch.prepared_log_categories) {
         if (!existing.has(p.data?.category)) {
-            categories.push({ category: p.data.category, count: 0, prepared: true, description: p.data.description })
+            categories.push({ category: p.data.category, count: 0, prepared: true, description: p.data.description });
         }
     }
-    return categories
+    return categories;
 }
 
 /**
@@ -159,7 +158,7 @@ export function createLoggingModule() {
                     if (rows.length > 0) {
                         // A new category may have been introduced; bust the
                         // log_categories cache so get_log_categories surfaces it.
-                        getStartupLoaders()?.log_categories.reset()
+                        getStartupLoaders()?.log_categories.reset(); resetStartupContextBatch()
                         return { saved: true, id: stringifyRecordId(rows[0]?.id), category: cat }
                     }
                     return { saved: false, error: 'No result from DB' }
@@ -234,7 +233,7 @@ export function createLoggingModule() {
                     const rows = response.rows
                     if (rows.length > 0) {
                         // category may have changed; refresh the loader cache.
-                        getStartupLoaders()?.log_categories.reset()
+                        getStartupLoaders()?.log_categories.reset(); resetStartupContextBatch()
                         return { updated: true, id }
                     }
                     return { updated: false, error: 'Log not found' }
@@ -260,7 +259,7 @@ export function createLoggingModule() {
                     const response = await getBackend().data.query(queries.deleteLog(id)) as any
                     const rows = response.rows
                     if (rows.length > 0) {
-                        getStartupLoaders()?.log_categories.reset()
+                        getStartupLoaders()?.log_categories.reset(); resetStartupContextBatch()
                         return { deleted: true, id, before: rows[0] }
                     }
                     return { deleted: false, error: 'Log not found' }
@@ -476,7 +475,7 @@ export function createLoggingModule() {
                         description: description || '',
                     }))
 
-                    getStartupLoaders()?.log_categories.reset()
+                    getStartupLoaders()?.log_categories.reset(); resetStartupContextBatch()
                     return { ok: true, category, description: description || '', prepared: true }
                 },
                 return_type: 'object'

@@ -62,6 +62,7 @@ export {
     getTodos,
     getAllActiveTodos,
     getCompletionsInPeriod,
+    getCompletionsForTodos,
     getLastCompletion,
     getTodoById,
     insertTodo,
