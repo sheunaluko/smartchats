@@ -9,6 +9,10 @@ primary_region = "iad"
   force_https = true
   auto_stop_machines = false
   auto_start_machines = true
+  # Deliberately single-machine. Relay registry is in-memory per-machine,
+  # so >1 machine splits state and clients randomly land on the wrong one.
+  # If HA becomes necessary, move registry to Redis + pub/sub before scaling up.
+  # (See 2026-07-20 smoke-test findings.)
   min_machines_running = 1
 
 [[http_service.checks]]
