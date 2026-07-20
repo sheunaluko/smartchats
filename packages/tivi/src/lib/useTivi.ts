@@ -244,8 +244,12 @@ export function useTivi(options: UseTiviOptions): UseTiviReturn {
       onDrain: ({ cancelled }) => {
         setIsSpeaking(false);
         isSpeakingRef.current = false;
-        // Pause VAD after TTS (responsive/continuous modes)
-        if (enableInterruptionRef.current && modeRef.current !== 'guarded' && vadRef.current) {
+        // Pause VAD after TTS (responsive/continuous modes) — UNLESS the
+        // semantic-endpointing SM is active, in which case VAD must stay
+        // running to produce speech-end events the SM gates commit on.
+        // (See "keep VAD hot for SM" in the mode-init block below.)
+        const smWantsVad = !!endpointPredictorRef.current;
+        if (enableInterruptionRef.current && modeRef.current !== 'guarded' && vadRef.current && !smWantsVad) {
           log('Queue onDrain: pausing VAD after TTS');
           vadRef.current.pauseProcessing();
           speechProbRef.current = 0;
@@ -670,20 +674,36 @@ export function useTivi(options: UseTiviOptions): UseTiviReturn {
         }
       }
 
-      // Mode-specific initialization
+      // Mode-specific initialization.
+      //
+      // In 'responsive' and 'continuous' modes, VAD is historically paused
+      // during listening — STT is triggered by power threshold or is
+      // always-on, and VAD is only resumed briefly during TTS playback to
+      // catch barge-in. But the semantic-endpointing SM needs VAD's
+      // speech-end events to gate turn commit — if VAD is paused during
+      // user speech, the SM sits in IDLE forever and the predictor is
+      // never invoked. When endpointPredictor is present we keep VAD hot
+      // regardless of mode; the STT trigger source is unchanged.
+      const smWantsVad = !!endpointPredictorRef.current;
       if (mode === 'guarded') {
         // Guarded mode: VAD runs continuously, triggers recognition
         log('Guarded mode: VAD will trigger recognition');
       } else if (mode === 'responsive') {
-        // Responsive mode: Pause VAD processing (only used during TTS), power monitoring triggers recognition
         log('Responsive mode: Power monitoring will trigger recognition');
-        vad.pauseProcessing();
-        speechProbRef.current = 0;
+        if (smWantsVad) {
+          log('  (VAD kept hot for semantic endpointing SM — will emit speech-end events)');
+        } else {
+          vad.pauseProcessing();
+          speechProbRef.current = 0;
+        }
       } else if (mode === 'continuous') {
-        // Continuous mode: Pause VAD processing (only used during TTS), start recognition immediately
         log('Continuous mode: Starting recognition immediately');
-        vad.pauseProcessing();
-        speechProbRef.current = 0;
+        if (smWantsVad) {
+          log('  (VAD kept hot for semantic endpointing SM — will emit speech-end events)');
+        } else {
+          vad.pauseProcessing();
+          speechProbRef.current = 0;
+        }
         if (recognitionRef.current) {
           recognitionRef.current.start();
         }
