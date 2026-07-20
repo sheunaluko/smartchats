@@ -84,9 +84,25 @@ export function createRuntime(opts: RuntimeOptions): TiviSMRuntime {
       })
       .catch((err) => {
         if (stopped || ctrl.signal.aborted) return;
-        if (verbose) {
-          console.warn('[tivi-sm] predictor.predict threw:', err);
-        }
+        // ALWAYS surface predictor errors — this used to be verbose-gated,
+        // which meant a broken predict() silently degraded into the safety-
+        // timeout commit path with zero visible signal. Console + a synthetic
+        // decision event so callers can see it in the browser AND in insights.
+        // eslint-disable-next-line no-console
+        console.error('[tivi-sm] predictor.predict threw:', err);
+        try {
+          handlers.onPredictorDecision?.({
+            complete: false,
+            probability: -1,
+            latency_ms: -1,
+            shadow: false,
+            // Piggyback error info on a normal-shaped decision so downstream
+            // insight consumers don't need a separate schema. `probability: -1`
+            // is the sentinel — real probabilities are always in [0, 1].
+            // @ts-ignore — augmenting for telemetry only
+            error: (err && (err.message || String(err))) || 'unknown',
+          } as any);
+        } catch {}
         // Treat any predictor error as timeout — safety commit.
         dispatch({ channel: 'predictor', kind: 'TIMEOUT' });
       });
