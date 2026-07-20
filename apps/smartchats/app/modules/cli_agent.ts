@@ -28,6 +28,13 @@ const MAX_OUTPUT_BUFFER = 500
 let _emitEvent: ((evt: any) => void) | null = null
 let _voiceForwardActive = false
 
+// Firebase ID tokens expire ~1h after issue. Refresh well ahead of that and
+// push a client_reauth to the relay so the socket keeps forwarding forever
+// (relay closes the connection with code 1008 "reauth failed" if tokenExp
+// passes without a refresh). Cleared on WS close/error.
+const CLIENT_REAUTH_INTERVAL_MS = 45 * 60 * 1000
+let reauthTimer: ReturnType<typeof setTimeout> | null = null
+
 type OutputCb = (chunk: string) => void
 const outputSubs = new Set<OutputCb>()
 
@@ -94,6 +101,29 @@ async function getFirebaseToken(): Promise<string> {
     return token
 }
 
+function clearReauthTimer(): void {
+    if (reauthTimer) {
+        clearTimeout(reauthTimer)
+        reauthTimer = null
+    }
+}
+
+function scheduleClientReauth(socket: WebSocket): void {
+    clearReauthTimer()
+    reauthTimer = setTimeout(async () => {
+        // If the socket has been replaced or closed since scheduling, bail.
+        if (ws !== socket || socket.readyState !== WebSocket.OPEN) return
+        try {
+            const token = await getFirebaseToken()
+            socket.send(JSON.stringify({ type: 'client_reauth', token }))
+            scheduleClientReauth(socket)
+        } catch (e) {
+            console.warn(`[cli_agent] reauth failed: ${(e as Error).message}`)
+            // Don't reschedule — next connect will restart the loop.
+        }
+    }, CLIENT_REAUTH_INTERVAL_MS)
+}
+
 function waitForRelayMessage(socket: WebSocket, type: string, timeoutMs = 5000): Promise<any> {
     return new Promise((resolve, reject) => {
         const handler = (event: MessageEvent) => {
@@ -131,6 +161,7 @@ function ensureConnection(): WebSocket {
         connected = false
         activeSessionId = null
         ws = null
+        clearReauthTimer()
         notifyState()
     }
 
@@ -138,6 +169,7 @@ function ensureConnection(): WebSocket {
         connected = false
         activeSessionId = null
         ws = null
+        clearReauthTimer()
         notifyState()
     }
 
@@ -306,6 +338,7 @@ Do NOT poll — just acknowledge the command and WAIT for the idle notification.
                         socket.send(JSON.stringify({ type: 'subscribe', session_id: target }))
                         await waitForRelayMessage(socket, 'subscribed')
                         log(`Subscribed to session ${target}`)
+                        scheduleClientReauth(socket)
                         const chosen = availableSessions.find(s => s.session_id === target)
                         return { connected: true, mode: 'cloud', session_id: target, label: chosen?.label ?? '' }
                     }
