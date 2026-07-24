@@ -8,6 +8,7 @@
 
 import type { TTSStreamResult } from 'smartchats-backend';
 import { getBackend } from './backend';
+import { getTiviSettings } from '@lab-components/tivi/lib/settings';
 
 // ─── Helpers ──────────────────────────────────────────────────────
 
@@ -54,9 +55,16 @@ export async function backendTtsStreamFn(
         }).catch(() => {});
     };
 
+    // Pull provider from tiviSettings so the server routes to the same
+    // adapter the client picked when the preset was applied. Without this
+    // the server falls back to DEFAULT_TTS_PROVIDER (azure) and voice
+    // names from other providers (e.g. 'marin' from openai) blow up with
+    // "Unsupported voice" from the wrong adapter.
+    const tts_provider = getTiviSettings().ttsCloudProvider;
+
     let result: TTSStreamResult;
     try {
-        result = await getBackend().tts.stream({ text, voice, speed });
+        result = await getBackend().tts.stream({ text, voice, speed, tts_provider });
     } catch (err) {
         emitError('request', err);
         throw err;

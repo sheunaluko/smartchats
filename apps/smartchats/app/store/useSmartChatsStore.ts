@@ -69,15 +69,29 @@ interface SmartChatsSettings {
   aiModel: string;
   speechCooldownMs: number;
   soundFeedback: boolean;
+  // Voice fields mirrored from tiviSettings. Added 2026-07-24 so preset
+  // choice persists across devices via cloud AppDataStore — previously
+  // these lived only in localStorage (tivi-settings), which broke
+  // preset persistence on new devices/incognito and caused voice/provider
+  // drift like the marin-vs-azure regression seen in Mexico. See issues
+  // `voice_preset_persistence` (07-19) and `tts_voice_unavailable_mexico`
+  // (07-22). loadSettings() pushes these back into tiviSettings on boot;
+  // applyPreset() writes both stores atomically.
+  openaiVoice: string;
+  ttsCloudProvider: string;
+  aiPreset: string;
 }
 
-// Default LLM model mirrors the 'snappy' preset (cortex/presets.ts) as of
-// 2026-06-27. Settings persistence ensures existing users keep their saved
-// pick; only fresh installs see this.
+// Defaults mirror the 'snappy' preset (cortex/presets.ts) as of 2026-06-27.
+// Settings persistence ensures existing users keep their saved pick;
+// only fresh installs see these.
 const DEFAULT_SETTINGS: SmartChatsSettings = {
   aiModel: 'grok-4.20-0309-non-reasoning',
   speechCooldownMs: 2000,
   soundFeedback: true,
+  openaiVoice: 'en-US-AvaMultilingualNeural',
+  ttsCloudProvider: 'azure',
+  aiPreset: 'snappy',
 };
 
 // ─── Agent Monitor types ─────────────────────────────────────────────
@@ -104,6 +118,9 @@ export interface SmartChatsState {
   aiModel: string;
   speechCooldownMs: number;
   soundFeedback: boolean;
+  openaiVoice: string;
+  ttsCloudProvider: string;
+  aiPreset: string;
   updateSettings(partial: Partial<SmartChatsSettings>): void;
   /** Atomically apply a named preset (aiModel + ttsVoice + ttsProvider).
    *  Unknown preset id → falls back to DEFAULT_PRESET_ID. */
@@ -338,6 +355,9 @@ export const useSmartChatsStore = createInsightStore<SmartChatsState>({
     aiModel: DEFAULT_SETTINGS.aiModel,
     speechCooldownMs: DEFAULT_SETTINGS.speechCooldownMs,
     soundFeedback: DEFAULT_SETTINGS.soundFeedback,
+    openaiVoice: DEFAULT_SETTINGS.openaiVoice,
+    ttsCloudProvider: DEFAULT_SETTINGS.ttsCloudProvider,
+    aiPreset: DEFAULT_SETTINGS.aiPreset,
 
     updateSettings(partial: Partial<SmartChatsSettings>) {
       const before = { aiModel: get().aiModel, speechCooldownMs: get().speechCooldownMs, soundFeedback: get().soundFeedback };
@@ -350,15 +370,24 @@ export const useSmartChatsStore = createInsightStore<SmartChatsState>({
     },
 
     applyPreset(presetId: string) {
-      // Atomic write across both stores: SmartChats store owns aiModel,
-      // tivi settings own the voice + provider. Persistence is handled
-      // by each store's existing auto-save path.
+      // Atomic write across both stores. SmartChats store now owns the
+      // full quintet (aiModel + openaiVoice + ttsCloudProvider + aiPreset)
+      // and persists to cloud AppDataStore. tivi settings still hold the
+      // same values (mirrored) because the useTivi hook + tts_caller read
+      // from getTiviSettings() — but the SOURCE OF TRUTH for persistence
+      // is now the cloud store. See loadSettings() where the SmartChats
+      // side is written FIRST, then propagated back into tivi settings.
       const preset = getPresetOrDefault(presetId);
       const before = {
         aiModel: get().aiModel,
         aiPreset: presetId,
       };
-      set({ aiModel: preset.aiModel });
+      set({
+        aiModel: preset.aiModel,
+        openaiVoice: preset.ttsVoice,
+        ttsCloudProvider: preset.ttsProvider,
+        aiPreset: preset.id,
+      });
       updateTiviSettings({
         aiPreset: preset.id,
         openaiVoice: preset.ttsVoice,        // legacy field name — provider-agnostic value
@@ -411,7 +440,12 @@ export const useSmartChatsStore = createInsightStore<SmartChatsState>({
         }, { duration_ms: waitDuration, tags: ['boot', 'latency'] });
       }
 
-      // Load settings from storage
+      // Load settings from storage. The voice fields (openaiVoice,
+      // ttsCloudProvider, aiPreset) are persisted here as of 2026-07-24;
+      // we propagate them into tiviSettings so tts_caller + useTivi see
+      // the same values downstream. Older stored settings without these
+      // fields fall through to DEFAULT_SETTINGS via the ... merge —
+      // safe: the cloud store never held them before, so nothing to lose.
       try {
         const stored = await store.get<SmartChatsSettings>(CORTEX_DATA_KEYS.settings);
         if (stored) {
@@ -420,7 +454,22 @@ export const useSmartChatsStore = createInsightStore<SmartChatsState>({
             aiModel: merged.aiModel,
             speechCooldownMs: merged.speechCooldownMs,
             soundFeedback: merged.soundFeedback,
+            openaiVoice: merged.openaiVoice,
+            ttsCloudProvider: merged.ttsCloudProvider,
+            aiPreset: merged.aiPreset,
           });
+          // Push voice/provider back into tiviSettings so the tts_caller +
+          // useTivi paths read consistent values. Only fires when the store
+          // has values for these fields (not for pre-2026-07-24 rows that
+          // fell through to DEFAULT_SETTINGS — those match the tivi default
+          // and would be a no-op update anyway).
+          if (stored.openaiVoice || stored.ttsCloudProvider || stored.aiPreset) {
+            updateTiviSettings({
+              openaiVoice: merged.openaiVoice,
+              ttsCloudProvider: merged.ttsCloudProvider,
+              aiPreset: merged.aiPreset,
+            });
+          }
           insights.emit('cortex_settings_loaded', {
             source: store.getMode(),
             had_migration: migration.migrated > 0,
@@ -473,8 +522,11 @@ export const useSmartChatsStore = createInsightStore<SmartChatsState>({
     },
 
     async saveSettings() {
-      const { aiModel, speechCooldownMs, soundFeedback } = get();
-      const settings: SmartChatsSettings = { aiModel, speechCooldownMs, soundFeedback };
+      const { aiModel, speechCooldownMs, soundFeedback, openaiVoice, ttsCloudProvider, aiPreset } = get();
+      const settings: SmartChatsSettings = {
+        aiModel, speechCooldownMs, soundFeedback,
+        openaiVoice, ttsCloudProvider, aiPreset,
+      };
       const store = getCortexStore();
       try {
         await store.set(CORTEX_DATA_KEYS.settings, settings);

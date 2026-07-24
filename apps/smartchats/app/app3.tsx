@@ -239,7 +239,7 @@ const Component: NextPage = (props: any) => {
     const searchKnowledgeGraph = useSmartChatsStore(s => s.searchKnowledgeGraph);
     const setFocusedWidget = useSmartChatsStore(s => s.setFocusedWidget);
 
-    const lastSavedSettings = useRef<{ aiModel: string; speechCooldownMs: number; soundFeedback: boolean } | null>(null);
+    const lastSavedSettings = useRef<{ aiModel: string; speechCooldownMs: number; soundFeedback: boolean; openaiVoice: string; ttsCloudProvider: string; aiPreset: string } | null>(null);
 
     // ── Init flow ──
     useEffect(() => {
@@ -250,8 +250,8 @@ const Component: NextPage = (props: any) => {
                 time_since_boot_start_ms: getTimeSinceBootStart(),
             }, { tags: ['boot'] });
             loadSettings().then(() => {
-                const { aiModel, speechCooldownMs, soundFeedback } = useSmartChatsStore.getState();
-                lastSavedSettings.current = { aiModel, speechCooldownMs, soundFeedback };
+                const { aiModel, speechCooldownMs, soundFeedback, openaiVoice, ttsCloudProvider, aiPreset } = useSmartChatsStore.getState();
+                lastSavedSettings.current = { aiModel, speechCooldownMs, soundFeedback, openaiVoice, ttsCloudProvider, aiPreset };
             });
         }
     }, [insightsReady]);
@@ -598,12 +598,33 @@ const Component: NextPage = (props: any) => {
     }, [tivi.ttsQueue, tiviSettings.openaiVoice, tiviSettings.openaiModel]);
 
     // ── Settings auto-save ──
+    // Voice fields (openaiVoice/ttsCloudProvider/aiPreset) join the auto-save
+    // watchlist as of 2026-07-24 so preset changes persist to cloud, not just
+    // localStorage. See SmartChatsSettings + applyPreset in useSmartChatsStore.
+    const openaiVoice_from_store = useSmartChatsStore(s => s.openaiVoice);
+    const ttsCloudProvider_from_store = useSmartChatsStore(s => s.ttsCloudProvider);
+    const aiPreset_from_store = useSmartChatsStore(s => s.aiPreset);
     const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     useEffect(() => {
         if (!insightsReady) return;
-        const current = { aiModel: ai_model, speechCooldownMs, soundFeedback: sound_feedback_from_store };
+        const current = {
+            aiModel: ai_model,
+            speechCooldownMs,
+            soundFeedback: sound_feedback_from_store,
+            openaiVoice: openaiVoice_from_store,
+            ttsCloudProvider: ttsCloudProvider_from_store,
+            aiPreset: aiPreset_from_store,
+        };
         const prev = lastSavedSettings.current;
-        if (prev && prev.aiModel === current.aiModel && prev.speechCooldownMs === current.speechCooldownMs && prev.soundFeedback === current.soundFeedback) {
+        if (
+            prev &&
+            prev.aiModel === current.aiModel &&
+            prev.speechCooldownMs === current.speechCooldownMs &&
+            prev.soundFeedback === current.soundFeedback &&
+            prev.openaiVoice === current.openaiVoice &&
+            prev.ttsCloudProvider === current.ttsCloudProvider &&
+            prev.aiPreset === current.aiPreset
+        ) {
             return;
         }
         if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
@@ -612,7 +633,7 @@ const Component: NextPage = (props: any) => {
             saveSettings();
         }, 2000);
         return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); };
-    }, [ai_model, speechCooldownMs, sound_feedback_from_store, insightsReady]);
+    }, [ai_model, speechCooldownMs, sound_feedback_from_store, openaiVoice_from_store, ttsCloudProvider_from_store, aiPreset_from_store, insightsReady]);
 
     // ── Auto-scroll ──
     const scrollTimerRef = useRef<any>(null);
