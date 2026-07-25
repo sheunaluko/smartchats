@@ -7,13 +7,16 @@
  *   import { AsciinemaCast } from '../../components/AsciinemaCast'
  *
  *   <AsciinemaCast
- *     src="https://github.com/sheunaluko/smartchats/releases/latest/download/smartchats-darwin-arm64.cast"
+ *     src="/casts/smartchats-darwin-arm64.cast"
  *     title="`smartchats setup` on darwin-arm64"
  *   />
  *
- * The CI workflow at .github/workflows/release.yml uploads per-platform
- * .cast files alongside each release tarball, so the URL above resolves
- * to the latest release's cast as soon as v0.3.0+ is tagged.
+ * Casts are pulled from the latest GitHub release at build time by
+ * scripts/fetch-casts.mjs (runs as `prebuild`) and written to
+ * public/casts/. Same-origin serving sidesteps the CORS block on
+ * GitHub release-download URLs — the release-asset S3 backend doesn't
+ * send Access-Control-Allow-Origin, so client-side fetch() from a
+ * different origin is silently blocked.
  *
  * We pull asciinema-player from a CDN rather than bundling so the docs
  * site stays small for the 95% of users who just read text.

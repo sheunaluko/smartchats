@@ -20,6 +20,11 @@ next-env.d.ts
 # Embedded site bundle (apps/smartchats prebuild copies apps/site/out → here)
 apps/smartchats/public/_site/
 
+# Cast files auto-fetched from latest GH release at docs build time
+# (apps/site/scripts/fetch-casts.mjs runs as prebuild). Same-origin
+# serving works around CORS on github.com/*/releases/download URLs.
+apps/site/public/casts/
+
 # Turborepo
 .turbo
 **/.turbo

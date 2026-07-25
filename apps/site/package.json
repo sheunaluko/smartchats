@@ -4,7 +4,9 @@
   "private": true,
   "description": "smartchats.ai — landing page (App Router) + Nextra docs (Pages Router)",
   "scripts": {
+    "predev": "node scripts/fetch-casts.mjs",
     "dev": "next dev",
+    "prebuild": "node scripts/fetch-casts.mjs",
     "build": "next build",
     "start": "next start",
     "type-check": "tsc --noEmit"
