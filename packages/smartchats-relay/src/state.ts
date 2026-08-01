@@ -1,9 +1,12 @@
 import type { WebSocket } from 'ws';
 
+export type BridgeKind = 'pty' | 'agent';
+
 export interface BridgeEntry {
     socket: WebSocket;
     sessionId: string;
     userId: string;
+    kind: BridgeKind;
     label: string;
     model: string;
     tokenExp: number;
@@ -19,6 +22,7 @@ export interface ClientEntry {
 
 export interface SessionMeta {
     session_id: string;
+    kind: BridgeKind;
     label: string;
     model: string;
     online: boolean;
@@ -109,6 +113,7 @@ export class Registry {
         const now = Date.now();
         return this.bridgesForUser(userId).map((b) => ({
             session_id: b.sessionId,
+            kind: b.kind,
             label: b.label,
             model: b.model,
             online: true,

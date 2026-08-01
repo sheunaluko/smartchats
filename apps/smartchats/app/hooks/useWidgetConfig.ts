@@ -30,6 +30,7 @@ const DEFAULT_WIDGETS: WidgetConfig[] = [
   { id: 'visualization', name: 'Display', visible: true, order: 16 },
   { id: 'llmInspector', name: 'LLM Inspector', visible: true, order: 17 },
   { id: 'cliTerminal', name: 'CLI Terminal', visible: true, order: 18 },
+  { id: 'agentCall', name: 'Agent Call', visible: true, order: 19 },
 ];
 
 // Default layout configuration
@@ -59,6 +60,7 @@ const DEFAULT_LAYOUT: WidgetGridConfig[] = [
   { i: 'processes',         x: 6, y: 24, w: 6, h: 3, minW: 4, minH: 2 },
   { i: 'llmInspector',      x: 0, y: 26, w: 6, h: 4, minW: 4, minH: 4 },
   { i: 'cliTerminal',       x: 0, y: 30, w: 12, h: 6, minW: 6, minH: 4 },
+  { i: 'agentCall',         x: 0, y: 36, w: 12, h: 6, minW: 6, minH: 4 },
 ];
 
 // Layout presets for different use cases

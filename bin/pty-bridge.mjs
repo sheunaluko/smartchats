@@ -28,14 +28,13 @@
  */
 
 import pty from 'node-pty';
-import { WebSocketServer, WebSocket } from 'ws';
+import { WebSocketServer } from 'ws';
 import fs from 'node:fs';
 import path from 'node:path';
 import http from 'node:http';
 import os from 'node:os';
-import crypto from 'node:crypto';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { resolveConfig, getIdToken, reauthenticate } from 'smartchats-cloud-client';
+import { resolveConfig } from 'smartchats-cloud-client';
+import { connectRelay, loadOrCreateBridgeId } from 'smartchats-relay-connect';
 
 const MODELS = {
   claude: { cmd: 'claude', displayName: 'Claude Code' },
@@ -186,7 +185,7 @@ const server = http.createServer();
 const wss = new WebSocketServer({ server });
 const clients = new Set();
 
-function handlePtyClientMessage(ws, msg) {
+function handlePtyClientMessage(send, msg) {
   if (msg.type === 'input' && typeof msg.data === 'string') {
     // Write text body, then send Enter (\r) separately after a short
     // delay so TUI frameworks (ink, blessed) register it as a keypress.
@@ -198,11 +197,11 @@ function handlePtyClientMessage(ws, msg) {
     }
   } else if (msg.type === 'read') {
     const n = typeof msg.lines === 'number' ? msg.lines : 50;
-    ws.send(JSON.stringify({ type: 'lines', data: getLines(n) }));
+    send({ type: 'lines', data: getLines(n) });
   } else if (msg.type === 'resize' && msg.cols && msg.rows) {
     ptyProcess.resize(msg.cols, msg.rows);
   } else if (msg.type === 'request_snapshot') {
-    ws.send(JSON.stringify({ type: 'snapshot', data: rawBuffer }));
+    send({ type: 'snapshot', data: rawBuffer });
   }
 }
 
@@ -216,7 +215,7 @@ wss.on('connection', (ws) => {
   ws.on('message', (raw) => {
     let msg;
     try { msg = JSON.parse(raw.toString()); } catch { return; }
-    handlePtyClientMessage(ws, msg);
+    handlePtyClientMessage((m) => ws.send(JSON.stringify(m)), msg);
   });
 
   ws.on('close', () => clients.delete(ws));
@@ -229,9 +228,7 @@ function broadcast(msg) {
   for (const ws of clients) {
     if (ws.readyState === 1) ws.send(payload);
   }
-  if (cloudWs && cloudWs.readyState === 1) {
-    cloudWs.send(payload);
-  }
+  if (cloudRelay) cloudRelay.send(payload);
 }
 
 server.listen(wsPort, () => {
@@ -296,113 +293,32 @@ process.on('SIGINT', () => ptyProcess.kill('SIGINT'));
 process.on('SIGTERM', () => ptyProcess.kill('SIGTERM'));
 
 // ---------------------------------------------------------------------------
-// Cloud mode — outbound WS to the smartchats-relay
+// Cloud mode — outbound WS to smartchats-relay (via shared relay-connect helper)
 // ---------------------------------------------------------------------------
 
-let cloudWs = null;
-let cloudReconnectBackoffMs = 1000;
-const CLOUD_MAX_BACKOFF_MS = 30_000;
-const CLOUD_REFRESH_INTERVAL_MS = 50 * 60 * 1000;
-let cloudRefreshTimer = null;
-let cloudConfig = null;
-let cloudBridgeId = null;
+let cloudRelay = null;
 
-async function loadOrCreateBridgeId() {
-  if (bridgeIdArg) return bridgeIdArg;
-  const file = path.join(os.homedir(), '.smartchats-mcp', 'bridge_id');
-  try {
-    const id = (await readFile(file, 'utf-8')).trim();
-    if (id) return id;
-  } catch {}
-  const id = crypto.randomUUID();
-  await mkdir(path.dirname(file), { recursive: true });
-  await writeFile(file, id, { mode: 0o600 });
-  return id;
-}
+if (cloudMode) {
+  const cloudConfig = resolveConfig();
+  const cloudBridgeId = await loadOrCreateBridgeId(bridgeIdArg);
+  console.log(`\x1b[96m[cloud]\x1b[0m bridge_id: ${cloudBridgeId}`);
+  console.log(`\x1b[96m[cloud]\x1b[0m relay: ${relayUrl}`);
 
-function scheduleCloudRefresh() {
-  if (cloudRefreshTimer) clearTimeout(cloudRefreshTimer);
-  cloudRefreshTimer = setTimeout(async () => {
-    try {
-      const devToken = process.env.SMARTCHATS_CLOUD_DEV_TOKEN;
-      const newToken = devToken ?? await reauthenticate(cloudConfig);
-      if (cloudWs && cloudWs.readyState === 1) {
-        cloudWs.send(JSON.stringify({ type: 'bridge_reauth', token: newToken }));
-      }
-      scheduleCloudRefresh();
-    } catch (e) {
-      console.error(`\x1b[91m[cloud]\x1b[0m reauth failed: ${e.message}`);
-      try { cloudWs?.close(); } catch {}
-    }
-  }, CLOUD_REFRESH_INTERVAL_MS);
-}
-
-function scheduleCloudReconnect() {
-  setTimeout(connectCloud, cloudReconnectBackoffMs);
-  cloudReconnectBackoffMs = Math.min(cloudReconnectBackoffMs * 2, CLOUD_MAX_BACKOFF_MS);
-}
-
-async function connectCloud() {
-  let token;
-  const devToken = process.env.SMARTCHATS_CLOUD_DEV_TOKEN;
-  if (devToken) {
-    token = devToken;
-  } else {
-    try {
-      token = await getIdToken(cloudConfig);
-    } catch (e) {
-      console.error(`\x1b[91m[cloud]\x1b[0m auth failed: ${e.message}`);
-      scheduleCloudReconnect();
-      return;
-    }
-  }
-  const url = relayUrl.replace(/\/$/, '') + '/bridge';
-  const ws = new WebSocket(url);
-  cloudWs = ws;
-
-  ws.on('open', () => {
-    const label = labelArg ?? `${model.displayName} @ ${os.hostname()}`;
-    ws.send(JSON.stringify({
-      type: 'bridge_hello',
-      token,
-      bridge_id: cloudBridgeId,
-      label,
+  cloudRelay = connectRelay({
+    relayUrl,
+    config: cloudConfig,
+    bridgeId: cloudBridgeId,
+    hello: {
+      kind: 'pty',
+      label: labelArg ?? `${model.displayName} @ ${os.hostname()}`,
       model: modelKey,
       cols: process.stdout.columns ?? 80,
       rows: process.stdout.rows ?? 24,
-    }));
+    },
   });
 
-  ws.on('message', (raw) => {
-    let msg;
-    try { msg = JSON.parse(raw.toString()); } catch { return; }
-    if (msg.type === 'bridge_registered') {
-      cloudReconnectBackoffMs = 1000;
-      console.log(`\x1b[96m[cloud]\x1b[0m registered as session ${msg.session_id}`);
-      scheduleCloudRefresh();
-    } else if (msg.type === 'error') {
-      console.error(`\x1b[91m[cloud]\x1b[0m relay error: ${msg.code}`);
-    } else {
-      handlePtyClientMessage(ws, msg);
-    }
+  cloudRelay.on('message', (msg) => {
+    if (msg.type === 'error') return; // logger already reported
+    handlePtyClientMessage((m) => cloudRelay.send(m), msg);
   });
-
-  ws.on('close', (code, reason) => {
-    if (cloudWs === ws) cloudWs = null;
-    if (cloudRefreshTimer) { clearTimeout(cloudRefreshTimer); cloudRefreshTimer = null; }
-    console.log(`\x1b[96m[cloud]\x1b[0m disconnected (${code} ${reason ?? ''}); reconnecting...`);
-    scheduleCloudReconnect();
-  });
-
-  ws.on('error', (err) => {
-    console.error(`\x1b[91m[cloud]\x1b[0m ws error: ${err.message}`);
-  });
-}
-
-if (cloudMode) {
-  cloudConfig = resolveConfig();
-  cloudBridgeId = await loadOrCreateBridgeId();
-  console.log(`\x1b[96m[cloud]\x1b[0m bridge_id: ${cloudBridgeId}`);
-  console.log(`\x1b[96m[cloud]\x1b[0m relay: ${relayUrl}`);
-  connectCloud();
 }

@@ -1,0 +1,35 @@
+{
+  "name": "smartchats-mcp-bridge",
+  "version": "0.1.0",
+  "description": "MCP server that lets a coding agent (Claude Code / Codex / aider / any MCP-speaking agent) send messages to and receive messages from the smartchats user via the smartchats-relay. Ships the tool surface for voice patch-through.",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "smartchats-mcp-bridge": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev:stdio": "tsx src/index.ts",
+    "start": "node dist/index.js",
+    "test:unit": "vitest run",
+    "test:live": "node test/smoke-live.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.22.0",
+    "smartchats-cloud-client": "*",
+    "smartchats-relay-connect": "*",
+    "ws": "^8.18.0",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/ws": "^8.5.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.4.5",
+    "vitest": "^2.1.0"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "license": "PolyForm-Noncommercial-1.0.0"
+}

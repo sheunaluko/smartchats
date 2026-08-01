@@ -144,6 +144,132 @@ describe('relay routing', () => {
         bridge.close(); attacker.close();
     });
 
+    test('agent-kind bridge_hello registers with kind: agent', async () => {
+        const ws = connect('/bridge');
+        await waitOpen(ws);
+        ws.send(JSON.stringify({
+            type: 'bridge_hello',
+            token: 'tok-agentUser',
+            bridge_id: 'sid-agent-1',
+            kind: 'agent',
+            label: 'claude-code @ mac',
+            model: 'claude',
+        }));
+        const msg = await nextMessage(ws);
+        expect(msg.type).toBe('bridge_registered');
+        expect(msg.session_id).toBe('sid-agent-1');
+
+        const client = connect('/client');
+        await waitOpen(client);
+        client.send(JSON.stringify({ type: 'client_hello', token: 'tok-agentUser' }));
+        const list = await nextMessage(client);
+        expect(list.type).toBe('session_list');
+        const session = list.sessions.find((s: any) => s.session_id === 'sid-agent-1');
+        expect(session).toBeDefined();
+        expect(session.kind).toBe('agent');
+        ws.close(); client.close();
+    });
+
+    test('agent-kind subscribe does NOT trigger request_snapshot', async () => {
+        const bridge = connect('/bridge');
+        await waitOpen(bridge);
+        bridge.send(JSON.stringify({
+            type: 'bridge_hello',
+            token: 'tok-agentUser2',
+            bridge_id: 'sid-agent-2',
+            kind: 'agent',
+            label: 'agent',
+        }));
+        await nextMessage(bridge); // bridge_registered
+
+        const client = connect('/client');
+        await waitOpen(client);
+        client.send(JSON.stringify({ type: 'client_hello', token: 'tok-agentUser2' }));
+        await nextMessage(client); // session_list
+
+        client.send(JSON.stringify({ type: 'subscribe', session_id: 'sid-agent-2' }));
+        const sub = await nextMessage(client);
+        expect(sub).toEqual({ type: 'subscribed', session_id: 'sid-agent-2' });
+
+        // Round-trip an agent_event to prove nothing came before it — no snapshot request.
+        bridge.send(JSON.stringify({
+            type: 'agent_event', event: 'message',
+            text: 'hello', timestamp: 1,
+        }));
+        const evt = await nextMessage(client);
+        expect(evt.type).toBe('agent_event');
+        expect(evt.text).toBe('hello');
+
+        bridge.close(); client.close();
+    });
+
+    test('agent_event bridge → client and agent_message client → bridge', async () => {
+        const bridge = connect('/bridge');
+        await waitOpen(bridge);
+        bridge.send(JSON.stringify({
+            type: 'bridge_hello',
+            token: 'tok-agentUser3',
+            bridge_id: 'sid-agent-3',
+            kind: 'agent',
+            label: 'agent',
+        }));
+        await nextMessage(bridge);
+
+        const client = connect('/client');
+        await waitOpen(client);
+        client.send(JSON.stringify({ type: 'client_hello', token: 'tok-agentUser3' }));
+        await nextMessage(client);
+        client.send(JSON.stringify({ type: 'subscribe', session_id: 'sid-agent-3' }));
+        await nextMessage(client); // subscribed
+
+        client.send(JSON.stringify({
+            type: 'agent_message', text: 'hi', timestamp: 42,
+        }));
+        const inbound = await nextMessage(bridge);
+        expect(inbound).toEqual({ type: 'agent_message', text: 'hi', timestamp: 42 });
+
+        bridge.close(); client.close();
+    });
+
+    test('agent-kind bridges reject pty-only message types', async () => {
+        const bridge = connect('/bridge');
+        await waitOpen(bridge);
+        bridge.send(JSON.stringify({
+            type: 'bridge_hello',
+            token: 'tok-agentUser4',
+            bridge_id: 'sid-agent-4',
+            kind: 'agent',
+            label: 'agent',
+        }));
+        await nextMessage(bridge);
+
+        const client = connect('/client');
+        await waitOpen(client);
+        client.send(JSON.stringify({ type: 'client_hello', token: 'tok-agentUser4' }));
+        await nextMessage(client);
+        client.send(JSON.stringify({ type: 'subscribe', session_id: 'sid-agent-4' }));
+        await nextMessage(client);
+
+        // 'input' is PTY-only. Should NOT be forwarded to an agent bridge.
+        // We follow it with a valid agent_message and expect only that one to arrive.
+        client.send(JSON.stringify({ type: 'input', data: 'ls\n' }));
+        client.send(JSON.stringify({ type: 'agent_message', text: 'marker', timestamp: 99 }));
+        const received = await nextMessage(bridge);
+        expect(received.type).toBe('agent_message');
+        expect(received.text).toBe('marker');
+
+        // 'output' from an agent bridge is likewise not forwarded (only agent_event is).
+        bridge.send(JSON.stringify({ type: 'output', data: 'garbage' }));
+        bridge.send(JSON.stringify({
+            type: 'agent_event', event: 'message', text: 'clean', timestamp: 100,
+        }));
+        const evt = await nextMessage(client);
+        expect(evt.type).toBe('agent_event');
+        expect(evt.text).toBe('clean');
+
+        bridge.close(); client.close();
+    });
+
     test('bridge disconnect notifies subscribers with session_offline', async () => {
         const bridge = connect('/bridge');
         await waitOpen(bridge);

@@ -7,12 +7,21 @@
 
 const DEFAULT_RELAY_URL = 'wss://smartchats-relay.fly.dev'
 
+export type BridgeKind = 'pty' | 'agent'
+
 interface SessionMeta {
     session_id: string
+    kind: BridgeKind
     label: string
     model: string
     online: boolean
     last_active_ms_ago: number
+}
+
+export interface AgentMessage {
+    from: 'agent'
+    text: string
+    timestamp: number
 }
 
 let ws: WebSocket | null = null
@@ -20,6 +29,7 @@ let wsUrl = 'ws://localhost:9100'
 let connected = false
 let connectionMode: 'local' | 'cloud' = 'local'
 let activeSessionId: string | null = null
+let activeSessionKind: BridgeKind | null = null
 let availableSessions: SessionMeta[] = []
 let idle = false
 let idleSeconds = 0
@@ -27,6 +37,11 @@ let outputBuffer: string[] = []
 const MAX_OUTPUT_BUFFER = 500
 let _emitEvent: ((evt: any) => void) | null = null
 let _voiceForwardActive = false
+
+// Patch-through mode — user's voice routes as agent_message to the subscribed
+// agent-kind bridge instead of as PTY 'input'. The agent-mcp-bridge queues
+// those messages and its wait_for_message tool returns them to the coding agent.
+let patched = false
 
 // Firebase ID tokens expire ~1h after issue. Refresh well ahead of that and
 // push a client_reauth to the relay so the socket keeps forwarding forever
@@ -49,6 +64,53 @@ const stateSubs = new Set<StateCb>()
 export function subscribeCliConnectionState(cb: StateCb): () => void {
     stateSubs.add(cb)
     return () => { stateSubs.delete(cb) }
+}
+
+type AgentMsgCb = (msg: AgentMessage) => void
+const agentMsgSubs = new Set<AgentMsgCb>()
+
+/** Subscribe to incoming agent-kind messages (from send_message_to_user tool calls
+ *  on the coding-agent side). Widgets can use this to render the conversation and
+ *  push text into TTS. */
+export function subscribeCliAgentMessage(cb: AgentMsgCb): () => void {
+    agentMsgSubs.add(cb)
+    return () => { agentMsgSubs.delete(cb) }
+}
+
+type PatchModeCb = (patched: boolean) => void
+const patchModeSubs = new Set<PatchModeCb>()
+
+export function subscribeCliPatchMode(cb: PatchModeCb): () => void {
+    patchModeSubs.add(cb)
+    return () => { patchModeSubs.delete(cb) }
+}
+
+export function isCliPatched(): boolean {
+    return patched
+}
+
+export function getActiveSessionKind(): BridgeKind | null {
+    return activeSessionKind
+}
+
+/** Programmatically leave patch-through mode (e.g. widget's Unpatch button).
+ *  Same effect as the `cli_unpatch` tool. */
+export function unpatchCli(): void {
+    if (patched) {
+        patched = false
+        for (const cb of patchModeSubs) cb(false)
+    }
+}
+
+type UserSentCb = (text: string, timestamp: number) => void
+const userSentSubs = new Set<UserSentCb>()
+
+/** Subscribe to user's outbound agent_message chunks (only fires while patched
+ *  and cli_voice_forward is running). Widgets use this to render the user side
+ *  of the conversation. */
+export function subscribeCliUserSent(cb: UserSentCb): () => void {
+    userSentSubs.add(cb)
+    return () => { userSentSubs.delete(cb) }
 }
 
 function effectivelyConnected(): boolean {
@@ -160,6 +222,8 @@ function ensureConnection(): WebSocket {
     ws.onclose = () => {
         connected = false
         activeSessionId = null
+        activeSessionKind = null
+        if (patched) { patched = false; for (const cb of patchModeSubs) cb(false) }
         ws = null
         clearReauthTimer()
         notifyState()
@@ -168,6 +232,8 @@ function ensureConnection(): WebSocket {
     ws.onerror = () => {
         connected = false
         activeSessionId = null
+        activeSessionKind = null
+        if (patched) { patched = false; for (const cb of patchModeSubs) cb(false) }
         ws = null
         clearReauthTimer()
         notifyState()
@@ -181,16 +247,35 @@ function ensureConnection(): WebSocket {
             return
         } else if (msg.type === 'subscribed') {
             activeSessionId = String(msg.session_id)
+            const chosen = availableSessions.find(s => s.session_id === activeSessionId)
+            // Default to 'pty' if kind is absent (older relay or old client).
+            activeSessionKind = chosen?.kind ?? 'pty'
             notifyState()
             return
         } else if (msg.type === 'session_offline') {
             if (activeSessionId === msg.session_id) {
                 activeSessionId = null
+                activeSessionKind = null
+                if (patched) {
+                    patched = false
+                    for (const cb of patchModeSubs) cb(false)
+                }
                 notifyState()
             }
             return
         } else if (msg.type === 'error') {
             console.warn(`[cli_agent] relay error: ${msg.code}`)
+            return
+        } else if (msg.type === 'agent_event') {
+            // agent-kind bridge event — dispatch by event subtype
+            if (msg.event === 'message' && typeof msg.text === 'string') {
+                const agentMsg: AgentMessage = {
+                    from: 'agent',
+                    text: msg.text,
+                    timestamp: typeof msg.timestamp === 'number' ? msg.timestamp : Date.now(),
+                }
+                for (const cb of agentMsgSubs) cb(agentMsg)
+            }
             return
         }
 
@@ -223,6 +308,8 @@ function ensureConnection(): WebSocket {
         } else if (msg.type === 'exit') {
             connected = false
             activeSessionId = null
+            activeSessionKind = null
+            if (patched) { patched = false; for (const cb of patchModeSubs) cb(false) }
             ws = null
             notifyState()
         }
@@ -278,20 +365,31 @@ export function createCliAgentModule(options?: { wsUrl?: string }) {
         name: 'CLI Agent',
         position: 55,
 
-        system_msg: `You have access to a remote Claude Code session running in a terminal via WebSocket.
-Claude Code is an AI coding agent that accepts natural language instructions — send it tasks like you would talk to a developer.
+        system_msg: `You have access to remote coding-agent sessions via WebSocket. There are two bridge kinds:
 
-Two connection modes:
-- Local (LAN): cli_connect with no args — connects to ws://localhost:9100 (a bin/pty-bridge.mjs running on this machine).
-- Cloud (via smartchats-relay): cli_connect with mode="cloud" — connects to the user's bridge running anywhere they've launched bin/pty-bridge.mjs --cloud. If the user has only one bridge online, it auto-selects. If multiple, the call returns { connected: false, sessions: [...] }; call cli_list_sessions or re-call cli_connect with session_id (or label) to pick one.
+- kind='pty' — legacy PTY-wrapped CLI (bin/pty-bridge.mjs wrapping claude/gemini/codex). You interact via cli_send_command (natural-language instruction) + cli_read_output (poll output) + cli_voice_forward (voice → PTY input). Output arrives as terminal bytes; wait for cli_idle before reading.
+- kind='agent' — MCP-based agent participant (smartchats-mcp-bridge, a coding agent that has send_message_to_user / wait_for_message tools). You enter this mode via cli_patch_through, which routes the user's voice as agent_message and surfaces the agent's send_message_to_user calls as TTS-spoken replies. Call cli_unpatch to leave.
 
-Use cli_send_command to send a natural language instruction to Claude Code. It returns immediately.
-Use cli_read_output to read recent terminal output without sending anything.
-Use cli_status to check connection and idle state.
+Connection modes:
+- Local (LAN): cli_connect with no args — connects to ws://localhost:9100 (a bin/pty-bridge.mjs running on this machine, kind='pty' only).
+- Cloud (via smartchats-relay): cli_connect with mode="cloud" — connects to any bridge (either kind) registered under the user's account. If the user has only one bridge online, it auto-selects. If multiple, the call returns { connected: false, sessions: [...] } with kind on each; use session_id (or label) to pick one.
 
-IMPORTANT — idle notification flow:
-After you send a command, the CLI will notify you when it goes idle (finished processing). When you receive a cli_idle notification, call cli_read_output to read the terminal output and relay the result to the user. Use an appropriate line count (e.g. 50–100 lines) to capture the response.
-Do NOT poll — just acknowledge the command and WAIT for the idle notification.`,
+Common tools:
+- cli_status — check connection, mode, subscribed session kind, patched flag, idle state.
+- cli_list_sessions — enumerate available sessions (each includes kind).
+
+kind='pty' flow (unchanged):
+- cli_send_command → immediate return; wait for cli_idle notification → cli_read_output.
+- cli_voice_forward → voice becomes PTY input.
+
+kind='agent' flow (patch-through):
+- cli_patch_through(session_id?) → subscribes to an agent-kind session. Optional session_id if multiple agent bridges are online.
+- cli_voice_forward while patched → each voice chunk goes as agent_message to the coding agent's wait_for_message queue.
+- Agent's send_message_to_user tool calls arrive as agent_event messages; the AgentCallWidget renders them and speaks them via TTS. You (the smartchats LLM) don't need to relay these to the user — the widget handles it.
+- cli_unpatch → stop routing voice as agent_message; further voice goes back to the normal LLM path.
+
+IMPORTANT — idle notification flow (pty only):
+After cli_send_command on a pty bridge, wait for cli_idle notification, then cli_read_output. Do NOT poll. This does NOT apply in patch-through mode — agent-kind bridges don't emit idle events.`,
 
         functions: [
             {
@@ -470,9 +568,20 @@ is running, voice input routes here automatically via the function_input_ch chan
                             return { status: 'VOICE MODE CANCELLED', sentChars, sentMessages }
                         }
 
-                        const payload = submit !== false ? chunk + '\n' : chunk
-                        log(`cli_voice_forward: sending ${chunk.length} chars`)
-                        ws!.send(JSON.stringify({ type: 'input', data: payload }))
+                        if (patched && activeSessionKind === 'agent') {
+                            log(`cli_voice_forward: sending agent_message ${chunk.length} chars`)
+                            const ts = Date.now()
+                            ws!.send(JSON.stringify({
+                                type: 'agent_message',
+                                text: chunk,
+                                timestamp: ts,
+                            }))
+                            for (const cb of userSentSubs) cb(chunk, ts)
+                        } else {
+                            const payload = submit !== false ? chunk + '\n' : chunk
+                            log(`cli_voice_forward: sending ${chunk.length} chars`)
+                            ws!.send(JSON.stringify({ type: 'input', data: payload }))
+                        }
 
                         sentChars += chunk.length
                         sentMessages++
@@ -490,9 +599,9 @@ is running, voice input routes here automatically via the function_input_ch chan
             },
             {
                 enabled: true,
-                description: 'Check the connection status and idle state of the CLI agent.',
+                description: 'Check the connection status, subscribed session kind (pty|agent), patch-through state, and idle state.',
                 name: 'cli_status',
-                return_shape: `{ connected, mode: 'local'|'cloud', url, active_session_id, idle, idleSeconds, bufferedLines }.`,
+                return_shape: `{ connected, mode: 'local'|'cloud', url, active_session_id, active_session_kind: 'pty'|'agent'|null, patched: boolean, idle, idleSeconds, bufferedLines }.`,
                 parameters: null,
                 fn: async (ops: any) => {
                     const { log } = ops.util
@@ -501,12 +610,73 @@ is running, voice input routes here automatically via the function_input_ch chan
                         mode: connectionMode,
                         url: wsUrl,
                         active_session_id: activeSessionId,
+                        active_session_kind: activeSessionKind,
+                        patched,
                         idle,
                         idleSeconds: idle ? idleSeconds : 0,
                         bufferedLines: outputBuffer.length,
                     }
                     log(`CLI status: ${JSON.stringify(status)}`)
                     return status
+                },
+                return_type: 'object',
+            },
+            {
+                enabled: true,
+                description: `Enter patch-through mode with an agent-kind bridge. Subscribes to an agent session (smartchats-mcp-bridge fronting a coding agent like Claude Code) so the user speaks directly to the agent: voice becomes agent_message on the wire, agent's send_message_to_user calls surface as TTS-spoken replies via the AgentCallWidget. Requires cli_connect(mode:'cloud') to have run first. If session_id is omitted, auto-selects when exactly one agent session is available.`,
+                name: 'cli_patch_through',
+                return_shape: `Success: { patched: true, session_id, label }. Errors: { error: 'not_connected' | 'no_agent_sessions' | 'ambiguous_agent_sessions', sessions?, message? }.`,
+                parameters: { session_id: 'string' },
+                fn: async (ops: any) => {
+                    const { session_id } = ops.params
+                    const { log } = ops.util
+
+                    if (!ws || !connected || connectionMode !== 'cloud') {
+                        return { error: 'not_connected', message: 'Call cli_connect(mode:"cloud") first.' }
+                    }
+
+                    const agentSessions = availableSessions.filter(s => s.kind === 'agent')
+                    let target = session_id
+                    if (!target) {
+                        if (agentSessions.length === 0) {
+                            return { error: 'no_agent_sessions', message: 'No agent bridges online. Start one with `sm agent start <coding-agent>`.' }
+                        }
+                        if (agentSessions.length > 1) {
+                            return {
+                                error: 'ambiguous_agent_sessions',
+                                sessions: agentSessions,
+                                message: 'Multiple agent sessions available — pass session_id.',
+                            }
+                        }
+                        target = agentSessions[0].session_id
+                    }
+
+                    ws.send(JSON.stringify({ type: 'subscribe', session_id: target }))
+                    await waitForRelayMessage(ws, 'subscribed')
+
+                    const chosen = availableSessions.find(s => s.session_id === target)
+                    activeSessionKind = chosen?.kind ?? 'agent'
+                    patched = true
+                    for (const cb of patchModeSubs) cb(true)
+                    log(`Patched through to agent session ${target}`)
+                    return { patched: true, session_id: target, label: chosen?.label ?? '' }
+                },
+                return_type: 'object',
+            },
+            {
+                enabled: true,
+                description: `Exit patch-through mode. Stops routing user's voice to the coding agent as agent_message; further voice input goes back to the normal LLM path. The underlying WebSocket subscription remains — the agent bridge keeps running and can be re-patched.`,
+                name: 'cli_unpatch',
+                return_shape: `{ unpatched: true }`,
+                parameters: null,
+                fn: async (ops: any) => {
+                    const { log } = ops.util
+                    if (patched) {
+                        patched = false
+                        for (const cb of patchModeSubs) cb(false)
+                        log('Unpatched from agent session')
+                    }
+                    return { unpatched: true }
                 },
                 return_type: 'object',
             },

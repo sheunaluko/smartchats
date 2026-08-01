@@ -1,10 +1,16 @@
 import type { WebSocket } from 'ws';
-import { registry } from '../state.js';
+import { registry, type BridgeKind } from '../state.js';
 import { verifyToken } from '../auth.js';
 import { log } from '../lib/log.js';
 import { config } from '../config.js';
 
-const FORWARDED_FROM_CLIENT = new Set(['input', 'resize', 'request_snapshot']);
+// Which client → bridge message types are forwarded, keyed by the subscribed
+// bridge's kind. PTY bridges receive terminal input + resize + snapshot
+// requests. Agent bridges receive user text as `agent_message`.
+const FORWARDED_FROM_CLIENT: Record<BridgeKind, ReadonlySet<string>> = {
+    pty:   new Set(['input', 'resize', 'request_snapshot']),
+    agent: new Set(['agent_message']),
+};
 
 export function attachClientHandler(ws: WebSocket): void {
     let userId: string | null = null;
@@ -69,17 +75,20 @@ export function attachClientHandler(ws: WebSocket): void {
             }
             ws.send(JSON.stringify({ type: 'subscribed', session_id: sid }));
             const bridge = registry.getBridge(sid);
-            if (bridge && bridge.socket.readyState === bridge.socket.OPEN) {
+            // Snapshot replay only applies to PTY bridges (xterm buffer);
+            // agent bridges have no screen state to replay.
+            if (bridge && bridge.kind === 'pty' && bridge.socket.readyState === bridge.socket.OPEN) {
                 bridge.socket.send(JSON.stringify({ type: 'request_snapshot' }));
             }
             return;
         }
 
-        if (FORWARDED_FROM_CLIENT.has(msg.type)) {
-            if (!client.subscribedTo) return;
+        if (client.subscribedTo) {
             const bridge = registry.getBridge(client.subscribedTo);
-            if (!bridge || bridge.socket.readyState !== bridge.socket.OPEN) return;
-            bridge.socket.send(JSON.stringify(msg));
+            if (bridge && bridge.socket.readyState === bridge.socket.OPEN
+                && FORWARDED_FROM_CLIENT[bridge.kind].has(msg.type)) {
+                bridge.socket.send(JSON.stringify(msg));
+            }
         }
     });
 

@@ -22,6 +22,7 @@ import ProcessWidget from '../widgets/ProcessWidget';
 import VisualizationWidget from '../widgets/VisualizationWidget';
 import LLMInspectorWidget from '../widgets/LLMInspectorWidget';
 import CliTerminalWidget from '../widgets/CliTerminalWidget';
+import AgentCallWidget from '../widgets/AgentCallWidget';
 import type { QueueEntryStatus } from '@lab-components/tivi/lib/tts_queue';
 import type { ExecutionSnapshot } from '../types/execution';
 
@@ -208,6 +209,14 @@ export function renderWidget(
         case 'cliTerminal':
             return (
                 <CliTerminalWidget
+                    onFocus={onFocus}
+                    fullscreen={fullscreen}
+                    onClose={onClose}
+                />
+            );
+        case 'agentCall':
+            return (
+                <AgentCallWidget
                     onFocus={onFocus}
                     fullscreen={fullscreen}
                     onClose={onClose}
