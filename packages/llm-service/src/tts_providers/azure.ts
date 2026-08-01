@@ -33,16 +33,39 @@ const PRICE_PER_M_CHARS = 16.0;
 // entries (regional + speaker styles); the productionized subset we
 // serve lives in voices.ts. Add there to expose more.
 
+export interface AzureTtsAdapterOptions {
+    /**
+     * Hard timeout on `speakTextAsync`. If Azure's success or error callback
+     * hasn't fired within this budget, the synthesis is rejected.
+     *
+     * Rationale: the Speech SDK silently hangs on some upstream conditions
+     * (auth failures via the WebSocket path, credential rotation, quota
+     * exhaustion), leaving the containing Cloud Function to sit until its own
+     * `timeoutSeconds`. Without this timeout a broken key produces a 120s
+     * client-visible hang on every request; with it, the failure surfaces
+     * as a fast, actionable error the caller can propagate or fall back on.
+     *
+     * Default: 30s — comfortably above normal synthesis time even for long
+     * inputs (Azure Neural runs at real-time factor <1x; a 500-char utterance
+     * is typically ~3-5s wall-clock), while short enough that a genuine hang
+     * doesn't waste the whole Cloud Function budget.
+     */
+    synthesisTimeoutMs?: number;
+}
+
 export class AzureTtsAdapter implements ServerTtsAdapter {
     readonly name = 'azure';
     private speechConfig: sdk.SpeechConfig | null = null;
+    private readonly synthesisTimeoutMs: number;
 
     constructor(
         private readonly apiKey: string,
         private readonly region: string,
+        opts: AzureTtsAdapterOptions = {},
     ) {
         if (!apiKey) throw new Error('AzureTtsAdapter requires apiKey');
         if (!region) throw new Error('AzureTtsAdapter requires region');
+        this.synthesisTimeoutMs = opts.synthesisTimeoutMs ?? 30_000;
     }
 
     private getConfig(voice: string): sdk.SpeechConfig {
@@ -80,17 +103,36 @@ export class AzureTtsAdapter implements ServerTtsAdapter {
         // Trigger synthesis. CRITICAL: don't also push result.audioData from
         // the callback — the synthesizing event has already streamed all
         // audio. Doubling would duplicate the output.
+        //
+        // The setTimeout is a defensive backstop against the SDK hanging when
+        // Azure doesn't respond at all (see AzureTtsAdapterOptions doc). It
+        // races the two SDK callbacks; whichever settles first wins. If the
+        // timeout fires, the promise rejects, `.catch(err => push({value:null,err}))`
+        // below queues the error, and the generator's yield loop throws — the
+        // `finally { synthesizer.close() }` releases the underlying WebSocket.
         const synthesisPromise = new Promise<sdk.SpeechSynthesisResult>((resolve, reject) => {
+            const timer = setTimeout(() => {
+                reject(new Error(
+                    `Azure synthesis timeout after ${this.synthesisTimeoutMs}ms — ` +
+                    `neither success nor error callback fired. Likely upstream ` +
+                    `credential/quota/network issue (check Azure Portal + ` +
+                    `scripts/azure_tts_diag.mjs in smartchats-cloud).`,
+                ));
+            }, this.synthesisTimeoutMs);
             synthesizer.speakTextAsync(
                 opts.text,
                 (result) => {
+                    clearTimeout(timer);
                     if (result.reason === sdk.ResultReason.SynthesizingAudioCompleted) {
                         resolve(result);
                     } else {
                         reject(new Error(`Azure synthesis failed (reason=${result.reason}): ${result.errorDetails || 'no details'}`));
                     }
                 },
-                (err) => reject(new Error(`Azure speakTextAsync error: ${String(err)}`)),
+                (err) => {
+                    clearTimeout(timer);
+                    reject(new Error(`Azure speakTextAsync error: ${String(err)}`));
+                },
             );
         });
 
