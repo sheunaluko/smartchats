@@ -19,7 +19,7 @@
  */
 
 import type { EndpointPredictor, PredictorDecision, PredictorWarmup } from '../types';
-import { get_smart_turn_session, warmup_smart_turn } from '../../onnx';
+import { get_smart_turn_session, warmup_smart_turn, get_ort } from '../../onnx';
 
 const TARGET_SR = 16000;
 const MAX_SAMPLES = 8 * TARGET_SR; // 128 000
@@ -157,10 +157,11 @@ export function createSmartTurnPredictor(
       // (or [80, 800] depending on version). Normalize to a shape+data pair.
       const inputTensor = extractInputFeatures(feResult);
 
-      // 3. Build an ONNX Tensor and run the session.
-      // We reach ort via the loaded session's proto rather than importing ort
-      // separately — same runtime is used throughout tivi.
-      const ort = (await import(/* webpackIgnore: true */ '/onnx/ort.wasm.min.mjs' as any));
+      // 3. Build an ONNX Tensor and run the session. Route through the
+      // shared cached accessor in onnx.ts — same runtime VAD uses, avoids
+      // the `ReferenceError: ort is not defined` that bit the previous
+      // in-line dynamic-import form after webpack bundling.
+      const ort = await get_ort();
       const ortTensor = new ort.Tensor('float32', inputTensor.data, inputTensor.shape);
       const outputs = await session.run({ input_features: ortTensor });
 
