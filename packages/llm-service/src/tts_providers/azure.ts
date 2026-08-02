@@ -115,8 +115,9 @@ export class AzureTtsAdapter implements ServerTtsAdapter {
                 reject(new Error(
                     `Azure synthesis timeout after ${this.synthesisTimeoutMs}ms — ` +
                     `neither success nor error callback fired. Likely upstream ` +
-                    `credential/quota/network issue (check Azure Portal + ` +
-                    `scripts/azure_tts_diag.mjs in smartchats-cloud).`,
+                    `credential/quota/network issue — verify Azure Speech ` +
+                    `subscription is active and AZURE_SPEECH_KEY + AZURE_SPEECH_REGION ` +
+                    `env vars are correct.`,
                 ));
             }, this.synthesisTimeoutMs);
             synthesizer.speakTextAsync(
