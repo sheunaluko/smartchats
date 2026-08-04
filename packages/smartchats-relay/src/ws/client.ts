@@ -66,6 +66,18 @@ export function attachClientHandler(ws: WebSocket): void {
             return;
         }
 
+        if (msg.type === 'list_sessions') {
+            // On-demand roster refresh — client asks for the current session_list
+            // without needing to reconnect (re-hello is intentionally ignored above).
+            // Reuses the same `session_list` frame the initial client_hello returns,
+            // so clients can share the handler for both push paths.
+            ws.send(JSON.stringify({
+                type: 'session_list',
+                sessions: registry.listSessionsForUser(client.userId),
+            }));
+            return;
+        }
+
         if (msg.type === 'subscribe') {
             const sid = String(msg.session_id ?? '');
             const result = registry.subscribeClient(ws, sid);

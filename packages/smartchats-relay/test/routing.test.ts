@@ -144,6 +144,39 @@ describe('relay routing', () => {
         bridge.close(); attacker.close();
     });
 
+    test('list_sessions returns a fresh session_list reflecting bridges that connected after client_hello', async () => {
+        // Client connects first (empty session_list initially).
+        const client = connect('/client');
+        await waitOpen(client);
+        client.send(JSON.stringify({ type: 'client_hello', token: 'tok-listUser' }));
+        const initial = await nextMessage(client);
+        expect(initial.type).toBe('session_list');
+        expect(initial.sessions.length).toBe(0);
+
+        // NEW bridge comes online after the client already handshook.
+        const bridge = connect('/bridge');
+        await waitOpen(bridge);
+        bridge.send(JSON.stringify({
+            type: 'bridge_hello',
+            token: 'tok-listUser',
+            bridge_id: 'sid-late',
+            kind: 'agent',
+            label: 'late-joiner',
+        }));
+        await nextMessage(bridge); // bridge_registered
+
+        // Client asks the relay for a fresh list — must include the late-joiner.
+        client.send(JSON.stringify({ type: 'list_sessions' }));
+        const refreshed = await nextMessage(client);
+        expect(refreshed.type).toBe('session_list');
+        const found = refreshed.sessions.find((s: any) => s.session_id === 'sid-late');
+        expect(found).toBeDefined();
+        expect(found.kind).toBe('agent');
+        expect(found.label).toBe('late-joiner');
+
+        bridge.close(); client.close();
+    });
+
     test('agent-kind bridge_hello registers with kind: agent', async () => {
         const ws = connect('/bridge');
         await waitOpen(ws);

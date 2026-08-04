@@ -454,11 +454,23 @@ After cli_send_command on a pty bridge, wait for cli_idle notification, then cli
             },
             {
                 enabled: true,
-                description: 'List currently available cloud sessions for the logged-in user. Only meaningful after cli_connect with mode=cloud. Returns the cached session_list from the last relay handshake.',
+                description: 'List currently available cloud sessions for the logged-in user. Only meaningful after cli_connect with mode=cloud. Sends a live `list_sessions` request to the relay and awaits the fresh `session_list` response — reflects bridges that connected AFTER the initial handshake. Falls back to the cached list if not connected in cloud mode.',
                 name: 'cli_list_sessions',
-                return_shape: `{ sessions: Array<{session_id, label, model, online, last_active_ms_ago}>, active_session_id: string | null }`,
+                return_shape: `{ sessions: Array<{session_id, kind: 'pty'|'agent', label, model, online, last_active_ms_ago}>, active_session_id: string | null }`,
                 parameters: null,
                 fn: async (_ops: any) => {
+                    if (ws && connected && connectionMode === 'cloud') {
+                        try {
+                            ws.send(JSON.stringify({ type: 'list_sessions' }))
+                            // The regular onmessage dispatcher will update
+                            // `availableSessions` when the fresh session_list
+                            // arrives — we just gate on that arrival here.
+                            await waitForRelayMessage(ws, 'session_list', 3000)
+                        } catch {
+                            // Fall through to whatever's cached — caller still
+                            // gets *some* answer even if the relay is slow.
+                        }
+                    }
                     return { sessions: availableSessions, active_session_id: activeSessionId }
                 },
                 return_type: 'object',
