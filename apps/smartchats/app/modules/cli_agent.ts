@@ -477,9 +477,12 @@ After cli_send_command on a pty bridge, wait for cli_idle notification, then cli
             },
             {
                 enabled: true,
-                description: 'Send a command or prompt to the CLI agent. Returns immediately — output arrives asynchronously when the agent goes idle.',
+                description: `Send a command / prompt / text message to the connected CLI session. Kind-aware routing:
+- Bridge kind='pty' (legacy CLI wrapped in PTY): sent as PTY 'input' (keystrokes + newline). Output arrives asynchronously when the CLI goes idle — wait for the cli_idle notification, then call cli_read_output.
+- Bridge kind='agent' AND patched=true (via cli_patch_through): sent as 'agent_message' on the wire. The coding agent's wait_for_message tool returns it; agent responds via send_message_to_user → arrives as agent_event, rendered as a bubble + spoken via TTS in AgentCallWidget. NO cli_idle event will fire — do NOT wait for one; do NOT call cli_read_output.
+- Bridge kind='agent' but NOT patched: relay drops the message. Call cli_patch_through first (returns { patched: true }) then re-send.`,
                 name: 'cli_send_command',
-                return_shape: `{ sent: true, command: string (truncated to 100 chars in the echo) }. Returns immediately; the actual output arrives later via cli_idle notification — call cli_read_output then.`,
+                return_shape: `Success: { sent: true, command: string (truncated to 100 chars in the echo), routed_as: 'input'|'agent_message', mode: 'pty'|'patched'|'unpatched-agent-dropped' }. The routed_as field tells you which wire type went out; use it to gate follow-up behavior (wait for cli_idle only if routed_as === 'input').`,
                 parameters: { command: 'string' },
                 fn: async (ops: any) => {
                     const { command } = ops.params
@@ -492,10 +495,30 @@ After cli_send_command on a pty bridge, wait for cli_idle notification, then cli
                         await waitForOpen(socket)
                     }
 
-                    log(`Sending command: ${command.slice(0, 100)}`)
-                    ws!.send(JSON.stringify({ type: 'input', data: command + '\n' }))
+                    // Kind-aware routing so relay's FORWARDED_FROM_CLIENT filter
+                    // doesn't drop the message. See relay ws/client.ts + the failing
+                    // 2026-08-06 patch-through test (ses_msgv0qkp1tkrp1j) where 6
+                    // 'input' sends silently vanished against an agent-kind bridge.
+                    if (patched && activeSessionKind === 'agent') {
+                        const ts = Date.now()
+                        log(`Sending agent_message: ${command.slice(0, 100)}`)
+                        ws!.send(JSON.stringify({
+                            type: 'agent_message',
+                            text: command,
+                            timestamp: ts,
+                        }))
+                        for (const cb of userSentSubs) cb(command, ts)
+                        return { sent: true, command: command.slice(0, 100), routed_as: 'agent_message', mode: 'patched' }
+                    }
 
-                    return { sent: true, command: command.slice(0, 100) }
+                    if (activeSessionKind === 'agent' && !patched) {
+                        return { sent: false, command: command.slice(0, 100), routed_as: 'input', mode: 'unpatched-agent-dropped',
+                                 error: 'Subscribed to an agent-kind bridge but not patched — relay would drop the PTY-style input. Call cli_patch_through first.' }
+                    }
+
+                    log(`Sending input: ${command.slice(0, 100)}`)
+                    ws!.send(JSON.stringify({ type: 'input', data: command + '\n' }))
+                    return { sent: true, command: command.slice(0, 100), routed_as: 'input', mode: 'pty' }
                 },
                 return_type: 'object',
             },
