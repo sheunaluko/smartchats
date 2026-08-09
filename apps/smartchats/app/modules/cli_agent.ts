@@ -77,6 +77,16 @@ export function subscribeCliAgentMessage(cb: AgentMsgCb): () => void {
     return () => { agentMsgSubs.delete(cb) }
 }
 
+// Bounded ring buffer of agent messages — supports get_recent_agent_messages
+// tool (LLM catch-up on late arrivals from fire-and-forget send_agent_message
+// calls, or replies that arrived while the LLM was busy elsewhere).
+const MAX_AGENT_HISTORY = 100
+const agentMessageHistory: AgentMessage[] = []
+function pushAgentHistory(msg: AgentMessage): void {
+    agentMessageHistory.push(msg)
+    if (agentMessageHistory.length > MAX_AGENT_HISTORY) agentMessageHistory.shift()
+}
+
 type PatchModeCb = (patched: boolean) => void
 const patchModeSubs = new Set<PatchModeCb>()
 
@@ -299,6 +309,8 @@ function ensureConnection(): WebSocket {
                     text: msg.text,
                     timestamp: typeof msg.timestamp === 'number' ? msg.timestamp : Date.now(),
                 }
+                // Buffer for get_recent_agent_messages tool.
+                pushAgentHistory(agentMsg)
                 // Fire TTS at the module level so agent replies always audibly
                 // reach the user — even if AgentCallWidget isn't mounted (which
                 // happens for anyone whose cortex_widget_config in localStorage
@@ -426,11 +438,22 @@ kind='pty' flow (unchanged):
 - cli_send_command → immediate return; wait for cli_idle notification → cli_read_output.
 - cli_voice_forward → voice becomes PTY input.
 
-kind='agent' flow (patch-through) — CALL CEREMONY:
-- cli_patch_through(session_id?) is BLOCKING. When you call it, you (the LLM) are 'on hold' — the tool doesn't return until the user says an exit phrase ('unpatch' / 'end call' / 'stop listening' / 'goodbye' / 'hang up' / 'cancel' / 'finished'). During the call, user's voice + text input routes directly as agent_message to the coding agent (bypassing you entirely). Agent's send_message_to_user calls surface as TTS-spoken bubbles via AgentCallWidget — the user hears the agent, you (LLM) don't need to do anything.
-- Optional session_id if multiple agent bridges are online; auto-selects otherwise.
-- When the tool returns, you'll see { unpatched: true, sent_messages, duration_ms } — briefly acknowledge the call ended and stand ready for the next user request.
-- cli_unpatch — vestigial. cli_patch_through unpatches automatically on exit; only call cli_unpatch if patched-mode state got wedged somehow.
+kind='agent' flow — THREE INTERACTION MODES:
+
+1. CALL CEREMONY (voice-driven immersive) — \`cli_patch_through(session_id?)\`:
+   BLOCKING. Users voice+text routes directly to the coding agent, agents replies surface as TTS + bubbles. You (the LLM) are on hold until the user says an exit phrase ('unpatch' / 'end call' / 'stop listening' / 'goodbye' / 'hang up' / 'cancel' / 'finished'). Use when the user wants to have a real conversation with the coding agent.
+
+2. ONE-SHOT ASK (blocks briefly, then returns) — \`ask_agent(text, timeout_ms?)\`:
+   Sends a message, awaits one reply, returns { reply, timestamp, latency_ms }. Use for quick queries you want to weave into your own reasoning: "ask the epic-agent for the Clarity encounter table names". Requires an agent-kind session subscribed (cli_connect with an agent session, or a previous cli_patch_through).
+
+3. FIRE-AND-FORGET (returns immediately) — \`send_agent_message(text)\`:
+   Kicks off background work you don't need to await. Late replies still fire TTS and land in the buffer.
+
+Support tool — \`get_recent_agent_messages(since?)\`:
+   Non-blocking peek at buffered agent replies (last 100). Use to catch up on late arrivals from send_agent_message calls or to review activity from a past patch-through.
+
+- Optional session_id if multiple agent bridges are online; auto-selects otherwise where possible.
+- cli_unpatch — vestigial. cli_patch_through unpatches automatically on exit.
 
 IMPORTANT — idle notification flow (pty only):
 After cli_send_command on a pty bridge, wait for cli_idle notification, then cli_read_output. Do NOT poll. This does NOT apply in patch-through mode — agent-kind bridges don't emit idle events.`,
@@ -812,6 +835,87 @@ is running, voice input routes here automatically via the function_input_ch chan
                         log('Unpatched from agent session')
                     }
                     return { unpatched: true }
+                },
+                return_type: 'object',
+            },
+            {
+                enabled: true,
+                description: `ONE-SHOT ask-an-agent — send a message to the connected agent-kind bridge and await ONE reply, then return control to you. NON-blocking on the smartchats side (you can do other work after it returns) but does block for up to timeout_ms while awaiting the agent's response. Use this for quick queries when you don't want a full patch-through call ceremony — e.g. "ask the epic-agent for the Clarity encounter table names". Requires cli_connect(mode:'cloud') to a session where kind='agent' has already run (cli_patch_through also counts; either subscribes). Fire-and-forget alternative: send_agent_message.`,
+                name: 'ask_agent',
+                return_shape: `Success: { reply: string, timestamp: number, latency_ms: number }. Timeout: { timeout: true, latency_ms: number }. Errors: { error: 'not_connected' | 'not_agent_kind', message: string }.`,
+                parameters: { text: 'string', timeout_ms: 'number' },
+                fn: async (ops: any) => {
+                    const { text, timeout_ms } = ops.params
+                    const { log } = ops.util
+
+                    if (!ws || !connected || connectionMode !== 'cloud') {
+                        return { error: 'not_connected', message: 'Call cli_connect(mode:"cloud") first.' }
+                    }
+                    if (activeSessionKind !== 'agent') {
+                        return { error: 'not_agent_kind', message: `Currently subscribed to a ${activeSessionKind ?? 'no'} bridge. ask_agent requires an agent-kind bridge — cli_connect to an agent session first.` }
+                    }
+
+                    const timeoutMs = typeof timeout_ms === 'number' && timeout_ms > 0 ? timeout_ms : 30_000
+                    const start = Date.now()
+
+                    return new Promise((resolve) => {
+                        let done = false
+                        const unsub = subscribeCliAgentMessage((msg) => {
+                            if (done) return
+                            done = true
+                            unsub()
+                            clearTimeout(timer)
+                            resolve({ reply: msg.text, timestamp: msg.timestamp, latency_ms: Date.now() - start })
+                        })
+                        const timer = setTimeout(() => {
+                            if (done) return
+                            done = true
+                            unsub()
+                            resolve({ timeout: true, latency_ms: Date.now() - start })
+                        }, timeoutMs)
+
+                        log(`ask_agent sending (${text.length} chars, timeout ${timeoutMs}ms)`)
+                        ws!.send(JSON.stringify({ type: 'agent_message', text, timestamp: Date.now() }))
+                    })
+                },
+                return_type: 'object',
+            },
+            {
+                enabled: true,
+                description: `FIRE-AND-FORGET — send a message to the connected agent-kind bridge without awaiting a reply. Returns immediately. Late-arriving replies are still buffered client-side (see get_recent_agent_messages) and still speak via TTS + render in AgentCallWidget if visible. Use for background work you want the agent to start on without blocking your own reasoning ("kick off a build", "start indexing the epic Clarity dictionary"). Requires cli_connect(mode:'cloud') to an agent-kind session.`,
+                name: 'send_agent_message',
+                return_shape: `Success: { sent: true, timestamp: number }. Errors: { error: 'not_connected' | 'not_agent_kind', message: string }.`,
+                parameters: { text: 'string' },
+                fn: async (ops: any) => {
+                    const { text } = ops.params
+                    const { log } = ops.util
+
+                    if (!ws || !connected || connectionMode !== 'cloud') {
+                        return { error: 'not_connected', message: 'Call cli_connect(mode:"cloud") first.' }
+                    }
+                    if (activeSessionKind !== 'agent') {
+                        return { error: 'not_agent_kind', message: `Currently subscribed to a ${activeSessionKind ?? 'no'} bridge. send_agent_message requires an agent-kind bridge.` }
+                    }
+
+                    const ts = Date.now()
+                    ws.send(JSON.stringify({ type: 'agent_message', text, timestamp: ts }))
+                    log(`send_agent_message sent (${text.length} chars)`)
+                    return { sent: true, timestamp: ts }
+                },
+                return_type: 'object',
+            },
+            {
+                enabled: true,
+                description: `Non-blocking peek at buffered agent replies (bounded ring buffer, last ${MAX_AGENT_HISTORY} messages). Use to catch up on late-arriving replies from send_agent_message calls, or to review recent agent activity. Returns all buffered messages when since is omitted; only messages with timestamp > since when provided.`,
+                name: 'get_recent_agent_messages',
+                return_shape: `{ messages: Array<{ from: 'agent', text: string, timestamp: number }>, buffer_max: ${MAX_AGENT_HISTORY} }`,
+                parameters: { since: 'number' },
+                fn: async (ops: any) => {
+                    const { since } = ops.params
+                    const messages = typeof since === 'number'
+                        ? agentMessageHistory.filter(m => m.timestamp > since)
+                        : [...agentMessageHistory]
+                    return { messages, buffer_max: MAX_AGENT_HISTORY }
                 },
                 return_type: 'object',
             },
