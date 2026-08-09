@@ -45,6 +45,7 @@ export interface ToolHandlers {
   wait_for_message(args: { timeout_ms?: number }): Promise<ToolResult>;
   poll_messages(args: { since?: number }): Promise<ToolResult>;
   ask_user(args: { question: string; timeout_ms?: number }): Promise<ToolResult>;
+  respond_and_wait(args: { text: string; timeout_ms?: number }): Promise<ToolResult>;
 }
 
 /**
@@ -88,6 +89,26 @@ export function createToolHandlers(opts: RegisterToolsOptions): ToolHandlers {
       const result = await queue.dequeue(timeout);
       if (result.timeout) return jsonResult({ timeout: true });
       return jsonResult(formatMessage(result.message));
+    },
+
+    // Optimized for the patch-through conversational loop: sends a reply
+    // to the last user message AND immediately awaits their next one, in a
+    // single tool call. Prefer this over the separate send + wait pair —
+    // it structurally encourages the LLM to keep looping (each tool call
+    // is one full roundtrip; the natural agentic pattern is "call the same
+    // tool repeatedly until you're done"), which side-steps Claude Code's
+    // tendency to end the response after a single send_message_to_user.
+    async respond_and_wait({ text, timeout_ms }) {
+      const sent = client.sendMessageToUser(text);
+      if (!sent) {
+        return errorResult(
+          'Not connected to smartchats-relay. Reply was not delivered; not waiting.',
+        );
+      }
+      const timeout = timeout_ms ?? defaultWaitTimeoutMs;
+      const result = await queue.dequeue(timeout);
+      if (result.timeout) return jsonResult({ sent_reply: true, timeout: true });
+      return jsonResult({ sent_reply: true, ...formatMessage(result.message) });
     },
   };
 }
@@ -151,5 +172,20 @@ export function registerTools(server: McpServer, opts: RegisterToolsOptions): vo
         .describe('Max milliseconds to wait for the reply. Defaults to the same long-poll as wait_for_message.'),
     },
     handlers.ask_user,
+  );
+
+  server.tool(
+    'respond_and_wait',
+    'PREFERRED TOOL FOR PATCH-THROUGH CONVERSATIONS. Sends your reply to the user AND immediately awaits their next message in a single call. Loop this tool: call it with your first reply, get the next user message, call it again with the next reply, and so on. Each call is one full conversational roundtrip — the LLM naturally loops the same tool repeatedly, which side-steps the tendency to end the response after a single send. Returns `{ sent_reply: true, from, text, timestamp }` on a real reply, or `{ sent_reply: true, timeout: true }` on timeout — call again either way. Exit the loop when the returned `text` contains an exit phrase.',
+    {
+      text: z.string().min(1).describe('Your reply to the user\'s last message. Spoken aloud via TTS; keep to short spoken sentences.'),
+      timeout_ms: z
+        .number()
+        .int()
+        .positive()
+        .optional()
+        .describe('Max milliseconds to wait for the next user message after sending your reply. Defaults to ~30s.'),
+    },
+    handlers.respond_and_wait,
   );
 }
