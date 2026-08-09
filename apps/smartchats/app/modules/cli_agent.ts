@@ -247,9 +247,14 @@ function ensureConnection(): WebSocket {
             return
         } else if (msg.type === 'subscribed') {
             activeSessionId = String(msg.session_id)
-            const chosen = availableSessions.find(s => s.session_id === activeSessionId)
-            // Default to 'pty' if kind is absent (older relay or old client).
-            activeSessionKind = chosen?.kind ?? 'pty'
+            // Do NOT set activeSessionKind here. The caller who initiated the
+            // subscribe (cli_connect for pty, cli_patch_through for agent) is
+            // responsible for setting it after the subscribed ack — that avoids
+            // the race where this handler reads a stale availableSessions and
+            // silently defaults to 'pty' even when the caller knows the bridge
+            // is 'agent'. Bug found in 2026-08-08 audit: `agent_message` was
+            // getting mis-routed as `input` and dropped by the relay because of
+            // this fallback.
             notifyState()
             return
         } else if (msg.type === 'session_offline') {
@@ -382,11 +387,11 @@ kind='pty' flow (unchanged):
 - cli_send_command → immediate return; wait for cli_idle notification → cli_read_output.
 - cli_voice_forward → voice becomes PTY input.
 
-kind='agent' flow (patch-through):
-- cli_patch_through(session_id?) → subscribes to an agent-kind session. Optional session_id if multiple agent bridges are online.
-- cli_voice_forward while patched → each voice chunk goes as agent_message to the coding agent's wait_for_message queue.
-- Agent's send_message_to_user tool calls arrive as agent_event messages; the AgentCallWidget renders them and speaks them via TTS. You (the smartchats LLM) don't need to relay these to the user — the widget handles it.
-- cli_unpatch → stop routing voice as agent_message; further voice goes back to the normal LLM path.
+kind='agent' flow (patch-through) — CALL CEREMONY:
+- cli_patch_through(session_id?) is BLOCKING. When you call it, you (the LLM) are 'on hold' — the tool doesn't return until the user says an exit phrase ('unpatch' / 'end call' / 'stop listening' / 'goodbye' / 'hang up' / 'cancel' / 'finished'). During the call, user's voice + text input routes directly as agent_message to the coding agent (bypassing you entirely). Agent's send_message_to_user calls surface as TTS-spoken bubbles via AgentCallWidget — the user hears the agent, you (LLM) don't need to do anything.
+- Optional session_id if multiple agent bridges are online; auto-selects otherwise.
+- When the tool returns, you'll see { unpatched: true, sent_messages, duration_ms } — briefly acknowledge the call ended and stand ready for the next user request.
+- cli_unpatch — vestigial. cli_patch_through unpatches automatically on exit; only call cli_unpatch if patched-mode state got wedged somehow.
 
 IMPORTANT — idle notification flow (pty only):
 After cli_send_command on a pty bridge, wait for cli_idle notification, then cli_read_output. Do NOT poll. This does NOT apply in patch-through mode — agent-kind bridges don't emit idle events.`,
@@ -438,6 +443,12 @@ After cli_send_command on a pty bridge, wait for cli_idle notification, then cli
                         log(`Subscribed to session ${target}`)
                         scheduleClientReauth(socket)
                         const chosen = availableSessions.find(s => s.session_id === target)
+                        // Caller-owned kind (the subscribed handler doesn't set
+                        // this anymore — see the race-fix note there). Generic
+                        // cli_connect defaults to 'pty' since it's the legacy
+                        // path; patch-through path uses cli_patch_through which
+                        // sets kind='agent' explicitly.
+                        activeSessionKind = chosen?.kind ?? 'pty'
                         return { connected: true, mode: 'cloud', session_id: target, label: chosen?.label ?? '' }
                     }
 
@@ -658,13 +669,13 @@ is running, voice input routes here automatically via the function_input_ch chan
             },
             {
                 enabled: true,
-                description: `Enter patch-through mode with an agent-kind bridge. Subscribes to an agent session (smartchats-mcp-bridge fronting a coding agent like Claude Code) so the user speaks directly to the agent: voice becomes agent_message on the wire, agent's send_message_to_user calls surface as TTS-spoken replies via the AgentCallWidget. Requires cli_connect(mode:'cloud') to have run first. If session_id is omitted, auto-selects when exactly one agent session is available.`,
+                description: `Enter patch-through mode with an agent-kind bridge — a CALL CEREMONY. This tool BLOCKS while the user is on the call: user's voice + text input routes as agent_message to the coding agent (bypassing you, the LLM); agent's send_message_to_user calls surface as TTS-spoken bubbles via AgentCallWidget. You (the LLM) are effectively 'on hold' during the call — you cannot do other work until the user exits the call by saying 'unpatch' / 'end call' / 'stop listening' / 'goodbye'. Requires cli_connect(mode:'cloud') to have run first. If session_id is omitted, auto-selects when exactly one agent session is online.`,
                 name: 'cli_patch_through',
-                return_shape: `Success: { patched: true, session_id, label }. Errors: { error: 'not_connected' | 'no_agent_sessions' | 'ambiguous_agent_sessions', sessions?, message? }.`,
+                return_shape: `Success (after user ends call): { unpatched: true, session_id, label, sent_messages: N, duration_ms }. Errors (return immediately, don't block): { error: 'not_connected' | 'no_agent_sessions' | 'ambiguous_agent_sessions', sessions?, message? }.`,
                 parameters: { session_id: 'string' },
                 fn: async (ops: any) => {
                     const { session_id } = ops.params
-                    const { log } = ops.util
+                    const { log, feedback, user_output, get_user_data } = ops.util
 
                     if (!ws || !connected || connectionMode !== 'cloud') {
                         return { error: 'not_connected', message: 'Call cli_connect(mode:"cloud") first.' }
@@ -692,9 +703,59 @@ is running, voice input routes here automatically via the function_input_ch chan
                     const chosen = availableSessions.find(s => s.session_id === target)
                     activeSessionKind = chosen?.kind ?? 'agent'
                     patched = true
+                    _voiceForwardActive = true
                     for (const cb of patchModeSubs) cb(true)
-                    log(`Patched through to agent session ${target}`)
-                    return { patched: true, session_id: target, label: chosen?.label ?? '' }
+                    log(`Patched through to agent session ${target}; entering call loop`)
+
+                    // ── Call ceremony: block until user says an exit phrase ──
+                    // While this fn is executing, cortex's is_running_function=true
+                    // redirects transcriptions to function_input_ch (via
+                    // orchestrator.transcriptionCb → cor.handle_function_input),
+                    // so voice AND text input both surface here as chunks from
+                    // get_user_data(). Each chunk goes on-wire as agent_message
+                    // (bypassing you, the LLM). Agent replies come back as
+                    // agent_event, rendered + spoken via AgentCallWidget.
+                    const startMs = Date.now()
+                    let sentMessages = 0
+                    const clean = (s: string) => s.toLowerCase().trim().replace(/[.!?]+$/, '')
+                    const EXIT_PHRASES = new Set(['unpatch', 'end call', 'stop listening', 'goodbye', 'hang up', 'cancel', 'finished'])
+
+                    try {
+                        feedback?.activated?.()
+                        await user_output?.(`Patched through to ${chosen?.label ?? target}. Speak to the agent directly. Say "unpatch" to end the call.`)
+
+                        while (true) {
+                            const chunk: string = await get_user_data()
+                            if (EXIT_PHRASES.has(clean(chunk))) {
+                                log(`Exit phrase heard: "${chunk}" — ending call`)
+                                break
+                            }
+                            const ts = Date.now()
+                            if (ws && ws.readyState === WebSocket.OPEN) {
+                                ws.send(JSON.stringify({ type: 'agent_message', text: chunk, timestamp: ts }))
+                                for (const cb of userSentSubs) cb(chunk, ts)
+                                sentMessages++
+                                feedback?.ok?.()
+                                log(`sent agent_message (${chunk.length} chars, total ${sentMessages})`)
+                            } else {
+                                log(`ws not open — chunk dropped`)
+                                break
+                            }
+                        }
+                    } finally {
+                        _voiceForwardActive = false
+                        patched = false
+                        for (const cb of patchModeSubs) cb(false)
+                        feedback?.success?.()
+                    }
+
+                    return {
+                        unpatched: true,
+                        session_id: target,
+                        label: chosen?.label ?? '',
+                        sent_messages: sentMessages,
+                        duration_ms: Date.now() - startMs,
+                    }
                 },
                 return_type: 'object',
             },
