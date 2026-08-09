@@ -96,7 +96,21 @@ export function useWidgetConfig() {
   const [widgets, setWidgets] = useState<WidgetConfig[]>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('cortex_widget_config');
-      return saved ? JSON.parse(saved) : DEFAULT_WIDGETS;
+      if (!saved) return DEFAULT_WIDGETS;
+      // Migration: user's saved config predates widgets that shipped later
+      // (e.g. `agentCall` added in the MCP-patch-through work). Merge any
+      // DEFAULT_WIDGETS entries that don't exist in the saved config, so
+      // long-tenured users pick up new widgets on next load without losing
+      // their toggles for existing ones.
+      try {
+        const parsed: WidgetConfig[] = JSON.parse(saved);
+        const savedIds = new Set(parsed.map((w) => w.id));
+        const missing = DEFAULT_WIDGETS.filter((w) => !savedIds.has(w.id));
+        if (missing.length === 0) return parsed;
+        return [...parsed, ...missing];
+      } catch {
+        return DEFAULT_WIDGETS;
+      }
     }
     return DEFAULT_WIDGETS;
   });

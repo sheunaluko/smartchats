@@ -36,8 +36,10 @@ function fmtTime(ts: number): string {
  *   - subscribeCliPatchMode → widget toggles empty state ↔ conversation view
  *
  * Side effects:
- *   - Each new agent message is pushed into `window.tivi.ttsQueue.speakText`
- *     so the user hears it audibly. Rendering happens regardless of TTS availability.
+ *   - None. TTS-on-agent-event fires at the module level in cli_agent.ts so
+ *     agent replies are audible even when this widget isn't mounted (e.g.
+ *     users whose saved cortex_widget_config predates the widget being added).
+ *     This widget is pure visual — bubbles + unpatch button.
  *
  * Actions:
  *   - Unpatch button calls `unpatchCli()` on the module.
@@ -53,13 +55,8 @@ const AgentCallWidget: React.FC<AgentCallWidgetProps> = ({ fullscreen, onFocus, 
     useEffect(() => {
         const offAgent = subscribeCliAgentMessage((msg: AgentMessage) => {
             setBubbles((prev) => [...prev, { from: 'agent', text: msg.text, timestamp: msg.timestamp }]);
-            // Fire-and-forget TTS. If tivi hasn't initialized yet, this is a no-op.
-            try {
-                const tivi = (typeof window !== 'undefined' ? (window as any).tivi : undefined);
-                tivi?.ttsQueue?.speakText?.(msg.text);
-            } catch {
-                // Swallow — bubble is still rendered.
-            }
+            // NOTE: TTS is fired at the module level in cli_agent.ts (see
+            // the agent_event handler there). Don't double-speak here.
         });
         const offUser = subscribeCliUserSent((text, timestamp) => {
             setBubbles((prev) => [...prev, { from: 'user', text, timestamp }]);

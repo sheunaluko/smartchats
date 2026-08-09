@@ -279,6 +279,17 @@ function ensureConnection(): WebSocket {
                     text: msg.text,
                     timestamp: typeof msg.timestamp === 'number' ? msg.timestamp : Date.now(),
                 }
+                // Fire TTS at the module level so agent replies always audibly
+                // reach the user — even if AgentCallWidget isn't mounted (which
+                // happens for anyone whose cortex_widget_config in localStorage
+                // predates the widget being added). Widget subscribers still
+                // fire below for bubble rendering when the widget IS mounted.
+                try {
+                    const tivi = (typeof window !== 'undefined' ? (window as any).tivi : undefined)
+                    tivi?.ttsQueue?.speakText?.(agentMsg.text)
+                } catch {
+                    // Swallow — bubble subs still fire below.
+                }
                 for (const cb of agentMsgSubs) cb(agentMsg)
             }
             return
