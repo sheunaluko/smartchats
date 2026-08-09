@@ -272,7 +272,27 @@ function ensureConnection(): WebSocket {
             console.warn(`[cli_agent] relay error: ${msg.code}`)
             return
         } else if (msg.type === 'agent_event') {
-            // agent-kind bridge event — dispatch by event subtype
+            // agent-kind bridge event — dispatch by event subtype.
+            // Diagnostic: fire an insights event on EVERY agent_event arrival
+            // so we can see (from session bundles) whether the response path
+            // is delivering messages, and if so, whether TTS + widget subs
+            // fire. Added 2026-08-09 to debug "Claude responds but user hears
+            // nothing" — the previous absence of any signal here made it
+            // impossible to tell whether the wire delivered or not.
+            const insights = (typeof window !== 'undefined' ? (window as any).cortexInsights : undefined)
+            const tiviGlobal = (typeof window !== 'undefined' ? (window as any).tivi : undefined)
+            const hasTtsQueue = !!(tiviGlobal?.ttsQueue?.speakText)
+            insights?.addEvent?.('agent_event_received', {
+                event: msg.event ?? null,
+                has_text: typeof msg.text === 'string',
+                text_length: typeof msg.text === 'string' ? msg.text.length : 0,
+                text_preview: typeof msg.text === 'string' ? msg.text.slice(0, 80) : null,
+                subscriber_count: agentMsgSubs.size,
+                tivi_available: hasTtsQueue,
+                patched,
+                active_session_kind: activeSessionKind,
+            })?.catch?.(() => {})
+
             if (msg.event === 'message' && typeof msg.text === 'string') {
                 const agentMsg: AgentMessage = {
                     from: 'agent',
@@ -285,10 +305,18 @@ function ensureConnection(): WebSocket {
                 // predates the widget being added). Widget subscribers still
                 // fire below for bubble rendering when the widget IS mounted.
                 try {
-                    const tivi = (typeof window !== 'undefined' ? (window as any).tivi : undefined)
-                    tivi?.ttsQueue?.speakText?.(agentMsg.text)
-                } catch {
-                    // Swallow — bubble subs still fire below.
+                    if (hasTtsQueue) {
+                        tiviGlobal.ttsQueue.speakText(agentMsg.text)
+                        insights?.addEvent?.('agent_event_tts_dispatched', {
+                            text_length: agentMsg.text.length,
+                            text_preview: agentMsg.text.slice(0, 80),
+                        })?.catch?.(() => {})
+                    }
+                } catch (err) {
+                    insights?.addEvent?.('agent_event_tts_error', {
+                        error_message: (err as Error)?.message ?? String(err),
+                        text_length: agentMsg.text.length,
+                    })?.catch?.(() => {})
                 }
                 for (const cb of agentMsgSubs) cb(agentMsg)
             }
