@@ -63,11 +63,11 @@ export const AGENT_PRESETS: AgentPreset[] = [
     {
         id: 'quality',
         name: 'Quality',
-        description: 'Best accuracy on complex tasks. Grok 4.3 + Azure Ava. ~2.5s TTFB.',
-        aiModel: 'grok-4.3',
+        description: 'Default. GPT-5.5 + Azure Emma. Strong reasoning + expressive spoken voice.',
+        aiModel: 'gpt-5.5',
         ttsProvider: 'azure',
-        ttsVoice: 'en-US-AvaMultilingualNeural',
-        recommendedFor: ['complex-reasoning', 'high-stakes', 'accuracy'],
+        ttsVoice: 'en-US-EmmaMultilingualNeural',
+        recommendedFor: ['default', 'general-purpose', 'complex-reasoning', 'high-stakes', 'accuracy'],
     },
     {
         id: 'frugal',

@@ -82,16 +82,22 @@ interface SmartChatsSettings {
   aiPreset: string;
 }
 
-// Defaults mirror the 'snappy' preset (cortex/presets.ts) as of 2026-06-27.
-// Settings persistence ensures existing users keep their saved pick;
-// only fresh installs see these.
+// Defaults mirror the DEFAULT_PRESET_ID ('quality') preset in
+// cortex/presets.ts. Kept in sync manually — if quality's aiModel /
+// ttsVoice / ttsProvider changes, update these too. Settings persistence
+// ensures existing users keep their saved pick; only fresh installs (no
+// persisted settings) see these values. Even those get the
+// preset_v1_applied migration a moment later, which re-applies the
+// current DEFAULT_PRESET_ID content — so this is really only the
+// pre-migration boot state. Keeping the two aligned prevents a brief
+// flash-of-wrong-preset in the UI on first paint.
 const DEFAULT_SETTINGS: SmartChatsSettings = {
-  aiModel: 'grok-4.20-0309-non-reasoning',
+  aiModel: 'gpt-5.5',
   speechCooldownMs: 2000,
   soundFeedback: true,
-  openaiVoice: 'en-US-AvaMultilingualNeural',
+  openaiVoice: 'en-US-EmmaMultilingualNeural',
   ttsCloudProvider: 'azure',
-  aiPreset: 'snappy',
+  aiPreset: 'quality',
 };
 
 // ─── Agent Monitor types ─────────────────────────────────────────────
