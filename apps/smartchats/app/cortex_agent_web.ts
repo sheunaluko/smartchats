@@ -36,6 +36,7 @@ import { createScriptureModule } from "./modules/scripture"
 import { createDisplayModule } from "./modules/display"
 import { createVisualizationModule } from "./modules/visualization"
 import { createCliAgentModule } from "./modules/cli_agent"
+import { createIcd10Module } from "./modules/icd10"
 import { createLoggingModule } from "./modules/logging"
 import { createProceduralInstructionsModule } from "./modules/procedural_instructions"
 import { createMetricsModule } from "./modules/metrics"
@@ -114,6 +115,7 @@ export function get_agent(modelName: string = "gpt-5-mini", insightsClient?: any
     scm.add_module(createTodosModule())
     scm.add_module(createVoiceMemosModule())
     scm.add_module(createCliAgentModule())
+    scm.add_module(createIcd10Module())
     scm.add_module(createTimingModule())
     scm.add_module(createAppearanceModule())
     scm.add_module(createSessionsModule())
