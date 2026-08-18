@@ -483,13 +483,22 @@ export function buildMetricsQuery(
 
     let query: string;
     if (isWeekly) {
-        // Derive ISO year/week from local_date (cast to datetime gives
-        // midnight UTC of the local calendar day — same year/week as the
+        // Derive the ISO year/week pair from local_date (cast to datetime
+        // gives midnight of the local calendar day — same week as the
         // user's local week).
+        //
+        // Both halves must come from the ISO week-date calendar (%G/%V).
+        // time::year() returns the CALENDAR year, which disagrees with the
+        // ISO week number across a year boundary: 2025-12-29 is ISO
+        // 2026-W01, but time::year gave 2025 — so it bucketed as (2025, 1),
+        // splitting one ISO week into two buckets and sorting late December
+        // ahead of January under `ORDER BY yr, wk`. %G is the ISO week-year.
+        const isoYear = "<int> time::format(<datetime> local_date, '%G')";
+        const isoWeek = "<int> time::format(<datetime> local_date, '%V')";
         const groupBy = groupMode === 'stacked'
             ? 'GROUP BY yr, wk, metric_name, unit'
             : 'GROUP BY yr, wk, unit';
-        query = `SELECT time::year(<datetime> local_date) AS yr, time::week(<datetime> local_date) AS wk${selectExtra}, ${aggFn} AS value, unit FROM metrics WHERE ${metricFilter} AND ${timeFilter} ${groupBy} ORDER BY yr ASC, wk ASC`;
+        query = `SELECT ${isoYear} AS yr, ${isoWeek} AS wk${selectExtra}, ${aggFn} AS value, unit FROM metrics WHERE ${metricFilter} AND ${timeFilter} ${groupBy} ORDER BY yr ASC, wk ASC`;
     } else {
         // Daily aggregation: group on the indexed local_date column.
         const groupBy = groupMode === 'stacked'

@@ -164,10 +164,22 @@ describe('buildMetricsQuery', () => {
         // Casting local_date to datetime yields midnight of the local
         // calendar day, so the ISO week matches the user's local week.
         const spec = buildMetricsQuery({ metric_name: 'steps', aggregation: 'weekly_avg', date: '2026-03-23' }, 'UTC', ctx);
-        expect(spec.query).toContain('time::year(<datetime> local_date) AS yr');
-        expect(spec.query).toContain('time::week(<datetime> local_date) AS wk');
+        expect(spec.query).toContain("<int> time::format(<datetime> local_date, '%G') AS yr");
+        expect(spec.query).toContain("<int> time::format(<datetime> local_date, '%V') AS wk");
         expect(spec.query).toContain('math::mean(value)');
         expect(spec.query).toContain('GROUP BY yr, wk, unit');
+    });
+
+    it('takes BOTH halves of the weekly bucket from the ISO calendar', () => {
+        // Regression guard. time::year() is the CALENDAR year and disagrees
+        // with the ISO week number at a year boundary: 2025-12-29 is ISO
+        // 2026-W01, but time::year returns 2025 — bucketing it as (2025, 1),
+        // which splits one ISO week in two AND sorts late December ahead of
+        // January under `ORDER BY yr, wk`. %G (ISO week-year) is the only
+        // year that pairs correctly with %V.
+        const spec = buildMetricsQuery({ metric_name: 'steps', aggregation: 'weekly_sum', date: '2026-03-23' }, 'UTC', ctx);
+        expect(spec.query).not.toContain('time::year(');
+        expect(spec.query).not.toContain('time::week(');
     });
 });
 
