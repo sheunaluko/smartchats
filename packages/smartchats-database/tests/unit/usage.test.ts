@@ -2,8 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { listUsageRecords, getUsageRecordsSince, insertUsageRecord } from '../../src/queries/index.js';
 
 describe('listUsageRecords', () => {
-    it('orders by lts DESC so import-preserved timing drives the page order', () => {
-        expect(listUsageRecords({ limit: 25 }).query).toContain('ORDER BY lts DESC');
+    it('orders by ts DESC so the newest call is the first row of page one', () => {
+        expect(listUsageRecords({ limit: 25 }).query).toContain('ORDER BY ts DESC');
     });
 
     it('binds the page size as $limit', () => {
@@ -14,7 +14,7 @@ describe('listUsageRecords', () => {
 
     it('adds the cursor predicate and binds it when startAfter is given', () => {
         const spec = listUsageRecords({ limit: 10, startAfter: '2026-05-01T00:00:00Z' });
-        expect(spec.query).toContain('WHERE lts < $startAfter');
+        expect(spec.query).toContain('WHERE ts < <datetime> $startAfter');
         expect(spec.variables.startAfter).toBe('2026-05-01T00:00:00Z');
     });
 
@@ -28,7 +28,7 @@ describe('listUsageRecords', () => {
 describe('getUsageRecordsSince', () => {
     it('casts the bound since value to a datetime', () => {
         const spec = getUsageRecordsSince('2026-05-01T00:00:00Z');
-        expect(spec.query).toContain('lts >= <datetime> $since');
+        expect(spec.query).toContain('ts >= <datetime> $since');
         expect(spec.variables).toEqual({ since: '2026-05-01T00:00:00Z' });
     });
 });
@@ -62,8 +62,13 @@ describe('insertUsageRecord', () => {
         expect(spec.query).toContain("charged_from = 'local'");
     });
 
-    it('server-stamps lts with time::now() (the local server has no user-tz context)', () => {
-        expect(insertUsageRecord({ ...base, sessionId: null }).query).toContain('lts = time::now()');
+    it('server-stamps the event-time triple, bucketing by UTC day', () => {
+        // The local server has no user-tz context, so usage rows bucket by UTC
+        // day by design; local_tz = 'UTC' is what documents that on the row.
+        const spec = insertUsageRecord({ ...base, sessionId: null });
+        expect(spec.query).toContain('ts = time::now()');
+        expect(spec.query).toContain("local_date = time::format(time::now(), '%Y-%m-%d')");
+        expect(spec.query).toContain("local_tz = 'UTC'");
     });
 
     it('binds the token and cost fields under their short names', () => {

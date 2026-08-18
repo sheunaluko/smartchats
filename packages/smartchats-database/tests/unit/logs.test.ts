@@ -14,8 +14,8 @@ describe('listLogs', () => {
         expect(listLogs({ limit: 0 }).query).toMatch(/LIMIT 1$/);
     });
 
-    it('sorts by lts DESC so order survives bundle export/import', () => {
-        expect(listLogs({}).query).toContain('ORDER BY lts DESC');
+    it('sorts by ts DESC so the newest entry leads', () => {
+        expect(listLogs({}).query).toContain('ORDER BY ts DESC');
     });
 
     it('emits no WHERE clause for a bare recent-N query', () => {
@@ -36,10 +36,18 @@ describe('listLogs', () => {
         expect(listLogs({ category: 'Work' }).variables.category).toBe('work');
     });
 
-    it('falls back to a "true" baseline when only an lts fragment is present', () => {
-        const { query } = listLogs({ ltsFilter: " AND lts >= d'2026-01-01T00:00:00Z'" });
+    it('falls back to a "true" baseline when only a dateFilter fragment is present', () => {
+        // dateFilter arrives pre-suffixed with " AND ..." from the caller's
+        // tz-aware helper, so it needs a truthy expression to hang off.
+        const { query } = listLogs({ dateFilter: " AND ts >= d'2026-01-01T00:00:00Z'" });
         expect(query).toContain('WHERE true');
-        expect(query).toContain("AND lts >= d'2026-01-01T00:00:00Z'");
+        expect(query).toContain("AND ts >= d'2026-01-01T00:00:00Z'");
+    });
+
+    it('accepts the calendar-shaped dateFilter on local_date', () => {
+        const { query } = listLogs({ dateFilter: " AND local_date >= '2026-01-01'" });
+        expect(query).toContain('WHERE true');
+        expect(query).toContain("AND local_date >= '2026-01-01'");
     });
 });
 
@@ -72,9 +80,14 @@ describe('updateLog', () => {
         expect(spec.query).toContain('updated_at = time::now()');
     });
 
-    it('casts an lts patch to datetime', () => {
-        const spec = updateLog({ recordId: 'logs:abc', patch: { lts: '2026-05-30T12:00:00Z' } })!;
-        expect(spec.query).toContain('lts = <datetime> $lts');
+    it('casts each event-time field a patch touches', () => {
+        const spec = updateLog({
+            recordId: 'logs:abc',
+            patch: { ts: '2026-05-30T12:00:00Z', local_date: '2026-05-30', local_tz: 'America/Chicago' },
+        })!;
+        expect(spec.query).toContain('ts = <datetime> $ts');
+        expect(spec.query).toContain('local_date = <string> $local_date');
+        expect(spec.query).toContain('local_tz = <string> $local_tz');
     });
 });
 
@@ -88,13 +101,18 @@ describe('getLogCategories', () => {
 
 describe('insertLog', () => {
     it('binds the embedding as a parameter so the vector never inlines into the query', () => {
-        const spec = insertLog({ content: 'felt good today', category: 'mood', embedding: [0.1, 0.2], lts: '2026-05-30T12:00:00Z', local_tz: 'UTC' });
+        const spec = insertLog({ content: 'felt good today', category: 'mood', embedding: [0.1, 0.2], ts: '2026-05-30T12:00:00Z', local_date: '2026-05-30', local_tz: 'UTC' });
         expect(spec.query).toContain('embedding: $embedding');
         expect(spec.variables.embedding).toEqual([0.1, 0.2]);
     });
 
-    it('casts lts to datetime', () => {
-        const spec = insertLog({ content: 'x', category: 'c', embedding: [0.1], lts: '2026-05-30T12:00:00Z', local_tz: 'UTC' });
-        expect(spec.query).toContain('lts: <datetime> $lts');
+    it('casts the event-time triple, keeping local_date a string', () => {
+        // The <string> casts are load-bearing: SurrealDB v3 coerces a bare
+        // YYYY-MM-DD into a datetime at bind time, which breaks the
+        // string-typed local_date column.
+        const spec = insertLog({ content: 'x', category: 'c', embedding: [0.1], ts: '2026-05-30T12:00:00Z', local_date: '2026-05-30', local_tz: 'UTC' });
+        expect(spec.query).toContain('ts: <datetime> $ts');
+        expect(spec.query).toContain('local_date: <string> $local_date');
+        expect(spec.query).toContain('local_tz: <string> $local_tz');
     });
 });

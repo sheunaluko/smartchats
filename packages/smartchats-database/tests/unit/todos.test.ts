@@ -10,11 +10,11 @@ import {
 } from '../../src/queries/index.js';
 
 describe('getTodos', () => {
-    it('defaults to active todos sorted by lts DESC with a 50-row cap', () => {
+    it('defaults to active todos sorted by ts DESC with a 50-row cap', () => {
         const spec = getTodos();
         expect(spec.query).toContain("type = 'todo'");
         expect(spec.query).toContain('status = $status');
-        expect(spec.query).toContain('ORDER BY lts DESC');
+        expect(spec.query).toContain('ORDER BY ts DESC');
         expect(spec.query).toMatch(/LIMIT 50$/);
         expect(spec.variables).toEqual({ status: 'active' });
     });
@@ -110,9 +110,15 @@ describe('insertTodo', () => {
         expect(spec.query).toContain("status: 'active'");
     });
 
-    it('casts both timestamp and lts to datetime (dual-timestamp invariant)', () => {
+    it('casts the event-time triple, keeping due_at distinct from ts', () => {
+        // due_at is when the todo is DUE; ts is when it was CREATED. A todo
+        // made today can be due next week — they are separate instants.
+        // The <string> casts on local_date / local_tz are load-bearing:
+        // SurrealDB v3 coerces bare YYYY-MM-DD into a datetime at bind time.
         const spec = insertTodo(args);
-        expect(spec.query).toContain('timestamp: <datetime> $timestamp');
-        expect(spec.query).toContain('lts: <datetime> $lts');
+        expect(spec.query).toContain('due_at: <datetime> $due_at');
+        expect(spec.query).toContain('ts: <datetime> $ts');
+        expect(spec.query).toContain('local_date: <string> $local_date');
+        expect(spec.query).toContain('local_tz: <string> $local_tz');
     });
 });

@@ -11,14 +11,15 @@ import {
 } from '../../src/queries/index.js';
 
 // Both instruction kinds live in the `cortex` table, separated by a type
-// predicate, and load in registration order via `lts ASC` so the sequence
-// survives bundle export/import.
+// predicate, and load in registration order via `id ASC`. cortex ids are
+// ULID-encoded (time-monotonic) AND survive bundle export/import unchanged,
+// so the order holds on a re-imported copy — created_at would reset.
 
 describe('getProceduralInstructions', () => {
-    it('filters to the procedural_instruction type and orders by lts ASC', () => {
+    it('filters to the procedural_instruction type and orders by id ASC', () => {
         const spec = getProceduralInstructions();
         expect(spec.query).toContain("type = 'procedural_instruction'");
-        expect(spec.query).toContain('ORDER BY lts ASC');
+        expect(spec.query).toContain('ORDER BY id ASC');
     });
 
     it('adds and binds a category filter when given', () => {
@@ -29,10 +30,10 @@ describe('getProceduralInstructions', () => {
 });
 
 describe('getInitInstructions', () => {
-    it('filters to the init type and orders by lts ASC', () => {
+    it('filters to the init type and orders by id ASC', () => {
         const spec = getInitInstructions();
         expect(spec.query).toContain("type = 'init'");
-        expect(spec.query).toContain('ORDER BY lts ASC');
+        expect(spec.query).toContain('ORDER BY id ASC');
     });
 });
 
