@@ -1,0 +1,1286 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`builder golden snapshots > buildImportQuery emits stable SurrealQL 1`] = `
+{
+  "query": "UPSERT type::record($table_name, $key) SET content = $v0, ts = <datetime> $v1, local_date = $v2, local_tz = $v3",
+  "variables": {
+    "key": "abc",
+    "table_name": "logs",
+    "v0": "hi",
+    "v1": "2026-03-23T15:04:05.000Z",
+    "v2": "2026-03-23",
+    "v3": "America/Chicago",
+  },
+}
+`;
+
+exports[`builder golden snapshots > buildKnowledgeInsertQuery emits stable SurrealQL 1`] = `
+{
+  "query": "CREATE user_entities CONTENT { name: "Leo", embedding: [0.1,0.2,0.3], ts: d'2026-03-23T15:04:05.000Z', local_date: "2026-03-23", local_tz: "America/Chicago" };
+RELATE (SELECT VALUE id FROM user_entities WHERE name = "Leo" LIMIT 1)->user_relations->(SELECT VALUE id FROM user_entities WHERE name = "guitar" LIMIT 1) CONTENT { name: "owns", sourceName: "Leo", targetName: "guitar", kind: "possession", embedding: [0.1,0.2,0.3], ts: d'2026-03-23T15:04:05.000Z', local_date: "2026-03-23", local_tz: "America/Chicago" };",
+  "variables": {},
+}
+`;
+
+exports[`builder golden snapshots > buildMetricsQuery emits stable SurrealQL 1`] = `
+{
+  "query": "SELECT time::year(<datetime> local_date) AS yr, time::week(<datetime> local_date) AS wk, metric_name, math::mean(value) AS value, unit FROM metrics WHERE metric_name IN ['steps', 'water'] AND local_date >= '2026-03-01' AND local_date <= '2026-03-31' GROUP BY yr, wk, metric_name, unit ORDER BY yr ASC, wk ASC",
+  "variables": {},
+}
+`;
+
+exports[`builder golden snapshots > buildMetricsTimeFilter emits stable SurrealQL 1`] = `"local_date >= '2026-03-01' AND local_date <= '2026-06-01'"`;
+
+exports[`builder golden snapshots > buildRawQuery emits stable SurrealQL 1`] = `
+{
+  "query": "SELECT * FROM logs LIMIT $n",
+  "variables": {
+    "n": 5,
+  },
+}
+`;
+
+exports[`builder golden snapshots > buildRelateQuery emits stable SurrealQL 1`] = `
+{
+  "query": "LET $in_rec = type::record($in_table, $in_key); LET $rel_rec = type::record($rel_table, $rel_key); LET $out_rec = type::record($out_table, $out_key); DELETE $rel_rec; RELATE $in_rec -> $rel_rec -> $out_rec SET name = $v0;",
+  "variables": {
+    "in_key": "leo",
+    "in_table": "user_entities",
+    "out_key": "guitar",
+    "out_table": "user_entities",
+    "rel_key": "abc",
+    "rel_table": "user_relations",
+    "v0": "owns",
+  },
+}
+`;
+
+exports[`builder golden snapshots > buildUpsertQuery emits stable SurrealQL 1`] = `
+{
+  "query": "UPSERT type::record($table_name, $key) SET content = $v0, category = $v1, ts = <datetime> $v2, local_date = $v3, local_tz = $v4",
+  "variables": {
+    "key": "abc",
+    "table_name": "logs",
+    "v0": "hi",
+    "v1": "mood",
+    "v2": "2026-03-23T15:04:05.000Z",
+    "v3": "2026-03-23",
+    "v4": "America/Chicago",
+  },
+}
+`;
+
+exports[`builder golden snapshots > checkExistingEntityNames emits stable SurrealQL 1`] = `
+{
+  "query": "SELECT VALUE name FROM user_entities WHERE name IN $names",
+  "variables": {
+    "names": [
+      "Leo",
+      "Ada",
+    ],
+  },
+}
+`;
+
+exports[`builder golden snapshots > checkExistingRelationNames emits stable SurrealQL 1`] = `
+{
+  "query": "SELECT VALUE name FROM user_relations WHERE name IN $names",
+  "variables": {
+    "names": [
+      "owns",
+      "knows",
+    ],
+  },
+}
+`;
+
+exports[`builder golden snapshots > deleteAppByAppId emits stable SurrealQL 1`] = `
+{
+  "query": "DELETE FROM smartchats_apps WHERE app_id = $app_id",
+  "variables": {
+    "app_id": "com.example.app",
+  },
+}
+`;
+
+exports[`builder golden snapshots > deleteByoKey emits stable SurrealQL 1`] = `
+{
+  "query": "DELETE type::record('byo_api_keys', $provider)",
+  "variables": {
+    "provider": "openai",
+  },
+}
+`;
+
+exports[`builder golden snapshots > deleteCompletionsForTodo emits stable SurrealQL 1`] = `
+{
+  "query": "DELETE FROM user_data WHERE type = 'todo_completion' AND parent_id = $pid",
+  "variables": {
+    "pid": "user_data:abc",
+  },
+}
+`;
+
+exports[`builder golden snapshots > deleteDynamicFunction emits stable SurrealQL 1`] = `
+{
+  "query": "
+            DELETE FROM cortex_dynamic_functions
+            WHERE name = $name
+        ",
+  "variables": {
+    "name": "greet",
+  },
+}
+`;
+
+exports[`builder golden snapshots > deleteEntityByName emits stable SurrealQL 1`] = `
+{
+  "query": "DELETE FROM user_entities WHERE name = $name RETURN BEFORE",
+  "variables": {
+    "name": "Leo",
+  },
+}
+`;
+
+exports[`builder golden snapshots > deleteInitInstruction emits stable SurrealQL 1`] = `
+{
+  "query": "DELETE type::record('cortex', $key)",
+  "variables": {
+    "key": "abc",
+  },
+}
+`;
+
+exports[`builder golden snapshots > deleteInstallByAppId emits stable SurrealQL 1`] = `
+{
+  "query": "DELETE FROM smartchats_app_installs WHERE app_id = $app_id",
+  "variables": {
+    "app_id": "com.example.app",
+  },
+}
+`;
+
+exports[`builder golden snapshots > deleteLog emits stable SurrealQL 1`] = `
+{
+  "query": "DELETE type::record('logs', $log_id) RETURN BEFORE",
+  "variables": {
+    "log_id": "abc",
+  },
+}
+`;
+
+exports[`builder golden snapshots > deleteMetric emits stable SurrealQL 1`] = `
+{
+  "query": "DELETE type::record('metrics', $metric_id) RETURN BEFORE",
+  "variables": {
+    "metric_id": "abc",
+  },
+}
+`;
+
+exports[`builder golden snapshots > deleteProceduralInstruction emits stable SurrealQL 1`] = `
+{
+  "query": "DELETE type::record('cortex', $key)",
+  "variables": {
+    "key": "abc",
+  },
+}
+`;
+
+exports[`builder golden snapshots > deleteRelationByName emits stable SurrealQL 1`] = `
+{
+  "query": "DELETE FROM user_relations WHERE name = $name RETURN BEFORE",
+  "variables": {
+    "name": "owns",
+  },
+}
+`;
+
+exports[`builder golden snapshots > deleteRelationsTouchingEntity emits stable SurrealQL 1`] = `
+{
+  "query": "DELETE FROM user_relations WHERE sourceName = $name OR targetName = $name RETURN BEFORE",
+  "variables": {
+    "name": "Leo",
+  },
+}
+`;
+
+exports[`builder golden snapshots > deleteSession emits stable SurrealQL 1`] = `
+{
+  "query": "DELETE type::record('sessions', $key)",
+  "variables": {
+    "key": "abc",
+  },
+}
+`;
+
+exports[`builder golden snapshots > deleteTodoById emits stable SurrealQL 1`] = `
+{
+  "query": "DELETE type::record('user_data', $key)",
+  "variables": {
+    "key": "abc",
+  },
+}
+`;
+
+exports[`builder golden snapshots > editTodo emits stable SurrealQL 1`] = `
+{
+  "query": "UPDATE type::record('user_data', $key) SET updated_at = time::now(), data.title = $title, data.priority = $priority",
+  "variables": {
+    "key": "abc",
+    "priority": "low",
+    "title": "call the dentist back",
+  },
+}
+`;
+
+exports[`builder golden snapshots > exportTablePage emits stable SurrealQL 1`] = `
+{
+  "query": "SELECT * FROM logs ORDER BY id LIMIT 100 START 0",
+  "variables": {},
+}
+`;
+
+exports[`builder golden snapshots > findLogByCategory emits stable SurrealQL 1`] = `
+{
+  "query": "SELECT category FROM logs WHERE category = $cat LIMIT 1",
+  "variables": {
+    "cat": "mood",
+  },
+}
+`;
+
+exports[`builder golden snapshots > findMetricByName emits stable SurrealQL 1`] = `
+{
+  "query": "SELECT metric_name FROM metrics WHERE metric_name = $name LIMIT 1",
+  "variables": {
+    "name": "steps",
+  },
+}
+`;
+
+exports[`builder golden snapshots > findPreparedLogCategory emits stable SurrealQL 1`] = `
+{
+  "query": "SELECT * FROM user_data WHERE type = 'log_category_definition' AND data.category = $cat LIMIT 1",
+  "variables": {
+    "cat": "mood",
+  },
+}
+`;
+
+exports[`builder golden snapshots > findPreparedMetric emits stable SurrealQL 1`] = `
+{
+  "query": "SELECT * FROM user_data WHERE type = 'metric_definition' AND data.metric_name = $name LIMIT 1",
+  "variables": {
+    "name": "steps",
+  },
+}
+`;
+
+exports[`builder golden snapshots > getAllActiveTodos emits stable SurrealQL 1`] = `
+{
+  "query": "SELECT * FROM user_data WHERE type = 'todo' AND status = 'active' ORDER BY data.due_date ASC",
+  "variables": {},
+}
+`;
+
+exports[`builder golden snapshots > getAllEntities emits stable SurrealQL 1`] = `
+{
+  "query": "SELECT id, name FROM user_entities ORDER BY name ASC LIMIT $limit",
+  "variables": {
+    "limit": 100,
+  },
+}
+`;
+
+exports[`builder golden snapshots > getAllRelations emits stable SurrealQL 1`] = `
+{
+  "query": "SELECT id, name, sourceName, targetName, kind FROM user_relations WHERE sourceName = $entity OR targetName = $entity ORDER BY name ASC LIMIT $limit",
+  "variables": {
+    "entity": "Leo",
+    "limit": 100,
+  },
+}
+`;
+
+exports[`builder golden snapshots > getAppByAppId emits stable SurrealQL 1`] = `
+{
+  "query": "SELECT * FROM smartchats_apps WHERE app_id = $app_id LIMIT 1",
+  "variables": {
+    "app_id": "com.example.app",
+  },
+}
+`;
+
+exports[`builder golden snapshots > getByoKey emits stable SurrealQL 1`] = `
+{
+  "query": "SELECT api_key FROM byo_api_keys WHERE provider = $provider LIMIT 1",
+  "variables": {
+    "provider": "openai",
+  },
+}
+`;
+
+exports[`builder golden snapshots > getCompletionsForTodos emits stable SurrealQL 1`] = `
+{
+  "query": "SELECT * FROM user_data WHERE type = 'todo_completion' AND parent_id IN $pids AND ts >= <datetime> $start AND ts <= <datetime> $end ORDER BY ts DESC",
+  "variables": {
+    "end": "2026-03-31T23:59:59Z",
+    "pids": [
+      "user_data:a",
+      "user_data:b",
+    ],
+    "start": "2026-03-01T00:00:00Z",
+  },
+}
+`;
+
+exports[`builder golden snapshots > getCompletionsInPeriod emits stable SurrealQL 1`] = `
+{
+  "query": "SELECT * FROM user_data WHERE type = 'todo_completion' AND parent_id = $pid AND ts >= <datetime> $start AND ts <= <datetime> $end",
+  "variables": {
+    "end": "2026-03-31T23:59:59Z",
+    "pid": "user_data:abc",
+    "start": "2026-03-01T00:00:00Z",
+  },
+}
+`;
+
+exports[`builder golden snapshots > getEntityRelations emits stable SurrealQL 1`] = `
+{
+  "query": "SELECT id, name, sourceName, targetName, kind FROM user_relations WHERE sourceName = $name OR targetName = $name",
+  "variables": {
+    "name": "Leo",
+  },
+}
+`;
+
+exports[`builder golden snapshots > getHabitDoneTimestamps emits stable SurrealQL 1`] = `
+{
+  "query": "SELECT local_date FROM metrics WHERE metric_name = $metric_name AND value >= 1 AND  AND local_date >= '2026-03-01' ORDER BY local_date ASC",
+  "variables": {
+    "metric_name": "meditate",
+  },
+}
+`;
+
+exports[`builder golden snapshots > getInitInstructions emits stable SurrealQL 1`] = `
+{
+  "query": "SELECT id, content, category, created_at FROM cortex WHERE type = 'init' ORDER BY id ASC",
+  "variables": {},
+}
+`;
+
+exports[`builder golden snapshots > getInstallByAppId emits stable SurrealQL 1`] = `
+{
+  "query": "SELECT * FROM smartchats_app_installs WHERE app_id = $app_id LIMIT 1",
+  "variables": {
+    "app_id": "com.example.app",
+  },
+}
+`;
+
+exports[`builder golden snapshots > getLastCompletion emits stable SurrealQL 1`] = `
+{
+  "query": "SELECT * FROM user_data WHERE type = 'todo_completion' AND parent_id = $pid ORDER BY timestamp DESC LIMIT 1",
+  "variables": {
+    "pid": "user_data:abc",
+  },
+}
+`;
+
+exports[`builder golden snapshots > getLatestMetricPerName emits stable SurrealQL 1`] = `
+{
+  "query": "RETURN (SELECT VALUE metric_name FROM metrics GROUP BY metric_name).map(|$n| (
+            SELECT metric_name, value, unit, category, metric_type, ts, local_date, source, source_text
+            FROM metrics
+            WHERE metric_name = $n
+            ORDER BY ts DESC LIMIT 1
+        )[0]);",
+  "variables": {},
+}
+`;
+
+exports[`builder golden snapshots > getLogCategories emits stable SurrealQL 1`] = `
+{
+  "query": "SELECT category, count() AS count FROM logs GROUP BY category ORDER BY count DESC",
+  "variables": {},
+}
+`;
+
+exports[`builder golden snapshots > getMetrics emits stable SurrealQL 1`] = `
+{
+  "query": "SELECT id, metric_name, value, unit, category, ts, local_date, local_tz, source_text, note FROM metrics WHERE metric_name = $metric_name AND category = $category AND local_date >= '2026-01-01' AND local_date <= '2026-01-31' ORDER BY ts DESC LIMIT 25",
+  "variables": {
+    "category": "fitness",
+    "metric_name": "steps",
+  },
+}
+`;
+
+exports[`builder golden snapshots > getMetricsSummary emits stable SurrealQL 1`] = `
+{
+  "query": "SELECT metric_name, unit, category, metric_type, count() AS entry_count, math::max(value) AS max_value, math::min(value) AS min_value FROM metrics GROUP BY metric_name, unit, category, metric_type",
+  "variables": {},
+}
+`;
+
+exports[`builder golden snapshots > getPreparedLogCategories emits stable SurrealQL 1`] = `
+{
+  "query": "SELECT * FROM user_data WHERE type = 'log_category_definition'",
+  "variables": {},
+}
+`;
+
+exports[`builder golden snapshots > getPreparedMetricDefinitions emits stable SurrealQL 1`] = `
+{
+  "query": "SELECT * FROM user_data WHERE type = 'metric_definition'",
+  "variables": {},
+}
+`;
+
+exports[`builder golden snapshots > getProceduralInstructions emits stable SurrealQL 1`] = `
+{
+  "query": "SELECT id, content, category, created_at, updated_at FROM cortex WHERE type = 'procedural_instruction' AND category = $category ORDER BY id ASC",
+  "variables": {
+    "category": "tone",
+  },
+}
+`;
+
+exports[`builder golden snapshots > getRecentMetrics emits stable SurrealQL 1`] = `
+{
+  "query": "SELECT * FROM metrics ORDER BY ts DESC LIMIT 10",
+  "variables": {},
+}
+`;
+
+exports[`builder golden snapshots > getRelationsTouchingEntities emits stable SurrealQL 1`] = `
+{
+  "query": "SELECT id, name, sourceName, targetName, kind FROM user_relations WHERE sourceName IN $names OR targetName IN $names",
+  "variables": {
+    "names": [
+      "Leo",
+      "Ada",
+    ],
+  },
+}
+`;
+
+exports[`builder golden snapshots > getTodoById emits stable SurrealQL 1`] = `
+{
+  "query": "SELECT * FROM type::record('user_data', $key)",
+  "variables": {
+    "key": "abc",
+  },
+}
+`;
+
+exports[`builder golden snapshots > getTodos emits stable SurrealQL 1`] = `
+{
+  "query": "SELECT id, type, status, data, source_text, ts, local_date, local_tz, tags, created_at, updated_at FROM user_data WHERE type = 'todo' AND status = $status ORDER BY ts DESC LIMIT 25",
+  "variables": {
+    "status": "active",
+  },
+}
+`;
+
+exports[`builder golden snapshots > getUsageRecordsSince emits stable SurrealQL 1`] = `
+{
+  "query": "SELECT * FROM usage_records WHERE ts >= <datetime> $since",
+  "variables": {
+    "since": "2026-03-01T00:00:00.000Z",
+  },
+}
+`;
+
+exports[`builder golden snapshots > incrementAppInstallCount emits stable SurrealQL 1`] = `
+{
+  "query": "UPDATE smartchats_apps SET install_count += 1 WHERE app_id = $app_id",
+  "variables": {
+    "app_id": "com.example.app",
+  },
+}
+`;
+
+exports[`builder golden snapshots > insertApp emits stable SurrealQL 1`] = `
+{
+  "query": "INSERT INTO smartchats_apps {
+        app_id: $app_id,
+        name: $name,
+        version: $version,
+        description: $description,
+        author: $author,
+        icon: $icon,
+        source: $source,
+        categories: $categories,
+        tags: $tags,
+        embedding: $embedding,
+        modules: $modules,
+        interaction_mode: $interaction_mode,
+        html_templates: $html_templates,
+        display_mode: $display_mode,
+        state_schema: $state_schema,
+        permissions: $permissions,
+        requested_functions: $requested_functions,
+        voice_hooks: $voice_hooks,
+        on_activate: $on_activate,
+        on_deactivate: $on_deactivate,
+        external_scripts: $external_scripts,
+        migrations: $migrations,
+        install_count: 0,
+        rating_sum: 0,
+        rating_count: 0,
+        featured: false,
+        verified: false,
+        min_tier: $min_tier,
+        version_history: $version_history,
+        forked_from: $forked_from,
+        _content_hash: $_content_hash,
+        created_at: time::now(),
+        updated_at: time::now(),
+        published_at: $published_at
+    }",
+  "variables": {
+    "_content_hash": "deadbeef",
+    "app_id": "com.example.app",
+    "author": {
+      "name": "someone",
+    },
+    "categories": [
+      "health",
+    ],
+    "description": "an example mini-app",
+    "display_mode": "panel",
+    "embedding": [
+      0.1,
+      0.2,
+      0.3,
+    ],
+    "external_scripts": null,
+    "forked_from": null,
+    "html_templates": {},
+    "icon": null,
+    "interaction_mode": "widget",
+    "migrations": null,
+    "min_tier": "free",
+    "modules": {},
+    "name": "Example",
+    "on_activate": null,
+    "on_deactivate": null,
+    "permissions": {},
+    "published_at": null,
+    "requested_functions": [],
+    "source": "builtin",
+    "state_schema": {},
+    "tags": [
+      "demo",
+    ],
+    "version": "1.0.0",
+    "version_history": [],
+    "voice_hooks": null,
+  },
+}
+`;
+
+exports[`builder golden snapshots > insertDynamicFunction emits stable SurrealQL 1`] = `
+{
+  "query": "
+            INSERT INTO cortex_dynamic_functions {
+                type: 'dynamic_function',
+                name: $name,
+                description: $description,
+                code: $code,
+                params_schema: $params_schema,
+                embedding: $embedding,
+                created_at: time::now(),
+                updated_at: time::now()
+            }
+        ",
+  "variables": {
+    "code": "return "hi"",
+    "description": "say hi",
+    "embedding": [
+      0.1,
+      0.2,
+      0.3,
+    ],
+    "name": "greet",
+    "params_schema": {},
+  },
+}
+`;
+
+exports[`builder golden snapshots > insertInitInstruction emits stable SurrealQL 1`] = `
+{
+  "query": "INSERT INTO cortex {
+                        type: 'init',
+                        content: $content,
+                        category: $category,
+                        embedding: $embedding
+                    }",
+  "variables": {
+    "category": null,
+    "content": "greet the user",
+    "embedding": [
+      0.1,
+      0.2,
+      0.3,
+    ],
+  },
+}
+`;
+
+exports[`builder golden snapshots > insertInsightEvent emits stable SurrealQL 1`] = `
+{
+  "query": "INSERT INTO insights_events { event_id: $event_id, event_type: $event_type, payload: $payload, timestamp: <datetime> $timestamp, session_id: $session_id, trace_id: $trace_id, user_id: $user_id, app_name: $app_name }",
+  "variables": {
+    "app_name": "smartchats",
+    "event_id": "evt_1",
+    "event_type": "issue_status_change",
+    "payload": {
+      "status": "fixed",
+    },
+    "session_id": "sessions:abc",
+    "timestamp": "2026-03-23T15:04:05.000Z",
+    "trace_id": "trace_1",
+    "user_id": "local-user",
+  },
+}
+`;
+
+exports[`builder golden snapshots > insertInstall emits stable SurrealQL 1`] = `
+{
+  "query": "INSERT INTO smartchats_app_installs {
+        app_id: $app_id,
+        installed_version: $installed_version,
+        granted_permissions: $granted_permissions,
+        app_state: $app_state,
+        config: $config,
+        last_activated_at: $last_activated_at,
+        activation_count: $activation_count,
+        installed_at: time::now(),
+        updated_at: time::now()
+    }",
+  "variables": {
+    "activation_count": 0,
+    "app_id": "com.example.app",
+    "app_state": {},
+    "config": {},
+    "granted_permissions": [
+      "read",
+    ],
+    "installed_version": "1.0.0",
+    "last_activated_at": null,
+  },
+}
+`;
+
+exports[`builder golden snapshots > insertLog emits stable SurrealQL 1`] = `
+{
+  "query": "INSERT INTO logs {
+                        content: $content,
+                        category: $category,
+                        embedding: $embedding,
+                        ts: <datetime> $ts,
+                        local_date: <string> $local_date,
+                        local_tz: <string> $local_tz
+                    }",
+  "variables": {
+    "category": "sleep",
+    "content": "slept badly",
+    "embedding": [
+      0.1,
+      0.2,
+      0.3,
+    ],
+    "local_date": "2026-03-23",
+    "local_tz": "America/Chicago",
+    "ts": "2026-03-23T15:04:05.000Z",
+  },
+}
+`;
+
+exports[`builder golden snapshots > insertMetric emits stable SurrealQL 1`] = `
+{
+  "query": "INSERT INTO metrics {
+                        metric_name: $metric_name,
+                        value: $value,
+                        unit: $unit,
+                        metric_type: $metric_type,
+                        ts: <datetime> $ts,
+                        local_date: <string> $local_date,
+                        local_tz: <string> $local_tz,
+                        source: $source,
+                        source_text: $source_text,
+                        source_log_id: $source_log_id,
+                        category: $category,
+                        time_shift_quantity: $time_shift_quantity,
+                        time_shift_unit: $time_shift_unit,
+                        note: $note,
+                        created_at: time::now()
+                    }",
+  "variables": {
+    "category": "fitness",
+    "local_date": "2026-03-23",
+    "local_tz": "America/Chicago",
+    "metric_name": "steps",
+    "metric_type": "numeric",
+    "note": null,
+    "source": "manual",
+    "source_log_id": null,
+    "source_text": "walked 8000 steps",
+    "time_shift_quantity": null,
+    "time_shift_unit": null,
+    "ts": "2026-03-23T15:04:05.000Z",
+    "unit": "count",
+    "value": 8000,
+  },
+}
+`;
+
+exports[`builder golden snapshots > insertPreparedLogCategory emits stable SurrealQL 1`] = `
+{
+  "query": "INSERT INTO user_data {
+                            type: 'log_category_definition',
+                            data: {
+                                category: $category,
+                                description: $description
+                            },
+                            created_at: time::now()
+                        }",
+  "variables": {
+    "category": "mood",
+    "description": "how I felt",
+  },
+}
+`;
+
+exports[`builder golden snapshots > insertPreparedMetric emits stable SurrealQL 1`] = `
+{
+  "query": "INSERT INTO user_data {
+                            type: 'metric_definition',
+                            data: {
+                                metric_name: $metric_name,
+                                unit: $unit,
+                                metric_type: $metric_type,
+                                category: $category
+                            },
+                            created_at: time::now()
+                        }",
+  "variables": {
+    "category": "fitness",
+    "metric_name": "steps",
+    "metric_type": "numeric",
+    "unit": "count",
+  },
+}
+`;
+
+exports[`builder golden snapshots > insertProceduralInstruction emits stable SurrealQL 1`] = `
+{
+  "query": "INSERT INTO cortex {
+                        type: 'procedural_instruction',
+                        content: $content,
+                        category: $category,
+                        embedding: $embedding
+                    }",
+  "variables": {
+    "category": "tone",
+    "content": "be brief",
+    "embedding": [
+      0.1,
+      0.2,
+      0.3,
+    ],
+  },
+}
+`;
+
+exports[`builder golden snapshots > insertSession emits stable SurrealQL 1`] = `
+{
+  "query": "INSERT INTO sessions {
+            label: $label,
+            message_count: $message_count,
+            chat_history: $chat_history,
+            workspace: $workspace,
+            thought_history: $thought_history,
+            execution_history: $execution_history,
+            settings: $settings,
+            ts: <datetime> $ts,
+            local_date: <string> $local_date,
+            local_tz: <string> $local_tz
+        }",
+  "variables": {
+    "chat_history": [
+      {
+        "content": "hi",
+        "role": "user",
+      },
+    ],
+    "execution_history": [],
+    "label": "dentist planning",
+    "local_date": "2026-03-23",
+    "local_tz": "America/Chicago",
+    "message_count": 4,
+    "settings": {
+      "model": "gpt-4o",
+    },
+    "thought_history": [],
+    "ts": "2026-03-23T15:04:05.000Z",
+    "workspace": {
+      "open_tab": "logs",
+    },
+  },
+}
+`;
+
+exports[`builder golden snapshots > insertTodo emits stable SurrealQL 1`] = `
+{
+  "query": "INSERT INTO user_data {
+            type: 'todo',
+            status: 'active',
+            data: {
+                title: $title,
+                description: $description,
+                priority: $priority,
+                category: $category,
+                due_date: $due_date,
+                recurrence: $recurrence,
+                metric_link: $metric_link
+            },
+            source_text: $source_text,
+            parent_id: NONE,
+            due_at: <datetime> $due_at,
+            ts: <datetime> $ts,
+            local_date: <string> $local_date,
+            local_tz: <string> $local_tz,
+            tags: $tags,
+            created_at: time::now(),
+            updated_at: time::now()
+        }",
+  "variables": {
+    "category": "health",
+    "description": null,
+    "due_at": "2026-03-30T17:00:00.000Z",
+    "due_date": "2026-03-30",
+    "local_date": "2026-03-23",
+    "local_tz": "America/Chicago",
+    "metric_link": null,
+    "priority": "high",
+    "recurrence": null,
+    "source_text": "remind me to call the dentist",
+    "tags": [
+      "health",
+    ],
+    "title": "call the dentist",
+    "ts": "2026-03-23T15:04:05.000Z",
+  },
+}
+`;
+
+exports[`builder golden snapshots > insertTodoCompletion emits stable SurrealQL 1`] = `
+{
+  "query": "INSERT INTO user_data {
+            type: 'todo_completion',
+            status: 'completed',
+            data: { note: $note },
+            source_text: '',
+            parent_id: $parent_id,
+            ts: <datetime> $ts,
+            local_date: <string> $local_date,
+            local_tz: <string> $local_tz,
+            tags: [],
+            created_at: time::now(),
+            updated_at: time::now()
+        }",
+  "variables": {
+    "local_date": "2026-03-23",
+    "local_tz": "America/Chicago",
+    "note": "done early",
+    "parent_id": "user_data:abc",
+    "ts": "2026-03-23T15:04:05.000Z",
+  },
+}
+`;
+
+exports[`builder golden snapshots > insertUsageRecord emits stable SurrealQL 1`] = `
+{
+  "query": "CREATE usage_records SET model = $model, provider = $provider, input_tokens = $in, output_tokens = $out, cached_input_tokens = $cached, cost_usd = $cost, credits_charged = 0, charged_from = 'local', request_type = $type, ts = time::now(), local_date = time::format(time::now(), '%Y-%m-%d'), local_tz = 'UTC', session_id = $sid",
+  "variables": {
+    "cached": 5,
+    "cost": 0.001,
+    "in": 10,
+    "model": "gpt-4o",
+    "out": 20,
+    "provider": "openai",
+    "sid": "sessions:abc",
+    "type": "llm",
+  },
+}
+`;
+
+exports[`builder golden snapshots > knnSearchEntities emits stable SurrealQL 1`] = `
+{
+  "query": "SELECT id, name, vector::distance::knn() AS distance
+                    FROM user_entities
+                    WHERE embedding <|5,40|> $e
+                    ORDER BY distance ASC",
+  "variables": {
+    "e": [
+      0.1,
+      0.2,
+      0.3,
+    ],
+  },
+}
+`;
+
+exports[`builder golden snapshots > knnSearchRelations emits stable SurrealQL 1`] = `
+{
+  "query": "SELECT id, name, sourceName, targetName, kind, vector::distance::knn() AS distance
+                    FROM user_relations
+                    WHERE embedding <|5,40|> $e
+                    ORDER BY distance ASC",
+  "variables": {
+    "e": [
+      0.1,
+      0.2,
+      0.3,
+    ],
+  },
+}
+`;
+
+exports[`builder golden snapshots > listApps emits stable SurrealQL 1`] = `
+{
+  "query": "SELECT app_id, name, description, icon, source, version, categories, tags, install_count, interaction_mode, updated_at
+        FROM smartchats_apps WHERE source = $source AND $category IN categories ORDER BY updated_at DESC",
+  "variables": {
+    "category": "health",
+    "source": "builtin",
+  },
+}
+`;
+
+exports[`builder golden snapshots > listDynamicFunctions emits stable SurrealQL 1`] = `
+{
+  "query": "
+            SELECT name, description, params_schema, id
+            FROM cortex_dynamic_functions
+        ",
+  "variables": {},
+}
+`;
+
+exports[`builder golden snapshots > listInstalls emits stable SurrealQL 1`] = `
+{
+  "query": "SELECT * FROM smartchats_app_installs ORDER BY last_activated_at DESC",
+  "variables": {},
+}
+`;
+
+exports[`builder golden snapshots > listLogs emits stable SurrealQL 1`] = `
+{
+  "query": "SELECT id, content, category, created_at, ts, local_date, local_tz FROM logs WHERE type::is_string(content) AND string::lowercase(content) CONTAINS string::lowercase($search_text) AND category = $category AND local_date >= '2026-03-01' ORDER BY ts DESC LIMIT 25",
+  "variables": {
+    "category": "mood",
+    "search_text": "tired",
+  },
+}
+`;
+
+exports[`builder golden snapshots > listSessions emits stable SurrealQL 1`] = `
+{
+  "query": "SELECT id, label, message_count, created_at, updated_at, ts, local_date, local_tz FROM sessions ORDER BY ts DESC LIMIT 25",
+  "variables": {},
+}
+`;
+
+exports[`builder golden snapshots > listUsageRecords emits stable SurrealQL 1`] = `
+{
+  "query": "SELECT * FROM usage_records WHERE ts < <datetime> $startAfter ORDER BY ts DESC LIMIT $limit",
+  "variables": {
+    "limit": 25,
+    "startAfter": "2026-03-23T15:04:05.000Z",
+  },
+}
+`;
+
+exports[`builder golden snapshots > loadDynamicFunction emits stable SurrealQL 1`] = `
+{
+  "query": "
+            SELECT * FROM cortex_dynamic_functions
+            WHERE name = $name
+            LIMIT 1
+        ",
+  "variables": {
+    "name": "greet",
+  },
+}
+`;
+
+exports[`builder golden snapshots > loadSession emits stable SurrealQL 1`] = `
+{
+  "query": "SELECT * FROM type::record('sessions', $key)",
+  "variables": {
+    "key": "abc",
+  },
+}
+`;
+
+exports[`builder golden snapshots > probeTableExists emits stable SurrealQL 1`] = `
+{
+  "query": "SELECT * FROM type::table($t) LIMIT 1",
+  "variables": {
+    "t": "logs",
+  },
+}
+`;
+
+exports[`builder golden snapshots > rescheduleTodo emits stable SurrealQL 1`] = `
+{
+  "query": "UPDATE type::record('user_data', $key) SET updated_at = time::now(), data.due_date = $new_due_date, timestamp = <datetime> $new_due_date, data.recurrence = $new_recurrence",
+  "variables": {
+    "key": "abc",
+    "new_due_date": "2026-04-01",
+    "new_recurrence": {
+      "every": "week",
+    },
+  },
+}
+`;
+
+exports[`builder golden snapshots > searchApps emits stable SurrealQL 1`] = `
+{
+  "query": "SELECT *, vector::similarity::cosine(embedding, $emb) AS score
+        FROM smartchats_apps
+        WHERE published_at != NONE
+        ORDER BY score DESC
+        LIMIT $limit",
+  "variables": {
+    "emb": [
+      0.1,
+      0.2,
+      0.3,
+    ],
+    "limit": 5,
+  },
+}
+`;
+
+exports[`builder golden snapshots > searchEntitiesByName emits stable SurrealQL 1`] = `
+{
+  "query": "SELECT id, name FROM user_entities WHERE name != NONE AND string::lowercase(name) CONTAINS $search LIMIT 10",
+  "variables": {
+    "search": "leo",
+  },
+}
+`;
+
+exports[`builder golden snapshots > searchLogsSemantic emits stable SurrealQL 1`] = `
+{
+  "query": "SELECT id, content, category, created_at, ts, vector::distance::knn() AS distance FROM logs WHERE embedding <|5,40|> $embedding AND category = $category ORDER BY distance LIMIT 5",
+  "variables": {
+    "category": "mood",
+    "embedding": [
+      0.1,
+      0.2,
+      0.3,
+    ],
+  },
+}
+`;
+
+exports[`builder golden snapshots > searchProceduralInstructions emits stable SurrealQL 1`] = `
+{
+  "query": "SELECT id, content, category, created_at, vector::distance::knn() AS distance FROM cortex WHERE type = 'procedural_instruction' AND embedding <|5,40|> $embedding ORDER BY distance LIMIT 5",
+  "variables": {
+    "embedding": [
+      0.1,
+      0.2,
+      0.3,
+    ],
+  },
+}
+`;
+
+exports[`builder golden snapshots > searchRelationsByName emits stable SurrealQL 1`] = `
+{
+  "query": "SELECT id, name, sourceName, targetName, kind FROM user_relations WHERE (name != NONE AND string::lowercase(name) CONTAINS $search) OR (kind != NONE AND string::lowercase(kind) CONTAINS $search) LIMIT 10",
+  "variables": {
+    "search": "owns",
+  },
+}
+`;
+
+exports[`builder golden snapshots > searchSessions emits stable SurrealQL 1`] = `
+{
+  "query": "SELECT id, label, message_count, created_at, updated_at, ts, local_date, local_tz FROM sessions WHERE (label != NONE AND string::lowercase(label) CONTAINS string::lowercase($q)) OR string::lowercase(<string> chat_history) CONTAINS string::lowercase($q) ORDER BY ts DESC LIMIT 25",
+  "variables": {
+    "q": "dentist",
+  },
+}
+`;
+
+exports[`builder golden snapshots > setTodoStatus emits stable SurrealQL 1`] = `
+{
+  "query": "UPDATE type::record('user_data', $key) SET status = $status, updated_at = time::now()",
+  "variables": {
+    "key": "abc",
+    "status": "completed",
+  },
+}
+`;
+
+exports[`builder golden snapshots > updateApp emits stable SurrealQL 1`] = `
+{
+  "query": "UPDATE smartchats_apps SET updated_at = time::now(), name = $name, version = $version, embedding = $embedding WHERE app_id = $app_id",
+  "variables": {
+    "app_id": "com.example.app",
+    "embedding": [
+      0.1,
+      0.2,
+      0.3,
+    ],
+    "name": "Renamed",
+    "version": "2.0.0",
+  },
+}
+`;
+
+exports[`builder golden snapshots > updateDynamicFunction emits stable SurrealQL 1`] = `
+{
+  "query": "
+            UPDATE cortex_dynamic_functions
+            SET code = $code, description = $description, embedding = $embedding, updated_at = time::now()
+            WHERE name = $name
+        ",
+  "variables": {
+    "code": "return "hello"",
+    "description": "say hello",
+    "embedding": [
+      0.1,
+      0.2,
+      0.3,
+    ],
+    "name": "greet",
+  },
+}
+`;
+
+exports[`builder golden snapshots > updateInitInstruction emits stable SurrealQL 1`] = `
+{
+  "query": "UPDATE type::record('cortex', $key) SET content = $content, embedding = $embedding",
+  "variables": {
+    "content": "greet warmly",
+    "embedding": [
+      0.1,
+      0.2,
+      0.3,
+    ],
+    "key": "abc",
+  },
+}
+`;
+
+exports[`builder golden snapshots > updateInstall emits stable SurrealQL 1`] = `
+{
+  "query": "UPDATE smartchats_app_installs SET updated_at = time::now(), installed_version = $installed_version, activation_count = $activation_count WHERE app_id = $app_id",
+  "variables": {
+    "activation_count": 3,
+    "app_id": "com.example.app",
+    "installed_version": "2.0.0",
+  },
+}
+`;
+
+exports[`builder golden snapshots > updateLog emits stable SurrealQL 1`] = `
+{
+  "query": "UPDATE type::record('logs', $log_id) SET updated_at = time::now(), content = $content, category = $category, ts = <datetime> $ts, local_date = <string> $local_date, local_tz = <string> $local_tz",
+  "variables": {
+    "category": "mood",
+    "content": "edited",
+    "local_date": "2026-03-23",
+    "local_tz": "America/Chicago",
+    "log_id": "abc",
+    "ts": "2026-03-23T15:04:05.000Z",
+  },
+}
+`;
+
+exports[`builder golden snapshots > updateMetric emits stable SurrealQL 1`] = `
+{
+  "query": "UPDATE type::record('metrics', $metric_id) SET updated_at = time::now(), value = $value, category = $category, note = $note, source_text = $source_text",
+  "variables": {
+    "category": "fitness",
+    "metric_id": "abc",
+    "note": null,
+    "source_text": "corrected",
+    "value": 9000,
+  },
+}
+`;
+
+exports[`builder golden snapshots > updateProceduralInstruction emits stable SurrealQL 1`] = `
+{
+  "query": "UPDATE type::record('cortex', $key) SET content = $content, embedding = $embedding",
+  "variables": {
+    "content": "be briefer",
+    "embedding": [
+      0.1,
+      0.2,
+      0.3,
+    ],
+    "key": "abc",
+  },
+}
+`;
+
+exports[`builder golden snapshots > updateSession emits stable SurrealQL 1`] = `
+{
+  "query": "UPDATE type::record('sessions', $key) SET
+            label = $label,
+            message_count = $message_count,
+            chat_history = $chat_history,
+            workspace = $workspace,
+            thought_history = $thought_history,
+            execution_history = $execution_history,
+            settings = $settings,
+            ts = <datetime> $ts,
+            local_date = <string> $local_date,
+            local_tz = <string> $local_tz",
+  "variables": {
+    "chat_history": [
+      {
+        "content": "hi",
+        "role": "user",
+      },
+    ],
+    "execution_history": [],
+    "key": "abc",
+    "label": "dentist planning",
+    "local_date": "2026-03-23",
+    "local_tz": "America/Chicago",
+    "message_count": 4,
+    "settings": {
+      "model": "gpt-4o",
+    },
+    "thought_history": [],
+    "ts": "2026-03-23T15:04:05.000Z",
+    "workspace": {
+      "open_tab": "logs",
+    },
+  },
+}
+`;
+
+exports[`builder golden snapshots > upsertByoKey emits stable SurrealQL 1`] = `
+{
+  "query": "UPSERT type::record('byo_api_keys', $provider) SET provider = $provider, api_key = $key, updated_at = time::now()",
+  "variables": {
+    "key": "sk-test",
+    "provider": "openai",
+  },
+}
+`;
